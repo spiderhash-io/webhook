@@ -24,6 +24,12 @@ webhook_config_data = {
         'module': 'rabbitmq',
         'connection': 'rabbitmq-local',
         'queue_name': 'webhooks'
+    },
+    'torabbit2': {
+        'data_type': 'json',
+        'module': 'rabbitmq',
+        'connection': 'rabbitmq-local2',
+        'queue_name': 'webhooks2'
     }
 }
 
@@ -37,6 +43,14 @@ connection_config = {
     #     'queue_name': 'beta',
     # },
     'rabbitmq-local': {
+        'type': 'rabbitmq',
+        'host': '0.0.0.0',
+        'port': '5672',
+        'user': 'guest',
+        'pass': 'guest',
+        
+    },
+    'rabbitmq-local2': {
         'type': 'rabbitmq',
         'host': '0.0.0.0',
         'port': '5672',
