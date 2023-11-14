@@ -30,6 +30,12 @@ webhook_config_data = {
         'module': 'rabbitmq',
         'connection': 'rabbitmq-local2',
         'queue_name': 'webhooks2'
+    },
+    'workflow': {
+        'data_type': 'json',
+        'module': 'temporalio',
+        'connection': 'rabbitmq-local2',
+        'queue_name': 'webhooks2'
     }
 }
 

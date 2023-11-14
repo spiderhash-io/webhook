@@ -7,3 +7,5 @@ rq
 requests
 pika
 aio-pika
+asyncio
+temporalio
