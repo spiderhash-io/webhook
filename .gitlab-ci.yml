@@ -13,8 +13,9 @@ build:
     - ping -c 4 ss.lv
     - echo "Checking connectivity to registry..."
     - ping -c 4 registry.mk8.site
+    - ip route
     - echo "Attempting to curl the registry..."
-    - curl -v https://registry.mk8.site/v2/
+#    - curl -v https://registry.mk8.site/v2/
     - CI_REGISTRY_IMAGE="$CI_REGISTRY/$CI_PROJECT_NAME"
     - IMAGE_TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
     - echo $CI_REGISTRY_PASSWORD
