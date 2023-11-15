@@ -6,7 +6,7 @@ build:
   image: docker:19.03.12
   services:
     - name: docker:19.03.12-dind
-      command: ["--insecure-registry=registry.mk8.site"]
+#      command: ["--insecure-registry=registry.mk8.site"]
   before_script:
     - CI_REGISTRY_IMAGE="$CI_REGISTRY/$CI_PROJECT_NAME"
     - IMAGE_TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
