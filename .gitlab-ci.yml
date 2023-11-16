@@ -3,7 +3,7 @@ stages:
 
 build:
   stage: build
-  image: docker:19.03.12
+  image: nicolaka/netshoot
   before_script:
     - echo "Checking DNS resolution for registry..."
     - nslookup registry.mk8.site
