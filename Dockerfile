@@ -1,4 +1,5 @@
-FROM python:3.9
+ARG REGISTRY_COMMON=""
+FROM ${REGISTRY_COMMON}python:3.9
 
 WORKDIR /src
 
