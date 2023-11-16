@@ -6,6 +6,8 @@ build:
   tags:
     - build
   image: docker:19.03.12
+  services:
+    - docker:19.03.12-dind
   before_script:
     - CI_REGISTRY_IMAGE="$CI_REGISTRY/$CI_PROJECT_NAME"
     - IMAGE_TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
