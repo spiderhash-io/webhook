@@ -22,15 +22,15 @@ build:
   only:
     - main
 
-deploy:
-  stage: deploy
-  tags:
-    - deploy
-  image: docker:19.03.12
-  services:
-    - docker:dind
-  script:
-    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
-    - docker-compose -f docker-compose.yml up -d
-  only:
-    - main
+#deploy:
+#  stage: deploy
+#  tags:
+#    - deploy
+#  image: docker:19.03.12
+#  services:
+#    - docker:dind
+#  script:
+#    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+#    - docker-compose -f docker-compose.yml up -d
+#  only:
+#    - main
