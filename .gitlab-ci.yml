@@ -4,9 +4,6 @@ stages:
 build:
   stage: build
   image: docker:19.03.12
-  services:
-    - name: docker:19.03.12-dind
-#      command: ["--insecure-registry=registry.mk8.site"]
   before_script:
     - echo "Checking DNS resolution for registry..."
     - nslookup registry.mk8.site
