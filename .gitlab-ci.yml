@@ -7,17 +7,8 @@ build:
     - build
   image: docker:19.03.12
   before_script:
-    - echo "Checking DNS resolution for registry..."
-    - nslookup registry.mk8.site
-    - ping -c 4 ss.lv
-    - ip route
-    - echo "Checking connectivity to registry..."
-#    - ping -c 4 registry.mk8.site
-    - echo "Attempting to curl the registry..."
-    - curl -v https://registry.mk8.site/v2/
     - CI_REGISTRY_IMAGE="$CI_REGISTRY/$CI_PROJECT_NAME"
     - IMAGE_TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
-    - echo $CI_REGISTRY_PASSWORD
     - echo $CI_REGISTRY_USER
     - echo $CI_REGISTRY
     - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin https://$CI_REGISTRY
