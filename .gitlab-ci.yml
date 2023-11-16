@@ -3,7 +3,9 @@ stages:
 
 build:
   stage: build
-  image: nicolaka/netshoot
+  tags:
+    - build
+  image: docker:19.03.12
   before_script:
     - echo "Checking DNS resolution for registry..."
     - nslookup registry.mk8.site
@@ -12,9 +14,6 @@ build:
     - echo "Checking connectivity to registry..."
 #    - ping -c 4 registry.mk8.site
     - echo "Attempting to curl the registry..."
-#    - apt-get install telnet -y
-    - sleep 300
-    - telnet 0.0.0.0 8122
     - curl -v https://registry.mk8.site/v2/
     - CI_REGISTRY_IMAGE="$CI_REGISTRY/$CI_PROJECT_NAME"
     - IMAGE_TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
