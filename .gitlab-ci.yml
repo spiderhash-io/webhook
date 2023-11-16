@@ -12,7 +12,7 @@ build:
     - echo "Checking connectivity to registry..."
 #    - ping -c 4 registry.mk8.site
     - echo "Attempting to curl the registry..."
-    - apt install telnet -y
+    - apt-get install telnet -y
     - telnet 0.0.0.0 8122
     - curl -v https://registry.mk8.site/v2/
     - CI_REGISTRY_IMAGE="$CI_REGISTRY/$CI_PROJECT_NAME"
