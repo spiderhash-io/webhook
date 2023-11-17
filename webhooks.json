@@ -1,0 +1,33 @@
+{
+    "abcde": {
+        "data_type": "json",
+        "module": "save_to_disk",
+        "module-config": {
+            "path": "webhooks"
+        },
+        "authorization": "secret"
+    },
+    "toredis": {
+        "data_type": "json",
+        "module": "redis_rq",
+        "connection": "redis-local"
+    },
+    "torabbit": {
+        "data_type": "json",
+        "module": "rabbitmq",
+        "connection": "rabbitmq-local",
+        "queue_name": "webhooks"
+    },
+    "torabbit2": {
+        "data_type": "json",
+        "module": "rabbitmq",
+        "connection": "rabbitmq-local2",
+        "queue_name": "webhooks2"
+    },
+    "workflow": {
+        "data_type": "json",
+        "module": "temporalio",
+        "connection": "rabbitmq-local2",
+        "queue_name": "webhooks2"
+    }
+}
