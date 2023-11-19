@@ -1,6 +1,28 @@
+Features:
+Secure Authentication: Authorization header, API key, basic auth, no auth
+Signature Verification: HMAC
+Payload Validation: JSON, txt, etc, Size
+Rate Limiting: todo
+IP Whitelisting: todo
 
 
 curl -X POST http://localhost:8000/webhook/torabbit \
-     -H "Authorization: hello" \
+     -H "Authorization: ABCDE12345" \
+     -H "Content-Type: application/json" \
+     -d '{"key": "value"}'
+
+curl -X POST http://localhost:8000/webhook/torabbit \
+     -H "Authorization: ABCDE12346" \
+     -H "Content-Type: application/json" \
+     -d '{"key": "value"}'
+
+
+curl -X POST http://localhost:8000/webhook/torabbit2 \
+     -H "Authorization: ABCDE12345" \
+     -H "Content-Type: application/json" \
+     -d '{"key": "value"}'
+
+curl -X POST http://localhost:8000/webhook/torabbit2 \
+     -H "Authorization: ABCDE12346" \
      -H "Content-Type: application/json" \
      -d '{"key": "value"}'

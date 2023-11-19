@@ -16,7 +16,8 @@
         "data_type": "json",
         "module": "rabbitmq",
         "connection": "rabbitmq-local",
-        "queue_name": "webhooks"
+        "queue_name": "webhooks",
+        "authorization": "ABCDE12345"
     },
     "torabbit2": {
         "data_type": "json",

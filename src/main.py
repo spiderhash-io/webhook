@@ -22,16 +22,33 @@ async def startup_event():
 
 
 @app.post("/webhook/{webhook_id}")
-async def read_webhook(webhook_id: str,  request: Request, authorization: str = Header(...)):
+async def read_webhook(webhook_id: str,  request: Request, authorization: str = None):
+    # load headers
+    headers = request.headers
+
+    # body = await request.body()
 
     # Get the config for the webhook_id
     config = webhook_config_data.get(webhook_id)
     if not config:
         return HTTPException(status_code=404, detail="Webhook ID not found")
 
-    # load data
-    headers = request.headers
-    body = await request.body()
+    # if authorization:
+    # Extract the expected authorization value from the configuration
+    expected_auth = config.get("authorization", {})
+
+    if expected_auth:
+        authorization_header = headers.get('Authorization')
+
+        # Optional: Check for "Bearer" in the header
+        if "Bearer" in expected_auth and not authorization_header.startswith("Bearer"):
+            raise HTTPException(status_code=401, detail="Unauthorized: Bearer token required")
+
+        # Compare the provided authorization header with the expected value
+        if authorization_header != expected_auth:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 
     # return {"headers": dict(headers)}
 

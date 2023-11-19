@@ -43,3 +43,27 @@ def load_env_vars(data):
             load_env_vars(item)
 
     return data
+
+
+# SECRET_KEY = "your-secret-key"  # Replace with your secret key
+
+def verify_hmac(body, received_signature):
+    """
+    Verify HMAC signature of the request body.
+    """
+    # Create a new hmac object using the secret key and the SHA256 hash function
+    hmac_obj = hmac.new(SECRET_KEY.encode(), body, hashlib.sha256)
+    # Compute the HMAC signature
+    computed_signature = hmac_obj.hexdigest()
+    # Compare the computed signature with the received signature
+    return hmac.compare_digest(computed_signature, received_signature)
+
+
+
+# async def your_endpoint(request: Request, x_hmac_signature: str = Header(None)):
+#     # Read the request body
+#     body = await request.body()
+#
+#     # Verify HMAC
+#     if not verify_hmac(body, x_hmac_signature):
+#         raise HTTPException(status_code=401, detail="Invalid HMAC signature")
