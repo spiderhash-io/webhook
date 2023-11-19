@@ -1,6 +1,9 @@
 import json
-
+from src.utils import load_env_vars
 from src.modules.rabbitmq import RabbitMQConnectionPool
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 # data type [ "text", "json", "blob", "form" ]
 # processing modules [ "rmq","kafka","redis","save_to_disk", "save_to_db", "websocket" ]
@@ -12,6 +15,8 @@ with open("webhooks.json", 'r') as webhooks_file:
 with open("connections.json", 'r') as connections_file:
     connection_config = json.load(connections_file)
 
+# Update the configuration with environment variables
+connection_config = load_env_vars(connection_config)
 
 async def inject_connection_details(webhook_config_data, connection_config):
     # Iterate over webhook configuration items

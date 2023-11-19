@@ -52,7 +52,7 @@ async def read_webhook(webhook_id: str,  request: Request, authorization: str = 
             return HTTPException(status_code=400, detail="Malformed JSON payload")
     elif config['data_type'] == 'blob':
         payload = await request.body()
-        # TODO
+        # TODO blob
     else:
         return HTTPException(status_code=415, detail="Unsupported data type")
 
