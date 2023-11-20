@@ -1,4 +1,5 @@
 Features:
+Send to: RMQ, File, S3, Kafka, Websockets
 Secure Authentication: Authorization header, API key, basic auth, no auth
 Signature Verification: HMAC
 Payload Validation: JSON, txt, etc, Size
