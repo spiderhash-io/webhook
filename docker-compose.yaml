@@ -1,7 +1,10 @@
 version: '3.8'
 
 services:
-  webhook:
+  myapp:
     image: registry.mk8.site/app/core-webhook-module:latest
     ports:
       - "9101:8000"
+    volumes:
+      - ./connections.json:/app/connections.json
+      - ./webhooks.json:/app/webhooks.json

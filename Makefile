@@ -13,7 +13,7 @@ venv:
 # Build Docker image
 .PHONY: build
 build:
-	docker build -t webhook-app .
+	docker build -t registry.mk8.site/app/core-webhook-module:latest .
 
 # Push Docker image to Docker Hub
 .PHONY: push

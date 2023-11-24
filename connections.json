@@ -1,14 +1,14 @@
 {
     "rabbitmq-local": {
         "type": "rabbitmq",
-        "host": "0.0.0.0",
+        "host": "{$RMQ_HOST}",
         "port": "5672",
         "user": "{$RMQ_USERNAME}",
         "pass": "{$RMQ_PASSWORD}"
     },
     "rabbitmq-local2": {
         "type": "rabbitmq",
-        "host": "0.0.0.0",
+        "host": "{$RMQ_HOST}",
         "port": "5672",
         "user": "{$RMQ_USERNAME}",
         "pass": "{$RMQ_PASSWORD}"

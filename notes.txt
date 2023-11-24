@@ -1,10 +1,14 @@
 Features:
-Send to: RMQ, File, S3, Kafka, Websockets
+Send to: RMQ, File, S3, Kafka, Websockets, stdout
 Secure Authentication: Authorization header, API key, basic auth, no auth
 Signature Verification: HMAC
 Payload Validation: JSON, txt, etc, Size
 Rate Limiting: todo
 IP Whitelisting: todo
+Statistics: /stats Simple usage statistics, memory or redis
+
+Send to socket: https://wazuh.com/blog/auditing-kubernetes-with-wazuh/
+
 
 
 curl -X POST http://localhost:8000/webhook/torabbit \
@@ -25,5 +29,15 @@ curl -X POST http://localhost:8000/webhook/torabbit2 \
 
 curl -X POST http://localhost:8000/webhook/torabbit2 \
      -H "Authorization: ABCDE12346" \
+     -H "Content-Type: application/json" \
+     -d '{"key": "value"}'
+
+curl -X POST http://192.168.64.100:9101/webhook/torabbit \
+     -H "Authorization: ABCDE12345" \
+     -H "Content-Type: application/json" \
+     -d '{"key": "value"}'
+
+curl -X POST http://webhook.mk8.site/webhook/torabbit \
+     -H "Authorization: ABCDE12345" \
      -H "Content-Type: application/json" \
      -d '{"key": "value"}'

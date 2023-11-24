@@ -18,6 +18,10 @@ with open("connections.json", 'r') as connections_file:
 # Update the configuration with environment variables
 connection_config = load_env_vars(connection_config)
 
+# Update the webhook config with environment variables
+webhook_config_data = load_env_vars(webhook_config_data)
+
+
 async def inject_connection_details(webhook_config_data, connection_config):
     # Iterate over webhook configuration items
     for webhook_id, config in webhook_config_data.items():
