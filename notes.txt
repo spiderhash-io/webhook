@@ -1,11 +1,12 @@
 Features:
 Send to: RMQ, File, S3, Kafka, Websockets, stdout
-Secure Authentication: Authorization header, API key, basic auth, no auth
+Secure Authentication: Authorization header, API key, basic auth, no auth, JWT
 Signature Verification: HMAC
-Payload Validation: JSON, txt, etc, Size
+Payload Validation: JSON, txt, xml, Size validation
 Rate Limiting: todo
 IP Whitelisting: todo
 Statistics: /stats Simple usage statistics, memory or redis
+Process with Functions: send to local folder python function with stdin
 
 Send to socket: https://wazuh.com/blog/auditing-kubernetes-with-wazuh/
 
