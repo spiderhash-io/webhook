@@ -2,6 +2,8 @@ import requests
 import uuid
 import os
 import re
+from pprint import pprint
+
 
 def count_words_at_url(url):
     resp = requests.get(url)
@@ -19,9 +21,12 @@ async def save_to_disk(payload, config):
         f.close()
 
 
-async def background_task(payload, config):
-    await asyncio.sleep(5)  # Simulating delay
-    print("hello")
+async def print_to_stdout(payload, headers, config):
+    print("config: "+str(config))
+    print("headers: "+str(headers))
+    print("body: "+str(payload))
+    # await asyncio.sleep(5)  # Simulating delay
+
 
 def load_env_vars(data):
     # Regular expression to match the placeholder pattern
@@ -47,16 +52,16 @@ def load_env_vars(data):
 
 # SECRET_KEY = "your-secret-key"  # Replace with your secret key
 
-def verify_hmac(body, received_signature):
-    """
-    Verify HMAC signature of the request body.
-    """
-    # Create a new hmac object using the secret key and the SHA256 hash function
-    hmac_obj = hmac.new(SECRET_KEY.encode(), body, hashlib.sha256)
-    # Compute the HMAC signature
-    computed_signature = hmac_obj.hexdigest()
-    # Compare the computed signature with the received signature
-    return hmac.compare_digest(computed_signature, received_signature)
+# def verify_hmac(body, received_signature):
+#     """
+#     Verify HMAC signature of the request body.
+#     """
+#     # Create a new hmac object using the secret key and the SHA256 hash function
+#     hmac_obj = hmac.new(SECRET_KEY.encode(), body, hashlib.sha256)
+#     # Compute the HMAC signature
+#     computed_signature = hmac_obj.hexdigest()
+#     # Compare the computed signature with the received signature
+#     return hmac.compare_digest(computed_signature, received_signature)
 
 
 

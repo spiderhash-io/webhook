@@ -1,7 +1,7 @@
 
 from redis import Redis
 from rq import Queue
-
+from src.utils import count_words_at_url
 
 
 async def redis_rq(payload, config):

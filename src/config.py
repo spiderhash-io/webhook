@@ -1,8 +1,11 @@
 import json
+from redis import Redis
 from src.utils import load_env_vars
 from src.modules.rabbitmq import RabbitMQConnectionPool
 import os
 from dotenv import load_dotenv
+
+
 load_dotenv()
 
 # data type [ "text", "json", "blob", "form" ]

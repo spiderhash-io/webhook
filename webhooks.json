@@ -7,6 +7,10 @@
         },
         "authorization": "secret"
     },
+    "print": {
+        "data_type": "json",
+        "module": "log"
+    },
     "toredis": {
         "data_type": "json",
         "module": "redis_rq",

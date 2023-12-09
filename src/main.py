@@ -1,15 +1,13 @@
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 import asyncio
-import time
 import json
-from redis import Redis
-from rq import Queue
+
 
 from src.config import inject_connection_details, webhook_config_data, connection_config
 from src.modules.rabbitmq import RabbitMQConnectionPool, rabbitmq_publish
-from src.utils import count_words_at_url, save_to_disk, background_task
-
+from src.modules.pythonrq import redis_rq
+from src.utils import save_to_disk, print_to_stdout
 
 app = FastAPI()
 
@@ -48,19 +46,6 @@ async def read_webhook(webhook_id: str,  request: Request, authorization: str = 
         if authorization_header != expected_auth:
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-
-
-    # return {"headers": dict(headers)}
-
-    # debug
-    # print(
-    #     "id:", webhook_id,  "\n"
-    #     "auth:", authorization, "\n"
-    #     "body: ", headers, "\n"
-    #     "body: ", body, "\n"
-    # )
-
-
     # Read the incoming data based on its type
     if config['data_type'] == 'json':
         try:
@@ -73,21 +58,17 @@ async def read_webhook(webhook_id: str,  request: Request, authorization: str = 
     else:
         return HTTPException(status_code=415, detail="Unsupported data type")
 
-    # do stuff here in background
-    
     # Execute the relevant module function
     if config['module'] == 'save_to_disk':
         asyncio.create_task(save_to_disk(payload, config))
     elif config['module'] == 'log':
-        asyncio.create_task(background_task(payload, config))
+        asyncio.create_task(print_to_stdout(payload, headers, config))
     elif config['module'] == 'redis_rq':
         asyncio.create_task(redis_rq(payload, config))
     elif config['module'] == 'rabbitmq':
         asyncio.create_task(rabbitmq_publish(payload, config, headers))
     else:
         return HTTPException(status_code=501, detail="Unsupported module")
-
-   
 
     # return success
     return JSONResponse(content={"message": "200 OK"})

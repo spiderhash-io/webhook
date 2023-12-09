@@ -1,21 +1,23 @@
+import aio_pika
 from aio_pika import connect_robust
 from aio_pika.pool import Pool
-import aio_pika
+# import aio_pika
 import asyncio
 import json
 
+
 class RabbitMQConnectionPool:
-    def __init__(self, loop=None, max_size=3):
-        self.loop = loop or asyncio.get_event_loop()
+    def __init__(self, max_size=3):
+        # self.loop = loop or asyncio.get_event_loop()
         self.max_size = max_size
-        self.connections = asyncio.Queue(maxsize=max_size, loop=self.loop)
+        self.connections = asyncio.Queue(maxsize=max_size)
 
     async def create_pool(self, host='localhost', port=5672, login='guest', password='guest'):
         # Initialize connections and put them in the queue
         for _ in range(self.max_size):
             connection = await connect_robust(
                 f"amqp://{login}:{password}@{host}:{port}/",
-                loop=self.loop
+                # loop=self.loop
             )
             await self.connections.put(connection)
 
@@ -37,7 +39,6 @@ class RabbitMQConnectionPool:
 async def rabbitmq_publish(payload, config, headers):
 
     headers_dict = dict(headers.items())
-
 
     connection_pool = config.get('connection_details', {}).get("connection_pool")
     queue_name = config.get('queue_name')
