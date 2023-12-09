@@ -2,7 +2,6 @@ import requests
 import uuid
 import os
 import re
-from pprint import pprint
 
 
 def count_words_at_url(url):
@@ -13,9 +12,9 @@ def count_words_at_url(url):
 
 
 async def save_to_disk(payload, config):
-    myuuid = uuid.uuid4()
+    my_uuid = uuid.uuid4()
 
-    with open(str(myuuid)+".txt", mode="w") as f:
+    with open(str(my_uuid)+".txt", mode="w") as f:
         f.write(str(payload))    
         f.flush()
         f.close()

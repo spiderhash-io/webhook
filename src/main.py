@@ -1,11 +1,11 @@
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import asyncio
 import json
 
 
 from src.config import inject_connection_details, webhook_config_data, connection_config
-from src.modules.rabbitmq import RabbitMQConnectionPool, rabbitmq_publish
+from src.modules.rabbitmq import rabbitmq_publish
 from src.modules.pythonrq import redis_rq
 from src.utils import save_to_disk, print_to_stdout
 
@@ -20,7 +20,7 @@ async def startup_event():
 
 
 @app.post("/webhook/{webhook_id}")
-async def read_webhook(webhook_id: str,  request: Request, authorization: str = None):
+async def read_webhook(webhook_id: str,  request: Request):
     # load headers
     headers = request.headers
 
