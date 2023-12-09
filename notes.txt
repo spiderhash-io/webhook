@@ -10,7 +10,7 @@ Process with Functions: send to local folder python function with stdin
 
 Send to socket: https://wazuh.com/blog/auditing-kubernetes-with-wazuh/
 
-
+curl localhost:8000/stats
 
 curl -X POST http://localhost:8000/webhook/print \
      -H "Content-Type: application/json" \

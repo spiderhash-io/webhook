@@ -2,14 +2,26 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import asyncio
 import json
-
+from datetime import datetime
 
 from src.config import inject_connection_details, webhook_config_data, connection_config
 from src.modules.rabbitmq import rabbitmq_publish
 from src.modules.pythonrq import redis_rq
 from src.utils import save_to_disk, print_to_stdout
+from src.utils import EndpointStats
 
 app = FastAPI()
+stats = EndpointStats()
+
+
+async def cleanup_task():
+    while True:
+        now = datetime.utcnow()
+        async with stats.lock:
+            for endpoint in stats.timestamps:
+                stats._cleanup_old_buckets(endpoint, now)
+        print("Cleaning up old buckets")
+        await asyncio.sleep(3600)  # Wait for 1 hour (3600 seconds) before next cleanup
 
 
 @app.on_event("startup")
@@ -17,6 +29,9 @@ async def startup_event():
     global webhook_config_data
     webhook_config_data = await inject_connection_details(webhook_config_data, connection_config)
     print(webhook_config_data)
+
+    asyncio.create_task(cleanup_task())
+
 
 
 @app.post("/webhook/{webhook_id}")
@@ -70,5 +85,15 @@ async def read_webhook(webhook_id: str,  request: Request):
     else:
         return HTTPException(status_code=501, detail="Unsupported module")
 
+    # Update statistics after processing the webhook
+    await stats.increment(webhook_id)
+
     # return success
     return JSONResponse(content={"message": "200 OK"})
+
+
+@app.get("/stats")
+async def stats_endpoint():
+    return stats.get_stats()
+
+
