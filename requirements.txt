@@ -1,9 +1,7 @@
 fastapi
-kafka-python
 pydantic
 uvicorn
 redis
-rq
 requests
 pika
 aio-pika

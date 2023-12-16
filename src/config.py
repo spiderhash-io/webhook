@@ -8,10 +8,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# data type [ "text", "json", "blob", "form" ]
-# processing modules [ "rmq","kafka","redis","save_to_disk", "save_to_db", "websocket" ]
-# authorization [ "basic", "secret", "JWT", "HMAC" ]
-
 with open("webhooks.json", 'r') as webhooks_file:
     webhook_config_data = json.load(webhooks_file)
 

@@ -33,7 +33,6 @@ async def startup_event():
     asyncio.create_task(cleanup_task())
 
 
-
 @app.post("/webhook/{webhook_id}")
 async def read_webhook(webhook_id: str,  request: Request):
     # load headers
