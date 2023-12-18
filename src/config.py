@@ -5,7 +5,6 @@ from src.modules.rabbitmq import RabbitMQConnectionPool
 import os
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 with open("webhooks.json", 'r') as webhooks_file:
@@ -30,7 +29,7 @@ async def inject_connection_details(webhook_config_data, connection_config):
             # Find the corresponding connection details
             connection_details = connection_config.get(connection_name)
             if connection_details:
-                
+
                 # create connection pool redis rq
                 if connection_details['type'] == "redis-rq":
                     # Initialize a Redis connection pool
@@ -39,10 +38,9 @@ async def inject_connection_details(webhook_config_data, connection_config):
                         port=connection_details["port"],
                         db=connection_details["db"]
                     )
-                
+
                 # create connection pool rabbitmq
                 if connection_details['type'] == "rabbitmq":
-                    
                     # Initialize RabbitMQ connection pool globally
                     connection_details["connection_pool"] = RabbitMQConnectionPool()
 
@@ -55,7 +53,5 @@ async def inject_connection_details(webhook_config_data, connection_config):
 
                 # Inject the connection details into the webhook configuration
                 config['connection_details'] = connection_details
-
-                       
 
     return webhook_config_data

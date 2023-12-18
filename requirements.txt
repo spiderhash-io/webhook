@@ -7,3 +7,7 @@ pika
 aio-pika
 asyncio
 python-dotenv
+pytest
+rq
+httpx
+pytest-asyncio

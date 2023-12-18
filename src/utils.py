@@ -95,8 +95,6 @@ class EndpointStats:
         return stats_summary
 
 
-
-
 # SECRET_KEY = "your-secret-key"  # Replace with your secret key
 
 # def verify_hmac(body, received_signature):
@@ -109,7 +107,6 @@ class EndpointStats:
 #     computed_signature = hmac_obj.hexdigest()
 #     # Compare the computed signature with the received signature
 #     return hmac.compare_digest(computed_signature, received_signature)
-
 
 
 # async def your_endpoint(request: Request, x_hmac_signature: str = Header(None)):

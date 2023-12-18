@@ -91,6 +91,10 @@ async def read_webhook(webhook_id: str,  request: Request):
     return JSONResponse(content={"message": "200 OK"})
 
 
+@app.get("/")
+async def default_endpoint():
+    return JSONResponse(content={"message": "200 OK"})
+
 @app.get("/stats")
 async def stats_endpoint():
     return stats.get_stats()

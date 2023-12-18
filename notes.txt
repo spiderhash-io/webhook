@@ -7,7 +7,7 @@ Rate Limiting: todo
 IP Whitelisting: todo
 Statistics: /stats Simple usage statistics, memory or redis
 Process with Functions: send to local folder python function with stdin
-
+Generate openapi docs automatically from config??
 
 # data type [ "text", "json", "blob", "form" ]
 # processing modules [ "rmq","kafka","redis","save_to_disk", "save_to_db", "websocket" ]
