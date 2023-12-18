@@ -14,6 +14,7 @@ Generate openapi docs automatically from config??
 # authorization [ "basic", "secret", "JWT", "HMAC" ]
 
 Send to socket: https://wazuh.com/blog/auditing-kubernetes-with-wazuh/
+https://github.com/tom-draper/api-analytics
 
 curl localhost:8000/stats
 
