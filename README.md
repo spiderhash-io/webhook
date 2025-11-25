@@ -24,12 +24,15 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - `src/main.py`: Entry point, FastAPI app, and route definitions.
 - `src/webhook.py`: Core logic for handling and processing webhooks.
 - `src/config.py`: Configuration loading and injection.
-- `src/modules/`: Output modules (RabbitMQ, Redis, etc.).
+- `src/modules/`: Output modules (RabbitMQ, Redis, ClickHouse, etc.).
   - `base.py`: Abstract base class for all modules
   - `registry.py`: Module registry for plugin management
-  - `log.py`, `save_to_disk.py`, `rabbitmq_module.py`, `redis_rq.py`: Individual modules
+  - `log.py`, `save_to_disk.py`, `rabbitmq_module.py`, `redis_rq.py`, `clickhouse.py`: Individual modules
 - `src/utils.py`: Utility functions and in-memory statistics.
+- `src/clickhouse_analytics.py`: ClickHouse analytics service for saving logs and statistics.
+- `src/analytics_processor.py`: Separate analytics processor that reads from ClickHouse and calculates aggregated statistics.
 - `ARCHITECTURE.md`: Detailed architecture documentation
+- `PERFORMANCE_TEST.md`: Performance testing documentation
 
 **See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation and how to add new modules.**
 
