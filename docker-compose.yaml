@@ -1,25 +1,128 @@
-version: '3.8'
 
 services:
-  app:
+  # Multiple webhook instances for load testing
+  webhook-1:
     build: .
     ports:
       - "8000:8000"
     volumes:
       - ./src:/app/src
-      - ./connections.json:/app/connections.json
-      - ./webhooks.json:/app/webhooks.json
+      - ./connections.docker.json:/app/connections.json
+      - ./webhooks.performance.json:/app/webhooks.json
     environment:
       - REDIS_HOST=redis
       - RABBITMQ_HOST=rabbitmq
+      - CLICKHOUSE_HOST=clickhouse
     depends_on:
       - redis
       - rabbitmq
+      - clickhouse
+    networks:
+      - webhook-network
+    restart: unless-stopped
+
+  webhook-2:
+    build: .
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./src:/app/src
+      - ./connections.docker.json:/app/connections.json
+      - ./webhooks.performance.json:/app/webhooks.json
+    environment:
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - CLICKHOUSE_HOST=clickhouse
+    depends_on:
+      - redis
+      - rabbitmq
+      - clickhouse
+    networks:
+      - webhook-network
+    restart: unless-stopped
+
+  webhook-3:
+    build: .
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./src:/app/src
+      - ./connections.docker.json:/app/connections.json
+      - ./webhooks.performance.json:/app/webhooks.json
+    environment:
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - CLICKHOUSE_HOST=clickhouse
+    depends_on:
+      - redis
+      - rabbitmq
+      - clickhouse
+    networks:
+      - webhook-network
+    restart: unless-stopped
+
+  webhook-4:
+    build: .
+    ports:
+      - "8003:8000"
+    volumes:
+      - ./src:/app/src
+      - ./connections.docker.json:/app/connections.json
+      - ./webhooks.performance.json:/app/webhooks.json
+    environment:
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - CLICKHOUSE_HOST=clickhouse
+    depends_on:
+      - redis
+      - rabbitmq
+      - clickhouse
+    networks:
+      - webhook-network
+    restart: unless-stopped
+
+  webhook-5:
+    build: .
+    ports:
+      - "8004:8000"
+    volumes:
+      - ./src:/app/src
+      - ./connections.docker.json:/app/connections.json
+      - ./webhooks.performance.json:/app/webhooks.json
+    environment:
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - CLICKHOUSE_HOST=clickhouse
+    depends_on:
+      - redis
+      - rabbitmq
+      - clickhouse
+    networks:
+      - webhook-network
+    restart: unless-stopped
+
+  # Analytics processor service (separate from webhook instances)
+  analytics:
+    build: .
+    command: python -m src.analytics_processor
+    volumes:
+      - ./src:/app/src
+      - ./connections.docker.json:/app/connections.json
+    environment:
+      - CLICKHOUSE_HOST=clickhouse
+    depends_on:
+      - clickhouse
+    networks:
+      - webhook-network
+    restart: unless-stopped
 
   redis:
     image: redis:alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"  # External port 6380, internal 6379
+    networks:
+      - webhook-network
+    restart: unless-stopped
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -29,3 +132,52 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - webhook-network
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9000:9000"  # Native interface
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    command:
+      - /bin/bash
+      - -c
+      - |
+        # Allow passwordless access for default user
+        echo '<clickhouse>
+        <users>
+            <default>
+                <password></password>
+                <access_management>1</access_management>
+            </default>
+        </users>
+        </clickhouse>' > /etc/clickhouse-server/users.d/default-password.xml
+        /entrypoint.sh
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  clickhouse_data:

@@ -8,17 +8,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-with open("webhooks.json", 'r') as webhooks_file:
-    webhook_config_data = json.load(webhooks_file)
+# Load webhooks.json if it exists (optional for analytics service)
+webhook_config_data = {}
+if os.path.exists("webhooks.json"):
+    with open("webhooks.json", 'r') as webhooks_file:
+        webhook_config_data = json.load(webhooks_file)
+    # Update the webhook config with environment variables
+    webhook_config_data = load_env_vars(webhook_config_data)
 
+# Load connections.json (required)
 with open("connections.json", 'r') as connections_file:
     connection_config = json.load(connections_file)
 
 # Update the configuration with environment variables
 connection_config = load_env_vars(connection_config)
-
-# Update the webhook config with environment variables
-webhook_config_data = load_env_vars(webhook_config_data)
 
 
 async def inject_connection_details(webhook_config_data, connection_config):

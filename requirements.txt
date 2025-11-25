@@ -2,6 +2,7 @@ fastapi
 pydantic
 uvicorn
 redis
+fakeredis
 requests
 pika
 aio-pika
@@ -15,3 +16,5 @@ aiokafka
 boto3
 websockets
 PyJWT
+redis
+clickhouse-driver

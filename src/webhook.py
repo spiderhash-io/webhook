@@ -67,7 +67,7 @@ class WebhookHandler:
         # Read the incoming data based on its type
         if self.config['data_type'] == 'json':
             try:
-                payload = await self.request.json()
+                payload = json.loads(body.decode('utf-8'))
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Malformed JSON payload")
             
@@ -82,7 +82,7 @@ class WebhookHandler:
                 raise HTTPException(status_code=400, detail=msg)
             
         elif self.config['data_type'] == 'blob':
-            payload = await self.request.body()
+            payload = body
             # Additional blob handling...
         else:
             raise HTTPException(status_code=415, detail="Unsupported data type")
@@ -95,5 +95,10 @@ class WebhookHandler:
             raise HTTPException(status_code=501, detail=f"Unsupported module: {module_name}")
         
         # Instantiate and process
-        module = module_class(self.config)
+        # Add webhook_id to config for modules that need it (e.g., ClickHouse)
+        module_config = {**self.config, '_webhook_id': self.webhook_id}
+        module = module_class(module_config)
         asyncio.create_task(module.process(payload, dict(self.headers.items())))
+        
+        # Return payload and headers for ClickHouse logging
+        return payload, dict(self.headers.items())

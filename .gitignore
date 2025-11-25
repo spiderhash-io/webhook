@@ -70,8 +70,10 @@ notes.txt
 README_NEW.md
 
 # Configuration (use examples instead)
-connections.json
-webhooks.json
+# connections.json
+# webhooks.json
+connections.docker.json
+webhooks.performance.json
 
 # OS
 .DS_Store

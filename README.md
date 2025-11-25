@@ -5,10 +5,12 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 ## Features
 
 ### Core Functionality
-- **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, or stdout.
+- **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, or stdout.
 - **Plugin Architecture**: Easy to extend with new modules without modifying core code.
 - **Configuration-Driven**: Easy configuration via JSON files (`webhooks.json`, `connections.json`) and environment variables.
 - **Statistics**: Tracks webhook usage statistics (requests per minute, hour, day, etc.) via `/stats`.
+- **ClickHouse Analytics**: Automatic logging of all webhook events to ClickHouse for analytics and monitoring.
+- **Distributed Architecture**: Support for multiple webhook instances with centralized analytics processing.
 
 ### Security Features
 - **Authorization**: Supports Authorization header validation (including Bearer tokens).
@@ -43,10 +45,24 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
    uvicorn src.main:app --reload
    ```
 
-### Docker
+### Docker (Single Instance)
 ```bash
 docker-compose up --build
 ```
+
+### Docker (Multiple Instances with Analytics)
+For performance testing and production deployments with multiple webhook instances:
+```bash
+# Start all services (5 webhook instances + ClickHouse + Redis + Analytics)
+docker-compose up -d
+
+# Run performance tests
+./run_performance_test.sh
+# Or manually:
+python3 src/tests/performance_test_multi_instance.py
+```
+
+See [PERFORMANCE_TEST.md](PERFORMANCE_TEST.md) for detailed performance testing documentation.
 
 ## Configuration
 
@@ -249,6 +265,52 @@ The application includes CORS middleware enabled by default, allowing webhooks t
 }
 ```
 
+#### ClickHouse Analytics & Logging
+Save webhook logs and statistics to ClickHouse database for analytics and monitoring.
+
+**Webhook Logs Module:**
+```json
+{
+    "clickhouse_webhook": {
+        "data_type": "json",
+        "module": "clickhouse",
+        "connection": "clickhouse_local",
+        "module-config": {
+            "table": "webhook_logs",
+            "include_headers": true,
+            "include_timestamp": true
+        },
+        "authorization": "Bearer clickhouse_secret"
+    }
+}
+```
+
+**Automatic Statistics Saving:**
+To enable automatic statistics saving to ClickHouse, add a `clickhouse_analytics` connection in `connections.json`:
+```json
+{
+    "clickhouse_analytics": {
+        "type": "clickhouse",
+        "host": "localhost",
+        "port": 9000,
+        "database": "webhook_analytics",
+        "user": "default",
+        "password": ""
+    }
+}
+```
+
+The system will automatically:
+- Create `webhook_stats` table for statistics
+- Create `webhook_logs` table for general logging
+- Save statistics every 5 minutes
+- Store metrics: total, minute, 5_minutes, 15_minutes, 30_minutes, hour, day, week, month
+
+**Architecture Note:**
+- **Webhook Instances**: Only send raw webhook events to ClickHouse (no aggregation)
+- **Analytics Service**: Separate service (`src/analytics_processor.py`) reads from ClickHouse and calculates aggregated statistics
+- **Multiple Instances**: All webhook instances write to the same ClickHouse database, allowing centralized analytics
+
 ## TODO List
 
 This list is ordered from easiest/highest impact to more complex features.
@@ -268,6 +330,7 @@ This list is ordered from easiest/highest impact to more complex features.
 
 ### 3. Advanced Improvements
 - [ ] **Persistent Statistics**: Move stats from in-memory (`src/utils.py`) to Redis or a database to survive restarts.
+- [x] **Analytics**: Create option to save statistics and logs to clickhouse db, there will be another UI project that will access it ✅
 - [ ] **Dynamic OpenAPI Docs**: Generate OpenAPI documentation automatically based on `webhooks.json` config.
 - [ ] **Payload Transformation**: Add a step to transform payload structure before sending to destination.
 - [ ] **Retry Mechanism**: Implement retries for failed module executions (e.g., if RabbitMQ is down).

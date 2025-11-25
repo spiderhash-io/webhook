@@ -159,5 +159,14 @@
             "audience": "webhook-api",
             "verify_exp": true
         }
+    },
+    "redis_publish_webhook": {
+        "data_type": "json",
+        "module": "redis_publish",
+        "redis": {
+            "host": "redis",
+            "port": 6379,
+            "channel": "webhook_events"
+        }
     }
 }

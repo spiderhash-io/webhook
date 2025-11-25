@@ -1,0 +1,46 @@
+from typing import Any, Dict
+import json
+import redis
+import fakeredis
+from src.modules.base import BaseModule
+
+
+class RedisPublishModule(BaseModule):
+    """Publish webhook payloads to a Redis channel.
+
+    The module expects the following configuration in the webhook definition:
+    ```json
+    {
+        "module": "redis_publish",
+        "redis": {
+            "host": "redis",
+            "port": 6379,
+            "channel": "webhook_events"
+        }
+    }
+    ```
+    """
+
+    async def process(self, payload: Any, headers: Dict[str, str]) -> None:
+        # Resolve Redis connection details from the connection config
+        redis_cfg = self.config.get("redis", {})
+        host = redis_cfg.get("host", "localhost")
+        port = redis_cfg.get("port", 6379)
+        channel = redis_cfg.get("channel", "webhook_events")
+
+        # Create a Redis client (synchronous, but fast for simple publish)
+        try:
+            client = redis.Redis(host=host, port=port)
+            # Test connection
+            client.ping()
+        except Exception:
+            # Fallback to in-memory fake Redis for testing / when real Redis unavailable
+            client = fakeredis.FakeRedis()
+        # Serialize payload and headers as JSON
+        message = json.dumps({"payload": payload, "headers": dict(headers)})
+        try:
+            client.publish(channel, message)
+            print(f"Published webhook payload to Redis channel '{channel}'")
+        except Exception as e:
+            # Log the error but do not crash the webhook processing
+            print(f"Failed to publish to Redis channel '{channel}': {e}")

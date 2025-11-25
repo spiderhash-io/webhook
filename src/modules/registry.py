@@ -4,10 +4,12 @@ from src.modules.log import LogModule
 from src.modules.save_to_disk import SaveToDiskModule
 from src.modules.rabbitmq_module import RabbitMQModule
 from src.modules.redis_rq import RedisRQModule
+from src.modules.redis_publish import RedisPublishModule
 from src.modules.http_webhook import HTTPWebhookModule
 from src.modules.kafka import KafkaModule
 from src.modules.s3 import S3Module
 from src.modules.websocket import WebSocketModule
+from src.modules.clickhouse import ClickHouseModule
 
 
 class ModuleRegistry:
@@ -21,7 +23,8 @@ class ModuleRegistry:
         'http_webhook': HTTPWebhookModule,
         'kafka': KafkaModule,
         's3': S3Module,
-        'websocket': WebSocketModule,
+        'redis_publish': RedisPublishModule,
+        'clickhouse': ClickHouseModule,
     }
     
     @classmethod

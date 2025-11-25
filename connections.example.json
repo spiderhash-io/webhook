@@ -38,5 +38,29 @@
         "aws_access_key_id": "{$AWS_ACCESS_KEY_ID}",
         "aws_secret_access_key": "{$AWS_SECRET_ACCESS_KEY}",
         "region": "us-east-1"
+    },
+    "clickhouse_local": {
+        "type": "clickhouse",
+        "host": "localhost",
+        "port": 9000,
+        "database": "default",
+        "user": "default",
+        "password": ""
+    },
+    "clickhouse_prod": {
+        "type": "clickhouse",
+        "host": "{$CLICKHOUSE_HOST}",
+        "port": 9000,
+        "database": "{$CLICKHOUSE_DATABASE}",
+        "user": "{$CLICKHOUSE_USER}",
+        "password": "{$CLICKHOUSE_PASSWORD}"
+    },
+    "clickhouse_analytics": {
+        "type": "clickhouse",
+        "host": "{$CLICKHOUSE_HOST}",
+        "port": 9000,
+        "database": "webhook_analytics",
+        "user": "{$CLICKHOUSE_USER}",
+        "password": "{$CLICKHOUSE_PASSWORD}"
     }
 }
