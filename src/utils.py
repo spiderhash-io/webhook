@@ -16,8 +16,15 @@ def count_words_at_url(url):
 
 async def save_to_disk(payload, config):
     my_uuid = uuid.uuid4()
+    
+    module_config = config.get('module-config', {})
+    path = module_config.get('path', '.')
+    
+    if path != '.' and not os.path.exists(path):
+        os.makedirs(path)
 
-    with open(str(my_uuid)+".txt", mode="w") as f:
+    file_path = os.path.join(path, f"{my_uuid}.txt")
+    with open(file_path, mode="w") as f:
         f.write(str(payload))    
         f.flush()
         f.close()

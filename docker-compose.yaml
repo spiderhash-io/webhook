@@ -1,10 +1,31 @@
 version: '3.8'
 
 services:
-  myapp:
-    image: registry.mk8.site/app/core-webhook-module:latest
+  app:
+    build: .
     ports:
-      - "9101:8000"
+      - "8000:8000"
     volumes:
+      - ./src:/app/src
       - ./connections.json:/app/connections.json
       - ./webhooks.json:/app/webhooks.json
+    environment:
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      - redis
+      - rabbitmq
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest

@@ -1,0 +1,144 @@
+{
+    "github_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer github_secret_token_123"
+    },
+    "stripe_webhook": {
+        "data_type": "json",
+        "module": "save_to_disk",
+        "module-config": {
+            "path": "webhooks/stripe"
+        },
+        "authorization": "whsec_stripe_secret"
+    },
+    "payment_processor": {
+        "data_type": "json",
+        "module": "rabbitmq",
+        "queue_name": "payment_queue",
+        "connection": "rabbitmq_local",
+        "authorization": "Bearer payment_secret_456"
+    },
+    "analytics_webhook": {
+        "data_type": "json",
+        "module": "redis_rq",
+        "module-config": {
+            "queue_name": "analytics",
+            "function": "process_analytics_data"
+        },
+        "connection": "redis_local"
+    },
+    "forward_to_service": {
+        "data_type": "json",
+        "module": "http_webhook",
+        "module-config": {
+            "url": "https://api.example.com/webhooks",
+            "method": "POST",
+            "forward_headers": true,
+            "headers": {
+                "X-Custom-Header": "value"
+            },
+            "timeout": 30
+        },
+        "authorization": "Bearer forward_secret_789"
+    },
+    "github_webhook_with_hmac": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer github_token",
+        "hmac": {
+            "secret": "github_webhook_secret",
+            "header": "X-Hub-Signature-256",
+            "algorithm": "sha256"
+        }
+    },
+    "secure_webhook_with_ip_whitelist": {
+        "data_type": "json",
+        "module": "save_to_disk",
+        "module-config": {
+            "path": "webhooks/secure"
+        },
+        "authorization": "Bearer secure_token",
+        "ip_whitelist": [
+            "192.168.1.100",
+            "10.0.0.50",
+            "172.16.0.10"
+        ]
+    },
+    "fully_secured_webhook": {
+        "data_type": "json",
+        "module": "rabbitmq",
+        "queue_name": "secure_queue",
+        "connection": "rabbitmq_local",
+        "authorization": "Bearer super_secret",
+        "hmac": {
+            "secret": "hmac_secret_key",
+            "header": "X-HMAC-Signature",
+            "algorithm": "sha256"
+        },
+        "ip_whitelist": [
+            "203.0.113.0",
+            "198.51.100.0"
+        ]
+    },
+    "kafka_events": {
+        "data_type": "json",
+        "module": "kafka",
+        "topic": "webhook_events",
+        "connection": "kafka_local",
+        "module-config": {
+            "key": "event_key",
+            "forward_headers": true
+        },
+        "authorization": "Bearer kafka_secret"
+    },
+    "rate_limited_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer token",
+        "rate_limit": {
+            "max_requests": 100,
+            "window_seconds": 60
+        }
+    },
+    "public_webhook_with_rate_limit": {
+        "data_type": "json",
+        "module": "save_to_disk",
+        "module-config": {
+            "path": "webhooks/public"
+        },
+        "rate_limit": {
+            "max_requests": 10,
+            "window_seconds": 60
+        }
+    },
+    "s3_archival": {
+        "data_type": "json",
+        "module": "s3",
+        "connection": "s3_storage",
+        "module-config": {
+            "bucket": "my-webhook-bucket",
+            "prefix": "webhooks/archive",
+            "filename_pattern": "webhook_{timestamp}_{uuid}.json",
+            "include_headers": true,
+            "content_type": "application/json"
+        },
+        "authorization": "Bearer s3_secret"
+    },
+    "websocket_realtime": {
+        "data_type": "json",
+        "module": "websocket",
+        "module-config": {
+            "url": "ws://localhost:8080/webhooks",
+            "format": "json",
+            "include_headers": true,
+            "wait_for_response": false,
+            "timeout": 10,
+            "max_retries": 3,
+            "headers": {
+                "X-API-Key": "websocket_key"
+            }
+        },
+        "authorization": "Bearer ws_secret"
+    }
+}

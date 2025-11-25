@@ -1,0 +1,42 @@
+{
+    "rabbitmq_local": {
+        "type": "rabbitmq",
+        "host": "localhost",
+        "port": 5672,
+        "user": "guest",
+        "pass": "guest"
+    },
+    "rabbitmq_prod": {
+        "type": "rabbitmq",
+        "host": "{$RABBITMQ_HOST}",
+        "port": 5672,
+        "user": "{$RABBITMQ_USER}",
+        "pass": "{$RABBITMQ_PASS}"
+    },
+    "redis_local": {
+        "type": "redis-rq",
+        "host": "localhost",
+        "port": 6379,
+        "db": 0
+    },
+    "redis_prod": {
+        "type": "redis-rq",
+        "host": "{$REDIS_HOST}",
+        "port": 6379,
+        "db": 0
+    },
+    "kafka_local": {
+        "type": "kafka",
+        "bootstrap_servers": "localhost:9092"
+    },
+    "kafka_prod": {
+        "type": "kafka",
+        "bootstrap_servers": "{$KAFKA_BOOTSTRAP_SERVERS}"
+    },
+    "s3_storage": {
+        "type": "s3",
+        "aws_access_key_id": "{$AWS_ACCESS_KEY_ID}",
+        "aws_secret_access_key": "{$AWS_SECRET_ACCESS_KEY}",
+        "region": "us-east-1"
+    }
+}

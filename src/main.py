@@ -6,6 +6,7 @@ from datetime import datetime
 from src.webhook import WebhookHandler
 from src.config import inject_connection_details, webhook_config_data, connection_config
 from src.utils import EndpointStats
+from src.rate_limiter import rate_limiter
 
 app = FastAPI()
 stats = EndpointStats()
@@ -17,7 +18,12 @@ async def cleanup_task():
         async with stats.lock:
             for endpoint in stats.timestamps:
                 stats._cleanup_old_buckets(endpoint, now)
-        print("Cleaning up old buckets")
+        print("Cleaning up old stats buckets")
+        
+        # Cleanup rate limiter
+        await rate_limiter.cleanup_old_entries()
+        print("Cleaning up old rate limiter entries")
+        
         await asyncio.sleep(3600)  # Wait for 1 hour (3600 seconds) before next cleanup
 
 

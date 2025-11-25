@@ -11,3 +11,6 @@ pytest
 rq
 httpx
 pytest-asyncio
+aiokafka
+boto3
+websockets

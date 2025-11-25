@@ -1,6 +1,6 @@
 # tests/test_auth_endpoints.py
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from src.main import app
 
 host = "test"
@@ -9,7 +9,8 @@ test_url = f"http://{ host }"
 
 @pytest.mark.asyncio
 async def test_app_response():
-    async with AsyncClient(app=app, base_url=test_url) as ac:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url=test_url) as ac:
 
         # test if app is running
         response = await ac.get("/")

@@ -2,8 +2,9 @@ import json
 import asyncio
 
 from fastapi import HTTPException, Request
-from src.utils import print_to_stdout
-from src.modules.rabbitmq import rabbitmq_publish
+from src.modules.registry import ModuleRegistry
+from src.validators import AuthorizationValidator, HMACValidator, IPWhitelistValidator, RateLimitValidator
+from src.input_validator import InputValidator
 
 
 class WebhookHandler:
@@ -15,39 +16,82 @@ class WebhookHandler:
         self.connection_config = connection_config
         self.request = request
         self.headers = self.request.headers
+        
+        # Initialize validators
+        self.validators = [
+            RateLimitValidator(self.config, webhook_id),  # Check rate limit first
+            AuthorizationValidator(self.config),
+            HMACValidator(self.config),
+            IPWhitelistValidator(self.config),
+        ]
 
     async def validate_webhook(self):
-
-        expected_auth = self.config.get("authorization", {})
-
-        if expected_auth:
-            authorization_header = self.request.headers.get('Authorization')
-            if "Bearer" in expected_auth and not authorization_header.startswith("Bearer"):
-                return False, "Unauthorized: Bearer token required"
-
-            if authorization_header != expected_auth:
-                return False, "Unauthorized"
-
+        """Validate webhook using all configured validators."""
+        # Get raw body for HMAC validation
+        body = await self.request.body()
+        
+        # Convert headers to dict
+        headers_dict = {k.lower(): v for k, v in self.request.headers.items()}
+        
+        # Run all validators
+        for validator in self.validators:
+            is_valid, message = await validator.validate(headers_dict, body)
+            if not is_valid:
+                return False, message
+        
         return True, "Valid webhook"
 
     async def process_webhook(self):
-
+        """Process webhook payload using the configured module."""
+        # Validate webhook ID format
+        is_valid, msg = InputValidator.validate_webhook_id(self.webhook_id)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=msg)
+        
+        # Get raw body for validation
+        body = await self.request.body()
+        
+        # Validate headers
+        headers_dict = {k: v for k, v in self.request.headers.items()}
+        is_valid, msg = InputValidator.validate_headers(headers_dict)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=msg)
+        
+        # Validate payload size
+        is_valid, msg = InputValidator.validate_payload_size(body)
+        if not is_valid:
+            raise HTTPException(status_code=413, detail=msg)
+        
         # Read the incoming data based on its type
         if self.config['data_type'] == 'json':
             try:
                 payload = await self.request.json()
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Malformed JSON payload")
+            
+            # Validate JSON depth
+            is_valid, msg = InputValidator.validate_json_depth(payload)
+            if not is_valid:
+                raise HTTPException(status_code=400, detail=msg)
+            
+            # Validate string lengths
+            is_valid, msg = InputValidator.validate_string_length(payload)
+            if not is_valid:
+                raise HTTPException(status_code=400, detail=msg)
+            
         elif self.config['data_type'] == 'blob':
             payload = await self.request.body()
             # Additional blob handling...
         else:
             raise HTTPException(status_code=415, detail="Unsupported data type")
 
-        # Execute the relevant module function
-        if self.config['module'] == 'log':
-            asyncio.create_task(print_to_stdout(payload, self.headers, self.config))
-        elif self.config['module'] == 'rabbitmq':
-            asyncio.create_task(rabbitmq_publish(payload, self.config, self.headers))
-        else:
-            return HTTPException(status_code=501, detail="Unsupported module")
+        # Get the module from registry
+        module_name = self.config['module']
+        try:
+            module_class = ModuleRegistry.get(module_name)
+        except KeyError:
+            raise HTTPException(status_code=501, detail=f"Unsupported module: {module_name}")
+        
+        # Instantiate and process
+        module = module_class(self.config)
+        asyncio.create_task(module.process(payload, dict(self.headers.items())))
