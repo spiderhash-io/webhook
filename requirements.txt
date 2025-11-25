@@ -14,3 +14,4 @@ pytest-asyncio
 aiokafka
 boto3
 websockets
+PyJWT

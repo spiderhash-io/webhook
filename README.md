@@ -78,13 +78,50 @@ Defines connection details for modules (e.g., RabbitMQ, Redis).
 
 ### Security Configuration
 
-#### Basic Authorization
+#### Basic Authentication
 ```json
 {
-    "webhook_id": {
+    "basic_auth_webhook": {
         "data_type": "json",
         "module": "log",
-        "authorization": "Bearer secret_token_123"
+        "basic_auth": {
+            "username": "admin",
+            "password": "secret_password_123"
+        }
+    }
+}
+```
+
+#### JWT Authentication
+```json
+{
+    "jwt_auth_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "jwt": {
+            "secret": "my_jwt_secret_key",
+            "algorithm": "HS256",
+            "issuer": "my-app",
+            "audience": "webhook-api",
+            "verify_exp": true
+        }
+    }
+}
+```
+
+#### CORS Support
+The application includes CORS middleware enabled by default, allowing webhooks to be called from browser-based applications (e.g., frontend JavaScript).
+- Allowed Origins: `*` (All)
+- Allowed Methods: `*` (All)
+- Allowed Headers: `*` (All)
+
+#### Bearer Token Authorization
+```json
+{
+    "secure_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer my_secret_token"
     }
 }
 ```

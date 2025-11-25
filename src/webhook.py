@@ -3,7 +3,7 @@ import asyncio
 
 from fastapi import HTTPException, Request
 from src.modules.registry import ModuleRegistry
-from src.validators import AuthorizationValidator, HMACValidator, IPWhitelistValidator, RateLimitValidator
+from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator
 from src.input_validator import InputValidator
 
 
@@ -20,9 +20,11 @@ class WebhookHandler:
         # Initialize validators
         self.validators = [
             RateLimitValidator(self.config, webhook_id),  # Check rate limit first
-            AuthorizationValidator(self.config),
-            HMACValidator(self.config),
-            IPWhitelistValidator(self.config),
+            BasicAuthValidator(self.config),  # Basic auth
+            JWTValidator(self.config),  # JWT auth
+            AuthorizationValidator(self.config),  # Bearer token (simple)
+            HMACValidator(self.config),  # HMAC signature
+            IPWhitelistValidator(self.config),  # IP whitelist
         ]
 
     async def validate_webhook(self):

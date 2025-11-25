@@ -140,5 +140,24 @@
             }
         },
         "authorization": "Bearer ws_secret"
+    },
+    "basic_auth_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "basic_auth": {
+            "username": "admin",
+            "password": "secret_password_123"
+        }
+    },
+    "jwt_auth_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "jwt": {
+            "secret": "my_jwt_secret_key",
+            "algorithm": "HS256",
+            "issuer": "my-app",
+            "audience": "webhook-api",
+            "verify_exp": true
+        }
     }
 }

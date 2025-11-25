@@ -1,5 +1,6 @@
 import hmac
 import hashlib
+import base64
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple
 
@@ -50,6 +51,128 @@ class AuthorizationValidator(BaseValidator):
             return False, "Unauthorized"
         
         return True, "Valid authorization"
+
+
+class BasicAuthValidator(BaseValidator):
+    """Validates HTTP Basic Authentication."""
+    
+    async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
+        """Validate HTTP Basic Authentication."""
+        basic_auth_config = self.config.get("basic_auth", {})
+        
+        if not basic_auth_config:
+            return True, "No basic auth required"
+        
+        auth_header = headers.get('authorization', '')
+        
+        if not auth_header:
+            return False, "Missing Authorization header"
+        
+        if not auth_header.startswith('Basic '):
+            return False, "Basic authentication required"
+        
+        try:
+            # Extract and decode base64 credentials
+            encoded_credentials = auth_header.split(' ', 1)[1]
+            decoded_bytes = base64.b64decode(encoded_credentials)
+            decoded_str = decoded_bytes.decode('utf-8')
+            
+            # Split username and password
+            if ':' not in decoded_str:
+                return False, "Invalid basic auth format"
+            
+            username, password = decoded_str.split(':', 1)
+            
+            # Get expected credentials
+            expected_username = basic_auth_config.get('username')
+            expected_password = basic_auth_config.get('password')
+            
+            if not expected_username or not expected_password:
+                return False, "Basic auth credentials not configured"
+            
+            # Validate credentials (constant-time comparison for password)
+            # Encode to bytes for consistent comparison, especially with unicode
+            username_match = username == expected_username
+            password_match = hmac.compare_digest(
+                password.encode('utf-8'), 
+                expected_password.encode('utf-8')
+            )
+            
+            if username_match and password_match:
+                return True, "Valid basic authentication"
+            else:
+                return False, "Invalid credentials"
+                
+        except base64.binascii.Error:
+            return False, "Invalid base64 encoding in Authorization header"
+        except UnicodeDecodeError:
+            return False, "Invalid UTF-8 encoding in credentials"
+        except Exception as e:
+            return False, f"Invalid basic auth format: {str(e)}"
+
+
+class JWTValidator(BaseValidator):
+    """Validates JSON Web Tokens (JWT)."""
+    
+    async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
+        """Validate JWT token."""
+        jwt_config = self.config.get("jwt", {})
+        
+        if not jwt_config:
+            return True, "No JWT validation required"
+        
+        # Import here to avoid import errors if PyJWT is not installed
+        try:
+            import jwt
+        except ImportError:
+            return False, "PyJWT library not installed"
+        
+        auth_header = headers.get('authorization', '')
+        
+        if not auth_header:
+            return False, "Missing Authorization header"
+        
+        if not auth_header.startswith('Bearer '):
+            return False, "JWT Bearer token required"
+        
+        try:
+            token = auth_header.split(' ', 1)[1]
+            
+            # Prepare validation options
+            options = {
+                'verify_exp': jwt_config.get('verify_exp', True),
+                'verify_aud': bool(jwt_config.get('audience')),
+                'verify_iss': bool(jwt_config.get('issuer')),
+            }
+            
+            # Decode and validate
+            jwt.decode(
+                token,
+                key=jwt_config.get('secret'),
+                algorithms=[jwt_config.get('algorithm', 'HS256')],
+                issuer=jwt_config.get('issuer'),
+                audience=jwt_config.get('audience'),
+                options=options
+            )
+            
+            return True, "Valid JWT"
+            
+        except jwt.ExpiredSignatureError:
+            return False, "JWT token expired"
+        except jwt.InvalidIssuerError:
+            return False, "Invalid JWT issuer"
+        except jwt.InvalidAudienceError:
+            return False, "Invalid JWT audience"
+        except jwt.InvalidAlgorithmError:
+            return False, "Invalid JWT algorithm"
+        except jwt.InvalidSignatureError:
+            return False, "Invalid JWT signature"
+        except jwt.MissingRequiredClaimError as e:
+            return False, f"JWT missing required claim: {str(e)}"
+        except jwt.DecodeError:
+            return False, "Invalid JWT token format"
+        except Exception as e:
+            return False, f"JWT validation failed: {str(e)}"
 
 
 class HMACValidator(BaseValidator):
@@ -158,4 +281,3 @@ class RateLimitValidator(BaseValidator):
         )
         
         return is_allowed, message
-
