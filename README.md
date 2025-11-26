@@ -337,6 +337,8 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **Dynamic OpenAPI Docs**: Generate OpenAPI documentation automatically based on `webhooks.json` config.
 - [ ] **Payload Transformation**: Add a step to transform payload structure before sending to destination.
 - [ ] **JSON Schema Validation**: Validate incoming webhook payloads against a defined JSON schema.
+- [ ] **Google reCAPTCHA Validation**: Implement backend validation for Google reCAPTCHA tokens.
+- [ ] **Cloudflare Turnstile Validation**: Implement backend validation for Cloudflare Turnstile tokens.
 - [ ] **Retry Mechanism**: Implement retries for failed module executions (e.g., if RabbitMQ is down).
 
 ### 4. Testing & Documentation
