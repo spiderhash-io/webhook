@@ -3,7 +3,7 @@ import asyncio
 
 from fastapi import HTTPException, Request
 from src.modules.registry import ModuleRegistry
-from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator
+from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator, RecaptchaValidator
 from src.input_validator import InputValidator
 
 
@@ -20,6 +20,7 @@ class WebhookHandler:
         # Initialize validators
         self.validators = [
             RateLimitValidator(self.config, webhook_id),  # Check rate limit first
+            RecaptchaValidator(self.config),  # Google reCAPTCHA validation
             BasicAuthValidator(self.config),  # Basic auth
             JWTValidator(self.config),  # JWT auth
             AuthorizationValidator(self.config),  # Bearer token (simple)

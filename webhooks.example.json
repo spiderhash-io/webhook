@@ -199,5 +199,41 @@
                 "data"
             ]
         }
+    },
+    "recaptcha_v3_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "recaptcha": {
+            "secret_key": "your_recaptcha_v3_secret_key",
+            "version": "v3",
+            "token_source": "header",
+            "token_field": "X-Recaptcha-Token",
+            "min_score": 0.5
+        }
+    },
+    "recaptcha_v2_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "recaptcha": {
+            "secret_key": "your_recaptcha_v2_secret_key",
+            "version": "v2",
+            "token_source": "body",
+            "token_field": "g-recaptcha-response"
+        }
+    },
+    "recaptcha_with_auth": {
+        "data_type": "json",
+        "module": "save_to_disk",
+        "module-config": {
+            "path": "webhooks/recaptcha"
+        },
+        "authorization": "Bearer token_123",
+        "recaptcha": {
+            "secret_key": "your_recaptcha_secret_key",
+            "version": "v3",
+            "token_source": "header",
+            "token_field": "X-Recaptcha-Token",
+            "min_score": 0.7
+        }
     }
 }

@@ -73,6 +73,8 @@ async def shutdown_event():
     global clickhouse_logger
     if clickhouse_logger:
         await clickhouse_logger.disconnect()
+    # Close Redis connection
+    await stats.close()
 
 
 @app.post("/webhook/{webhook_id}")

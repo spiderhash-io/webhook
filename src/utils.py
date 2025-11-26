@@ -113,36 +113,96 @@ class RedisEndpointStats:
             redis_port = os.getenv('REDIS_PORT', '6379')
             redis_url = f"redis://{redis_host}:{redis_port}"
         
-        self.redis = redis.from_url(redis_url, decode_responses=True)
+        self._redis_url = redis_url
+        self._redis = None
         self.bucket_size_seconds = 60  # 1 minute
 
+    @property
+    def redis(self):
+        """Get Redis connection, creating it if needed."""
+        if self._redis is None:
+            self._redis = redis.from_url(self._redis_url, decode_responses=True)
+        return self._redis
+
+    async def close(self):
+        """Close the Redis connection."""
+        if self._redis:
+            try:
+                await self._redis.aclose()
+            except Exception:
+                pass  # Ignore errors when closing
+            finally:
+                self._redis = None
+
+    def _ensure_connection(self):
+        """Ensure Redis connection is valid, recreate if needed."""
+        if self._redis is None:
+            self._redis = redis.from_url(self._redis_url, decode_responses=True)
+        return self._redis
+
+    async def _reconnect_if_needed(self):
+        """Reconnect Redis if connection is invalid."""
+        if self._redis is None:
+            self._redis = redis.from_url(self._redis_url, decode_responses=True)
+            return
+        
+        # Try to check if connection is still valid
+        try:
+            # This will raise an error if the connection is bound to a closed event loop
+            await self._redis.ping()
+        except (RuntimeError, AttributeError) as e:
+            # Event loop is closed or connection is invalid, recreate it
+            try:
+                await self._redis.aclose()
+            except Exception:
+                pass
+            self._redis = redis.from_url(self._redis_url, decode_responses=True)
+
     async def increment(self, endpoint_name):
+        await self._reconnect_if_needed()
         now = int(time.time())
         bucket_timestamp = now - (now % self.bucket_size_seconds)
         
         # Use a pipeline for atomicity and performance
-        async with self.redis.pipeline(transaction=True) as pipe:
-            # Add endpoint to set of known endpoints
-            pipe.sadd("stats:endpoints", endpoint_name)
-            
-            # Increment total counter
-            pipe.incr(f"stats:{endpoint_name}:total")
-            
-            # Increment bucket counter
-            bucket_key = f"stats:{endpoint_name}:bucket:{bucket_timestamp}"
-            pipe.incr(bucket_key)
-            
-            # Set expiration for bucket (32 days to cover month stats)
-            pipe.expire(bucket_key, 32 * 24 * 60 * 60)
-            
-            await pipe.execute()
+        try:
+            async with self.redis.pipeline(transaction=True) as pipe:
+                # Add endpoint to set of known endpoints
+                pipe.sadd("stats:endpoints", endpoint_name)
+                
+                # Increment total counter
+                pipe.incr(f"stats:{endpoint_name}:total")
+                
+                # Increment bucket counter
+                bucket_key = f"stats:{endpoint_name}:bucket:{bucket_timestamp}"
+                pipe.incr(bucket_key)
+                
+                # Set expiration for bucket (32 days to cover month stats)
+                pipe.expire(bucket_key, 32 * 24 * 60 * 60)
+                
+                await pipe.execute()
+        except (RuntimeError, AttributeError):
+            # Connection issue, reconnect and retry once
+            await self._reconnect_if_needed()
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.sadd("stats:endpoints", endpoint_name)
+                pipe.incr(f"stats:{endpoint_name}:total")
+                bucket_key = f"stats:{endpoint_name}:bucket:{bucket_timestamp}"
+                pipe.incr(bucket_key)
+                pipe.expire(bucket_key, 32 * 24 * 60 * 60)
+                await pipe.execute()
 
     async def get_stats(self):
+        await self._reconnect_if_needed()
         stats_summary = defaultdict(dict)
         now = int(time.time())
         
         # Get all known endpoints
-        endpoints = await self.redis.smembers("stats:endpoints")
+        try:
+            endpoints = await self.redis.smembers("stats:endpoints")
+        except (RuntimeError, AttributeError):
+            # Connection issue, reconnect and retry
+            await self._reconnect_if_needed()
+            endpoints = await self.redis.smembers("stats:endpoints")
         
         for endpoint in endpoints:
             # Get total
@@ -279,28 +339,46 @@ class RedisEndpointStats:
         return stats_summary
 
     async def increment_multi_resolution(self, endpoint_name):
+        await self._reconnect_if_needed()
         now = int(time.time())
         
-        async with self.redis.pipeline(transaction=True) as pipe:
-            pipe.sadd("stats:endpoints", endpoint_name)
-            pipe.incr(f"stats:{endpoint_name}:total")
-            
-            # Minute bucket
-            minute_ts = now - (now % 60)
-            pipe.incr(f"stats:{endpoint_name}:bucket:60:{minute_ts}")
-            pipe.expire(f"stats:{endpoint_name}:bucket:60:{minute_ts}", 7200) # 2 hours
-            
-            # Hour bucket
-            hour_ts = now - (now % 3600)
-            pipe.incr(f"stats:{endpoint_name}:bucket:3600:{hour_ts}")
-            pipe.expire(f"stats:{endpoint_name}:bucket:3600:{hour_ts}", 172800) # 2 days
-            
-            # Day bucket
-            day_ts = now - (now % 86400)
-            pipe.incr(f"stats:{endpoint_name}:bucket:86400:{day_ts}")
-            pipe.expire(f"stats:{endpoint_name}:bucket:86400:{day_ts}", 3000000) # ~35 days
-            
-            await pipe.execute()
+        try:
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.sadd("stats:endpoints", endpoint_name)
+                pipe.incr(f"stats:{endpoint_name}:total")
+                
+                # Minute bucket
+                minute_ts = now - (now % 60)
+                pipe.incr(f"stats:{endpoint_name}:bucket:60:{minute_ts}")
+                pipe.expire(f"stats:{endpoint_name}:bucket:60:{minute_ts}", 7200) # 2 hours
+                
+                # Hour bucket
+                hour_ts = now - (now % 3600)
+                pipe.incr(f"stats:{endpoint_name}:bucket:3600:{hour_ts}")
+                pipe.expire(f"stats:{endpoint_name}:bucket:3600:{hour_ts}", 172800) # 2 days
+                
+                # Day bucket
+                day_ts = now - (now % 86400)
+                pipe.incr(f"stats:{endpoint_name}:bucket:86400:{day_ts}")
+                pipe.expire(f"stats:{endpoint_name}:bucket:86400:{day_ts}", 3000000) # ~35 days
+                
+                await pipe.execute()
+        except (RuntimeError, AttributeError):
+            # Connection issue, reconnect and retry once
+            await self._reconnect_if_needed()
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.sadd("stats:endpoints", endpoint_name)
+                pipe.incr(f"stats:{endpoint_name}:total")
+                minute_ts = now - (now % 60)
+                pipe.incr(f"stats:{endpoint_name}:bucket:60:{minute_ts}")
+                pipe.expire(f"stats:{endpoint_name}:bucket:60:{minute_ts}", 7200)
+                hour_ts = now - (now % 3600)
+                pipe.incr(f"stats:{endpoint_name}:bucket:3600:{hour_ts}")
+                pipe.expire(f"stats:{endpoint_name}:bucket:3600:{hour_ts}", 172800)
+                day_ts = now - (now % 86400)
+                pipe.incr(f"stats:{endpoint_name}:bucket:86400:{day_ts}")
+                pipe.expire(f"stats:{endpoint_name}:bucket:86400:{day_ts}", 3000000)
+                await pipe.execute()
 
     # Override increment to use multi-resolution
     async def increment(self, endpoint_name):

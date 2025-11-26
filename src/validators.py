@@ -1,8 +1,9 @@
 import hmac
 import hashlib
 import base64
+import json
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 
 class BaseValidator(ABC):
@@ -317,3 +318,106 @@ class JsonSchemaValidator(BaseValidator):
             return False, f"Invalid JSON schema configuration: {e.message}"
         except Exception as e:
             return False, f"JSON schema validation error: {str(e)}"
+
+
+class RecaptchaValidator(BaseValidator):
+    """Validates Google reCAPTCHA token."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize reCAPTCHA validator.
+        
+        Args:
+            config: The webhook configuration
+        """
+        super().__init__(config)
+        self.recaptcha_config = config.get("recaptcha", {})
+        self.secret_key = self.recaptcha_config.get("secret_key")
+        self.version = self.recaptcha_config.get("version", "v3")  # v2 or v3
+        self.token_source = self.recaptcha_config.get("token_source", "header")  # header or body
+        self.token_field = self.recaptcha_config.get("token_field", "X-Recaptcha-Token")
+        self.min_score = self.recaptcha_config.get("min_score", 0.5)  # For v3 only
+        self.verify_url = "https://www.google.com/recaptcha/api/siteverify"
+    
+    def _extract_token(self, headers: Dict[str, str], body: bytes) -> Optional[str]:
+        """Extract reCAPTCHA token from headers or body."""
+        if self.token_source == "header":
+            # Try both original case and lowercase
+            token = headers.get(self.token_field.lower()) or headers.get(self.token_field)
+            return token
+        else:  # body
+            try:
+                payload = json.loads(body.decode('utf-8'))
+                if isinstance(payload, dict):
+                    # Try common field names
+                    token = payload.get("recaptcha_token") or payload.get("recaptcha") or payload.get("g-recaptcha-response")
+                    return token
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass
+        return None
+    
+    async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
+        """Validate reCAPTCHA token."""
+        if not self.recaptcha_config:
+            return True, "No reCAPTCHA validation required"
+        
+        if not self.secret_key:
+            return False, "reCAPTCHA secret key not configured"
+        
+        # Extract token
+        token = self._extract_token(headers, body)
+        if not token:
+            return False, f"Missing reCAPTCHA token (expected in {self.token_source}: {self.token_field})"
+        
+        # Get client IP if available (recommended for v3)
+        client_ip = (
+            headers.get('x-forwarded-for', '').split(',')[0].strip() or
+            headers.get('x-real-ip', '') or
+            headers.get('remote-addr', '')
+        )
+        
+        # Verify token with Google
+        try:
+            import httpx
+            
+            # Prepare verification request
+            data = {
+                "secret": self.secret_key,
+                "response": token
+            }
+            
+            # Add remote IP for v3 (recommended)
+            if client_ip and self.version == "v3":
+                data["remoteip"] = client_ip
+            
+            # Make async request to Google
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(self.verify_url, data=data)
+                response.raise_for_status()
+                result = response.json()
+            
+            # Check if verification was successful
+            if not result.get("success", False):
+                error_codes = result.get("error-codes", [])
+                error_msg = ", ".join(error_codes) if error_codes else "Verification failed"
+                return False, f"reCAPTCHA verification failed: {error_msg}"
+            
+            # For v3, check score threshold
+            if self.version == "v3":
+                score = result.get("score", 0.0)
+                if score < self.min_score:
+                    return False, f"reCAPTCHA score {score:.2f} below threshold {self.min_score}"
+            
+            # For v2, check if challenge was passed
+            # (v2 doesn't return a score, just success/failure)
+            
+            return True, f"Valid reCAPTCHA token (score: {result.get('score', 'N/A')})"
+            
+        except ImportError:
+            return False, "httpx library not installed"
+        except httpx.HTTPError as e:
+            return False, f"Failed to verify reCAPTCHA token: {str(e)}"
+        except json.JSONDecodeError:
+            return False, "Invalid response from reCAPTCHA service"
+        except Exception as e:
+            return False, f"reCAPTCHA validation error: {str(e)}"
