@@ -16,5 +16,5 @@ aiokafka
 boto3
 websockets
 PyJWT
-redis
+
 clickhouse-driver

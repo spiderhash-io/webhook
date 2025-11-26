@@ -6,12 +6,12 @@ from datetime import datetime
 
 from src.webhook import WebhookHandler
 from src.config import inject_connection_details, webhook_config_data, connection_config
-from src.utils import EndpointStats
+from src.utils import RedisEndpointStats
 from src.rate_limiter import rate_limiter
 from src.clickhouse_analytics import ClickHouseAnalytics
 
 app = FastAPI()
-stats = EndpointStats()  # Keep for /stats endpoint (in-memory only)
+stats = RedisEndpointStats()  # Use Redis for persistent stats
 clickhouse_logger: ClickHouseAnalytics = None  # For logging events only
 
 # Add CORS middleware
@@ -26,11 +26,7 @@ app.add_middleware(
 
 async def cleanup_task():
     while True:
-        now = datetime.utcnow()
-        async with stats.lock:
-            for endpoint in stats.timestamps:
-                stats._cleanup_old_buckets(endpoint, now)
-        print("Cleaning up old stats buckets")
+        # Stats cleanup is handled by Redis TTL
         
         # Cleanup rate limiter
         await rate_limiter.cleanup_old_entries()
@@ -99,7 +95,7 @@ async def read_webhook(webhook_id: str,  request: Request):
     # Process webhook and get payload/headers for logging
     payload, headers = await webhook_handler.process_webhook()
 
-    # Update in-memory stats (for /stats endpoint only)
+    # Update stats (persistent in Redis)
     await stats.increment(webhook_id)
 
     # Automatically log all webhook events to ClickHouse
@@ -123,7 +119,7 @@ async def default_endpoint():
 
 @app.get("/stats")
 async def stats_endpoint():
-    return stats.get_stats()
+    return await stats.get_stats()
 
 
 

@@ -5,6 +5,12 @@
 
 set -e
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Go to the project root (assuming script is in src/tests/)
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+cd "$PROJECT_ROOT"
+
 echo "=========================================="
 echo "Webhook Performance Test Setup"
 echo "=========================================="

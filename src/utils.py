@@ -59,6 +59,9 @@ def load_env_vars(data):
     return data
 
 
+import redis.asyncio as redis
+import time
+
 class EndpointStats:
     def __init__(self):
         self.stats = defaultdict(lambda: defaultdict(int))
@@ -100,6 +103,212 @@ class EndpointStats:
             stats_summary[endpoint]['month'] = sum(count for time, count in self.timestamps[endpoint].items() if time > now - timedelta(days=30))
 
         return stats_summary
+
+
+class RedisEndpointStats:
+    def __init__(self, redis_url=None):
+        # Use REDIS_HOST env var if not provided, default to localhost
+        if not redis_url:
+            redis_host = os.getenv('REDIS_HOST', 'localhost')
+            redis_port = os.getenv('REDIS_PORT', '6379')
+            redis_url = f"redis://{redis_host}:{redis_port}"
+        
+        self.redis = redis.from_url(redis_url, decode_responses=True)
+        self.bucket_size_seconds = 60  # 1 minute
+
+    async def increment(self, endpoint_name):
+        now = int(time.time())
+        bucket_timestamp = now - (now % self.bucket_size_seconds)
+        
+        # Use a pipeline for atomicity and performance
+        async with self.redis.pipeline(transaction=True) as pipe:
+            # Add endpoint to set of known endpoints
+            pipe.sadd("stats:endpoints", endpoint_name)
+            
+            # Increment total counter
+            pipe.incr(f"stats:{endpoint_name}:total")
+            
+            # Increment bucket counter
+            bucket_key = f"stats:{endpoint_name}:bucket:{bucket_timestamp}"
+            pipe.incr(bucket_key)
+            
+            # Set expiration for bucket (32 days to cover month stats)
+            pipe.expire(bucket_key, 32 * 24 * 60 * 60)
+            
+            await pipe.execute()
+
+    async def get_stats(self):
+        stats_summary = defaultdict(dict)
+        now = int(time.time())
+        
+        # Get all known endpoints
+        endpoints = await self.redis.smembers("stats:endpoints")
+        
+        for endpoint in endpoints:
+            # Get total
+            total = await self.redis.get(f"stats:{endpoint}:total")
+            stats_summary[endpoint]['total'] = int(total) if total else 0
+            
+            # Calculate windows
+            windows = {
+                'minute': 60,
+                '5_minutes': 5 * 60,
+                '15_minutes': 15 * 60,
+                '30_minutes': 30 * 60,
+                'hour': 3600,
+                'day': 86400,
+                'week': 7 * 86400,
+                'month': 30 * 86400
+            }
+            
+            # For each window, we need to sum relevant buckets
+            # Optimization: For larger windows, this might be slow if we fetch all keys.
+            # But for now, we'll fetch keys. 
+            # To optimize, we could just fetch the keys we need.
+            
+            # Let's do it efficiently:
+            # We need buckets from (now - window) to now.
+            # We can generate the keys.
+            
+            # However, MGETing 43200 keys for 'month' is too much.
+            # Maybe we should limit the precision for older stats or accept it's slow?
+            # Or maybe we only calculate 'minute' to 'hour' accurately with buckets, 
+            # and for larger windows we rely on a different aggregation?
+            
+            # Given the constraints, let's implement up to 'hour' or 'day' with full precision,
+            # and maybe warn or approximate for larger? 
+            # Actually, let's just implement it. If it's too slow, we'll see.
+            # But wait, 'month' = 43200 minutes. MGET 43k keys is definitely bad.
+            
+            # Alternative: Maintain separate counters for larger windows?
+            # e.g. stats:{endpoint}:hour_bucket:{hour_timestamp}
+            # stats:{endpoint}:day_bucket:{day_timestamp}
+            # This would require updating multiple keys on increment, but makes reading fast.
+            # Let's update increment to support multi-resolution buckets.
+            
+            pass # Logic continues below in a better implementation
+            
+        # Re-implementing get_stats with multi-resolution buckets support would be better.
+        # But let's stick to the interface. I'll update increment to write to multiple resolutions.
+        return await self._get_stats_optimized()
+
+    async def _get_stats_optimized(self):
+        stats_summary = defaultdict(dict)
+        endpoints = await self.redis.smembers("stats:endpoints")
+        
+        for endpoint in endpoints:
+            total = await self.redis.get(f"stats:{endpoint}:total")
+            stats_summary[endpoint]['total'] = int(total) if total else 0
+            
+            # We will use MGET to fetch values for different windows
+            # But we need to define what keys we are looking for.
+            # If we update increment to write to minute, hour, day buckets.
+            
+            # Let's assume we update increment to write to:
+            # - minute bucket (TTL 2 hours)
+            # - hour bucket (TTL 2 days)
+            # - day bucket (TTL 32 days)
+            
+            # Then:
+            # minute stats = sum(last 1 minute buckets)
+            # 5_minutes = sum(last 5 minute buckets)
+            # ...
+            # hour = sum(last 60 minute buckets) -> or just use hour buckets? 
+            # No, sliding window needs minute buckets for accuracy.
+            # But "last hour" usually means "last 60 minutes".
+            
+            # Let's keep it simple for now. 
+            # I will implement a helper to sum buckets.
+            
+            windows_config = [
+                ('minute', 1, 60),
+                ('5_minutes', 5, 60),
+                ('15_minutes', 15, 60),
+                ('30_minutes', 30, 60),
+                ('hour', 60, 60),
+                ('day', 24, 3600), # Use hour buckets for day
+                ('week', 7, 86400), # Use day buckets for week
+                ('month', 30, 86400) # Use day buckets for month
+            ]
+            
+            # We need to fetch all necessary keys.
+            keys_to_fetch = []
+            now = int(time.time())
+            
+            # Helper to generate keys
+            def get_keys(resolution_seconds, count):
+                keys = []
+                current_bucket = now - (now % resolution_seconds)
+                for i in range(count):
+                    t = current_bucket - (i * resolution_seconds)
+                    keys.append(f"stats:{endpoint}:bucket:{resolution_seconds}:{t}")
+                return keys
+
+            # We need:
+            # 60 minute buckets (covers minute, 5m, 15m, 30m, hour)
+            # 24 hour buckets (covers day)
+            # 30 day buckets (covers week, month)
+            
+            minute_keys = get_keys(60, 60)
+            hour_keys = get_keys(3600, 24)
+            day_keys = get_keys(86400, 30)
+            
+            all_keys = minute_keys + hour_keys + day_keys
+            
+            # MGET all
+            if all_keys:
+                values = await self.redis.mget(all_keys)
+                
+                # Map values back to keys
+                data = dict(zip(all_keys, [int(v) if v else 0 for v in values]))
+                
+                # Calculate stats
+                def sum_keys(keys):
+                    return sum(data.get(k, 0) for k in keys)
+                
+                stats_summary[endpoint]['minute'] = sum_keys(minute_keys[:1])
+                stats_summary[endpoint]['5_minutes'] = sum_keys(minute_keys[:5])
+                stats_summary[endpoint]['15_minutes'] = sum_keys(minute_keys[:15])
+                stats_summary[endpoint]['30_minutes'] = sum_keys(minute_keys[:30])
+                stats_summary[endpoint]['hour'] = sum_keys(minute_keys[:60])
+                
+                stats_summary[endpoint]['day'] = sum_keys(hour_keys[:24])
+                stats_summary[endpoint]['week'] = sum_keys(day_keys[:7])
+                stats_summary[endpoint]['month'] = sum_keys(day_keys[:30])
+
+        return stats_summary
+
+    async def increment_multi_resolution(self, endpoint_name):
+        now = int(time.time())
+        
+        async with self.redis.pipeline(transaction=True) as pipe:
+            pipe.sadd("stats:endpoints", endpoint_name)
+            pipe.incr(f"stats:{endpoint_name}:total")
+            
+            # Minute bucket
+            minute_ts = now - (now % 60)
+            pipe.incr(f"stats:{endpoint_name}:bucket:60:{minute_ts}")
+            pipe.expire(f"stats:{endpoint_name}:bucket:60:{minute_ts}", 7200) # 2 hours
+            
+            # Hour bucket
+            hour_ts = now - (now % 3600)
+            pipe.incr(f"stats:{endpoint_name}:bucket:3600:{hour_ts}")
+            pipe.expire(f"stats:{endpoint_name}:bucket:3600:{hour_ts}", 172800) # 2 days
+            
+            # Day bucket
+            day_ts = now - (now % 86400)
+            pipe.incr(f"stats:{endpoint_name}:bucket:86400:{day_ts}")
+            pipe.expire(f"stats:{endpoint_name}:bucket:86400:{day_ts}", 3000000) # ~35 days
+            
+            await pipe.execute()
+
+    # Override increment to use multi-resolution
+    async def increment(self, endpoint_name):
+        await self.increment_multi_resolution(endpoint_name)
+
+    async def _cleanup_old_buckets(self, endpoint_name, now):
+        # Redis handles expiration automatically
+        pass
 
 
 # SECRET_KEY = "your-secret-key"  # Replace with your secret key

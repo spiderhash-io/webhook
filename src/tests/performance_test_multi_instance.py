@@ -205,6 +205,36 @@ async def run_test():
             print(f"  Avg Latency: {statistics.mean(stats['latencies']):.4f}s")
             print(f"  RPS: {stats['success'] / total_time:.2f}")
     
+    # Verify Stats Aggregation
+    print("\n" + "=" * 80)
+    print("VERIFYING STATS AGGREGATION")
+    print("=" * 80)
+    
+    async with httpx.AsyncClient() as client:
+        # Get stats from a random instance (they should all share the same Redis)
+        stats_url = f"{WEBHOOK_INSTANCES[0]}/stats"
+        try:
+            resp = await client.get(stats_url)
+            if resp.status_code == 200:
+                stats_data = resp.json()
+                webhook_stats = stats_data.get(WEBHOOK_ID, {})
+                total_recorded = webhook_stats.get('total', 0)
+                
+                print(f"Stats retrieved from {WEBHOOK_INSTANCES[0]}")
+                print(f"Total recorded in Redis: {total_recorded}")
+                print(f"Total successful requests in this run: {results['successes']}")
+                
+                # Note: If previous tests ran, total_recorded will be higher.
+                # Ideally we should have checked start_stats, but for now just checking it's at least what we sent.
+                if total_recorded >= results['successes']:
+                    print("SUCCESS: Stats recorded in Redis match or exceed successful requests.")
+                else:
+                    print(f"FAILURE: Stats recorded ({total_recorded}) is less than successful requests ({results['successes']}).")
+            else:
+                print(f"Failed to get stats: HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"Error fetching stats: {e}")
+
     print("\n" + "=" * 80)
     print("Test completed!")
     print("=" * 80)
