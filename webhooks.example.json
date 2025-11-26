@@ -58,6 +58,18 @@
             "qop": "auth"
         }
     },
+    "oauth1_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "oauth1": {
+            "consumer_key": "{$OAUTH1_CONSUMER_KEY}",
+            "consumer_secret": "{$OAUTH1_CONSUMER_SECRET}",
+            "token_secret": "{$OAUTH1_TOKEN_SECRET:}",
+            "signature_method": "HMAC-SHA1",
+            "verify_timestamp": true,
+            "timestamp_window": 300
+        }
+    },
     "stripe_webhook": {
         "data_type": "json",
         "module": "save_to_disk",

@@ -2,7 +2,7 @@
 
 A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, disk, or stdout.
 
-**Status**: Production-ready with comprehensive security features, 255 passing tests, and support for multiple output destinations.
+**Status**: Production-ready with comprehensive security features, 274 passing tests, and support for multiple output destinations. All 11 authentication methods implemented!
 
 ## Features
 
@@ -420,6 +420,47 @@ Authenticate webhooks using HTTP Digest Authentication (RFC 7616), a challenge-r
 - Realm validation
 - URI and method validation
 
+#### OAuth 1.0 Authentication
+Authenticate webhooks using OAuth 1.0 signatures (RFC 5849), commonly used by legacy APIs like Twitter.
+
+```json
+{
+    "oauth1_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "oauth1": {
+            "consumer_key": "{$OAUTH1_CONSUMER_KEY}",
+            "consumer_secret": "{$OAUTH1_CONSUMER_SECRET}",
+            "token_secret": "{$OAUTH1_TOKEN_SECRET:}",
+            "signature_method": "HMAC-SHA1",
+            "verify_timestamp": true,
+            "timestamp_window": 300
+        }
+    }
+}
+```
+
+**Configuration Options:**
+- `consumer_key`: OAuth 1.0 consumer key
+- `consumer_secret`: OAuth 1.0 consumer secret
+- `token_secret`: Optional token secret (for three-legged OAuth)
+- `signature_method`: Signature method - `HMAC-SHA1` (default) or `PLAINTEXT`
+- `verify_timestamp`: Whether to validate timestamp (default: `true`)
+- `timestamp_window`: Maximum allowed timestamp difference in seconds (default: `300`)
+
+**Usage:**
+- Send requests with OAuth Authorization header: `Authorization: OAuth oauth_consumer_key="...", oauth_signature="...", ...`
+- Supports HMAC-SHA1 and PLAINTEXT signature methods
+- Validates signature, consumer key, and timestamp
+- Constant-time signature comparison (timing attack resistant)
+
+**Security Features:**
+- Signature validation using HMAC-SHA1 or PLAINTEXT
+- Timestamp validation (prevents replay attacks)
+- Consumer key validation
+- Constant-time signature comparison
+- Nonce support (can be extended for nonce tracking)
+
 #### OAuth 2.0 Authentication
 Authenticate webhooks using OAuth 2.0 access tokens with token introspection or JWT validation.
 
@@ -712,7 +753,7 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **Cloudflare Turnstile Validation**: Implement backend validation for Cloudflare Turnstile tokens.
 
 ### 4. Authentication Methods Enhancement
-**Current Status**: 10/11 authentication methods implemented (90.9% coverage)
+**Current Status**: 11/11 authentication methods implemented (100% coverage) ✅
 
 **Implemented** ✅:
 - [x] **Basic Auth**: HTTP Basic Authentication with constant-time comparison
@@ -730,20 +771,20 @@ This list is ordered from easiest/highest impact to more complex features.
 - [x] **Generic Header Auth**: Custom header-based API key auth (X-API-Key, X-Auth-Token, etc.) ✅
 - [x] **OAuth 2.0**: OAuth 2.0 access token validation - Token introspection and JWT validation ✅
 - [x] **Digest Auth**: HTTP Digest Authentication (RFC 7616) - Challenge-response auth without password transmission ✅
+- [x] **OAuth 1.0**: OAuth 1.0 signature validation (RFC 5849) - HMAC-SHA1 and PLAINTEXT signatures ✅
 
-**Priority**:
-1. **Low**: OAuth 1.0 (legacy, rarely used)
+**Status**: ✅ All authentication methods implemented!
 
 See [docs/AUTH_METHODS_ANALYSIS.md](docs/AUTH_METHODS_ANALYSIS.md) for detailed analysis.
 
 ### 5. Testing & Documentation
-- [x] **Unit Tests**: Comprehensive test suite with 255 tests covering validators, modules, and core functionality. ✅
+- [x] **Unit Tests**: Comprehensive test suite with 274 tests covering validators, modules, and core functionality. ✅
 - [x] **Integration Tests**: Tests for full webhook flow, authentication, validation, and module processing. ✅
 - [ ] **Performance Tests**: Expand performance testing documentation and benchmarks.
 
 ## Test Status
 
-**Current Test Coverage: 255 tests passing** ✅
+**Current Test Coverage: 274 tests passing** ✅
 
 Test suites include:
 - Authentication tests (Basic Auth, JWT, Authorization)

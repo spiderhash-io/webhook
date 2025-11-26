@@ -2,6 +2,7 @@ import hmac
 import hashlib
 import base64
 import json
+import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional
 
@@ -714,6 +715,224 @@ class DigestAuthValidator(BaseValidator):
             params[key.lower()] = value.strip('"\'')
         
         return params
+
+
+class OAuth1Validator(BaseValidator):
+    """Validates OAuth 1.0 signatures (RFC 5849)."""
+    
+    async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
+        """Validate OAuth 1.0 signature."""
+        oauth1_config = self.config.get("oauth1")
+        
+        # If oauth1 is not in config at all, skip validation
+        if oauth1_config is None:
+            return True, "No OAuth 1.0 validation required"
+        
+        consumer_key = oauth1_config.get("consumer_key")
+        consumer_secret = oauth1_config.get("consumer_secret")
+        token_secret_config = oauth1_config.get("token_secret", "")  # Token secret from config (if provided)
+        signature_method = oauth1_config.get("signature_method", "HMAC-SHA1")
+        verify_timestamp = oauth1_config.get("verify_timestamp", True)
+        timestamp_window = oauth1_config.get("timestamp_window", 300)
+        
+        if not consumer_key or not consumer_secret:
+            return False, "OAuth 1.0 consumer credentials not configured"
+        
+        # Get Authorization header
+        auth_header = headers.get('authorization', '')
+        
+        if not auth_header:
+            return False, "Missing Authorization header"
+        
+        if not auth_header.startswith('OAuth '):
+            return False, "OAuth 1.0 authentication required"
+        
+        try:
+            # Parse OAuth parameters from Authorization header
+            oauth_params = self._parse_oauth_header(auth_header)
+            
+            # Validate required parameters
+            required_params = ['oauth_consumer_key', 'oauth_signature_method', 'oauth_signature']
+            for param in required_params:
+                if param not in oauth_params:
+                    return False, f"Missing required OAuth 1.0 parameter: {param}"
+            
+            # Validate consumer key
+            if oauth_params['oauth_consumer_key'] != consumer_key:
+                return False, "Invalid OAuth 1.0 consumer key"
+            
+            # Validate signature method
+            if oauth_params['oauth_signature_method'].upper() != signature_method.upper():
+                return False, f"Invalid OAuth 1.0 signature method: {oauth_params['oauth_signature_method']}"
+            
+            # Validate timestamp if enabled
+            if verify_timestamp and 'oauth_timestamp' in oauth_params:
+                try:
+                    timestamp = int(oauth_params['oauth_timestamp'])
+                    current_time = int(time.time())
+                    time_diff = abs(current_time - timestamp)
+                    
+                    if time_diff > timestamp_window:
+                        return False, f"OAuth 1.0 timestamp out of window (diff: {time_diff}s, max: {timestamp_window}s)"
+                except (ValueError, TypeError):
+                    return False, "Invalid OAuth 1.0 timestamp"
+            
+            # Get request URI from config
+            request_uri = '/'
+            request_obj = self.config.get('_request')
+            if request_obj:
+                if hasattr(request_obj, 'scope'):
+                    # FastAPI Request object or mock - get path from scope
+                    if isinstance(request_obj.scope, dict):
+                        request_uri = request_obj.scope.get('path', '/')
+                    elif hasattr(request_obj.scope, 'get'):
+                        request_uri = request_obj.scope.get('path', '/')
+                elif hasattr(request_obj, 'url'):
+                    request_uri = str(request_obj.url.path)
+            
+            # Get token secret from config (if provided)
+            # Note: oauth_token_secret is not a standard OAuth 1.0 parameter in the header
+            # It's typically used during token exchange, not in webhook requests
+            # For webhooks, token_secret can be configured if needed
+            token_secret = token_secret_config
+            
+            # For PLAINTEXT, signature is just the signing key (no base string needed)
+            if signature_method.upper() == "PLAINTEXT":
+                from urllib.parse import quote
+                computed_signature = f"{quote(consumer_secret, safe='')}&{quote(token_secret, safe='')}"
+            else:
+                # Build signature base string for HMAC-SHA1, etc.
+                method = "POST"  # Webhooks are POST requests
+                base_string = self._build_signature_base_string(
+                    method,
+                    request_uri,
+                    oauth_params,
+                    body
+                )
+                
+                # Compute signature
+                computed_signature = self._compute_signature(
+                    base_string,
+                    consumer_secret,
+                    token_secret,
+                    signature_method
+                )
+            
+            # Compare signatures (constant-time)
+            received_signature = oauth_params['oauth_signature']
+            if not hmac.compare_digest(computed_signature, received_signature):
+                return False, "Invalid OAuth 1.0 signature"
+            
+            return True, "Valid OAuth 1.0 signature"
+            
+        except Exception as e:
+            return False, f"OAuth 1.0 validation error: {str(e)}"
+    
+    @staticmethod
+    def _parse_oauth_header(auth_header: str) -> Dict[str, str]:
+        """Parse OAuth Authorization header into parameters."""
+        from urllib.parse import unquote
+        
+        # Remove "OAuth " prefix
+        oauth_str = auth_header[6:].strip()
+        
+        params = {}
+        # Parse key="value" pairs
+        import re
+        pattern = r'(\w+)="([^"]+)"'
+        matches = re.findall(pattern, oauth_str)
+        
+        for key, value in matches:
+            # URL-decode the value (OAuth params are URL-encoded in header)
+            params[key] = unquote(value)
+        
+        return params
+    
+    @staticmethod
+    def _build_signature_base_string(
+        method: str,
+        uri: str,
+        oauth_params: Dict[str, str],
+        body: bytes
+    ) -> str:
+        """Build OAuth 1.0 signature base string."""
+        from urllib.parse import quote, urlparse
+        
+        # Normalize URI (scheme://host:port/path, no query/fragment)
+        # For webhooks, URI is typically just the path
+        if '://' in uri:
+            parsed = urlparse(uri)
+            normalized_uri = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        else:
+            # If no scheme, assume it's just the path
+            normalized_uri = uri.split('?')[0]
+        
+        # Collect all parameters (oauth_* params, excluding oauth_signature)
+        all_params = {}
+        for key, value in oauth_params.items():
+            if key != 'oauth_signature':
+                all_params[key] = value
+        
+        # Add body parameters if present (for form-encoded body)
+        if body:
+            try:
+                body_str = body.decode('utf-8')
+                if 'application/x-www-form-urlencoded' in str(body):
+                    from urllib.parse import parse_qs
+                    body_params = parse_qs(body_str, keep_blank_values=True)
+                    for key, values in body_params.items():
+                        all_params[key] = values[0] if values else ''
+            except (UnicodeDecodeError, ValueError):
+                pass
+        
+        # Sort parameters by key, then by value
+        sorted_params = sorted(all_params.items())
+        
+        # Percent-encode and join
+        param_string = '&'.join([f"{quote(str(k), safe='')}={quote(str(v), safe='')}" for k, v in sorted_params])
+        
+        # Build base string: METHOD&URI&PARAMS
+        base_string = f"{method.upper()}&{quote(normalized_uri, safe='')}&{quote(param_string, safe='')}"
+        
+        return base_string
+    
+    @staticmethod
+    def _compute_signature(
+        base_string: str,
+        consumer_secret: str,
+        token_secret: str,
+        signature_method: str
+    ) -> str:
+        """Compute OAuth 1.0 signature."""
+        from urllib.parse import quote
+        
+        method = signature_method.upper()
+        
+        if method == "HMAC-SHA1":
+            # Signing key = consumer_secret&token_secret
+            signing_key = f"{quote(consumer_secret, safe='')}&{quote(token_secret, safe='')}"
+            
+            # Compute HMAC-SHA1
+            signature = hmac.new(
+                signing_key.encode('utf-8'),
+                base_string.encode('utf-8'),
+                hashlib.sha1
+            ).digest()
+            
+            # Base64 encode
+            return base64.b64encode(signature).decode('utf-8')
+        
+        elif method == "PLAINTEXT":
+            # PLAINTEXT: signing_key as-is (no base string needed, signature is the key itself)
+            signing_key = f"{quote(consumer_secret, safe='')}&{quote(token_secret, safe='')}"
+            return signing_key
+        
+        elif method == "RSA-SHA1":
+            # RSA-SHA1 requires private key, not supported for validation
+            raise ValueError("RSA-SHA1 signature validation not supported (requires private key)")
+        
+        else:
+            raise ValueError(f"Unsupported OAuth 1.0 signature method: {method}")
 
 
 class RecaptchaValidator(BaseValidator):
