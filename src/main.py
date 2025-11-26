@@ -95,10 +95,19 @@ async def read_webhook(webhook_id: str,  request: Request):
         raise HTTPException(status_code=401, detail=message)
 
     # Process webhook and get payload/headers for logging
-    payload, headers = await webhook_handler.process_webhook()
+    # HTTPException should be re-raised (not caught), other exceptions are internal errors
+    result = await webhook_handler.process_webhook()
+    
+    # Handle return value (always returns tuple of 3: payload, headers, task)
+    payload, headers, task = result
 
     # Update stats (persistent in Redis)
-    await stats.increment(webhook_id)
+    # Don't fail webhook if stats fail
+    try:
+        await stats.increment(webhook_id)
+    except Exception as e:
+        print(f"Failed to update stats: {e}")
+        # Continue processing even if stats fail
 
     # Automatically log all webhook events to ClickHouse
     # This allows analytics service to process them later
@@ -111,6 +120,50 @@ async def read_webhook(webhook_id: str,  request: Request):
             # Don't fail webhook if logging fails
             print(f"Failed to log webhook event to ClickHouse: {e}")
 
+    # Check if retry is configured and task is running
+    retry_config = webhook_handler.config.get("retry", {})
+    if task and retry_config.get("enabled", False):
+        # Check task result after a short delay to see if it succeeded immediately
+        # If task is still running, it means retries are happening
+        await asyncio.sleep(0.1)  # Small delay to check initial attempt
+        
+        if task.done():
+            try:
+                success, error = task.result()
+                if success:
+                    return JSONResponse(content={"message": "200 OK", "status": "processed"})
+                else:
+                    # Retries configured but all attempts failed (will continue in background)
+                    return JSONResponse(
+                        content={
+                            "message": "202 Accepted",
+                            "status": "accepted",
+                            "note": "Request accepted, processing in background with retries"
+                        },
+                        status_code=202
+                    )
+            except Exception as e:
+                # Task raised an exception
+                return JSONResponse(
+                    content={
+                        "message": "202 Accepted",
+                        "status": "accepted",
+                        "note": "Request accepted, processing in background"
+                    },
+                    status_code=202
+                )
+        else:
+            # Task still running, retries in progress
+            return JSONResponse(
+                content={
+                    "message": "202 Accepted",
+                    "status": "accepted",
+                    "note": "Request accepted, processing in background"
+                },
+                status_code=202
+            )
+    
+    # No retry configured or immediate success
     return JSONResponse(content={"message": "200 OK"})
 
 

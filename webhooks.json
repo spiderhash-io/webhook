@@ -10,5 +10,26 @@
     "print": {
         "data_type": "json",
         "module": "log"
+    },
+    "redis_test": {
+        "data_type": "json",
+        "module": "redis_publish",
+        "redis": {
+            "host": "localhost",
+            "port": 6380,
+            "channel": "webhook_events"
+        },
+        "retry": {
+            "enabled": true,
+            "max_attempts": 5,
+            "initial_delay": 1.0,
+            "max_delay": 10.0,
+            "backoff_multiplier": 2.0
+        }
+    },
+    "performance_test_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer test_token"
     }
 }

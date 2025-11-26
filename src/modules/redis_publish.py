@@ -29,18 +29,19 @@ class RedisPublishModule(BaseModule):
         channel = redis_cfg.get("channel", "webhook_events")
 
         # Create a Redis client (synchronous, but fast for simple publish)
+        client = redis.Redis(host=host, port=port, socket_connect_timeout=5, socket_timeout=5)
+        
+        # Test connection - raise exception if connection fails (for retry mechanism)
         try:
-            client = redis.Redis(host=host, port=port)
-            # Test connection
             client.ping()
-        except Exception:
-            # Fallback to in-memory fake Redis for testing / when real Redis unavailable
-            client = fakeredis.FakeRedis()
+        except (redis.ConnectionError, redis.TimeoutError, ConnectionRefusedError, OSError) as e:
+            raise ConnectionError(f"Failed to connect to Redis at {host}:{port}: {e}")
+        
         # Serialize payload and headers as JSON
         message = json.dumps({"payload": payload, "headers": dict(headers)})
+        
         try:
             client.publish(channel, message)
             print(f"Published webhook payload to Redis channel '{channel}'")
-        except Exception as e:
-            # Log the error but do not crash the webhook processing
-            print(f"Failed to publish to Redis channel '{channel}': {e}")
+        except (redis.ConnectionError, redis.TimeoutError, ConnectionRefusedError, OSError) as e:
+            raise ConnectionError(f"Failed to publish to Redis channel '{channel}': {e}")

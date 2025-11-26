@@ -5,6 +5,7 @@ from fastapi import HTTPException, Request
 from src.modules.registry import ModuleRegistry
 from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator, RecaptchaValidator
 from src.input_validator import InputValidator
+from src.retry_handler import retry_handler
 
 
 class WebhookHandler:
@@ -100,7 +101,27 @@ class WebhookHandler:
         # Add webhook_id to config for modules that need it (e.g., ClickHouse)
         module_config = {**self.config, '_webhook_id': self.webhook_id}
         module = module_class(module_config)
-        asyncio.create_task(module.process(payload, dict(self.headers.items())))
         
-        # Return payload and headers for ClickHouse logging
-        return payload, dict(self.headers.items())
+        # Get retry configuration
+        retry_config = self.config.get("retry", {})
+        
+        # If retry is enabled, execute with retry handler
+        if retry_config.get("enabled", False):
+            # Execute module with retry logic
+            async def execute_module():
+                return await retry_handler.execute_with_retry(
+                    module.process,
+                    payload,
+                    dict(self.headers.items()),
+                    retry_config=retry_config
+                )
+            
+            # Execute with retry (fire-and-forget, but track result)
+            task = asyncio.create_task(execute_module())
+            
+            # Return payload, headers, and task for status checking
+            return payload, dict(self.headers.items()), task
+        else:
+            # No retry configured, execute normally (fire-and-forget)
+            asyncio.create_task(module.process(payload, dict(self.headers.items())))
+            return payload, dict(self.headers.items()), None
