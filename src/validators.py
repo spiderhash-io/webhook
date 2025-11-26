@@ -612,6 +612,110 @@ class OAuth2Validator(BaseValidator):
         return False, "OAuth 2.0 validation not properly configured (missing introspection_endpoint or jwt_secret)"
 
 
+class DigestAuthValidator(BaseValidator):
+    """Validates HTTP Digest Authentication (RFC 7616)."""
+    
+    async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
+        """Validate HTTP Digest Authentication."""
+        digest_auth_config = self.config.get("digest_auth")
+        
+        # If digest_auth is not in config at all, skip validation
+        if digest_auth_config is None:
+            return True, "No digest auth required"
+        
+        # If digest_auth exists but is empty dict or missing credentials, fail
+        username = digest_auth_config.get("username") if digest_auth_config else None
+        password = digest_auth_config.get("password") if digest_auth_config else None
+        realm = digest_auth_config.get("realm", "Webhook API") if digest_auth_config else "Webhook API"
+        algorithm = digest_auth_config.get("algorithm", "MD5") if digest_auth_config else "MD5"
+        qop = digest_auth_config.get("qop", "auth") if digest_auth_config else "auth"
+        
+        # Check if credentials are configured (empty string is not valid)
+        if username is None or password is None or username == "" or password == "":
+            return False, "Digest auth credentials not configured"
+        
+        # Get Authorization header
+        auth_header = headers.get('authorization', '')
+        
+        if not auth_header:
+            return False, "Missing Authorization header"
+        
+        if not auth_header.startswith('Digest '):
+            return False, "Digest authentication required"
+        
+        try:
+            # Parse Digest header
+            digest_params = self._parse_digest_header(auth_header)
+            
+            # Validate required parameters
+            required_params = ['username', 'realm', 'nonce', 'uri', 'response']
+            for param in required_params:
+                if param not in digest_params:
+                    return False, f"Missing required Digest parameter: {param}"
+            
+            # Validate username
+            if digest_params['username'] != username:
+                return False, "Invalid digest auth username"
+            
+            # Validate realm
+            if digest_params.get('realm') != realm:
+                return False, "Invalid digest auth realm"
+            
+            # Compute expected response
+            # HA1 = MD5(username:realm:password)
+            ha1 = hashlib.md5(f"{username}:{realm}:{password}".encode()).hexdigest()
+            
+            # HA2 = MD5(method:uri) for qop="auth"
+            method = "POST"  # Webhooks are POST requests
+            uri = digest_params.get('uri', '/')
+            ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()
+            
+            # Response = MD5(HA1:nonce:nonceCount:cnonce:qop:HA2)
+            nonce = digest_params.get('nonce', '')
+            nc = digest_params.get('nc', '00000001')
+            cnonce = digest_params.get('cnonce', '')
+            
+            if qop == "auth" and cnonce:
+                response_str = f"{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}"
+            else:
+                # No qop
+                response_str = f"{ha1}:{nonce}:{ha2}"
+            
+            expected_response = hashlib.md5(response_str.encode()).hexdigest()
+            
+            # Compare responses (constant-time)
+            received_response = digest_params.get('response', '')
+            if not hmac.compare_digest(received_response.lower(), expected_response.lower()):
+                return False, "Invalid digest auth response"
+            
+            # Validate algorithm if specified
+            if 'algorithm' in digest_params:
+                if digest_params['algorithm'].upper() != algorithm.upper():
+                    return False, f"Invalid digest auth algorithm: {digest_params['algorithm']}"
+            
+            return True, "Valid digest authentication"
+            
+        except Exception as e:
+            return False, f"Digest auth validation error: {str(e)}"
+    
+    @staticmethod
+    def _parse_digest_header(auth_header: str) -> Dict[str, str]:
+        """Parse Digest Authorization header into parameters."""
+        # Remove "Digest " prefix
+        digest_str = auth_header[7:].strip()
+        
+        params = {}
+        # Parse key="value" pairs
+        import re
+        pattern = r'(\w+)=["\']?([^,"\']+)["\']?'
+        matches = re.findall(pattern, digest_str)
+        
+        for key, value in matches:
+            params[key.lower()] = value.strip('"\'')
+        
+        return params
+
+
 class RecaptchaValidator(BaseValidator):
     """Validates Google reCAPTCHA token."""
     

@@ -2,7 +2,7 @@
 
 A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, disk, or stdout.
 
-**Status**: Production-ready with comprehensive security features, 232 passing tests, and support for multiple output destinations.
+**Status**: Production-ready with comprehensive security features, 255 passing tests, and support for multiple output destinations.
 
 ## Features
 
@@ -380,6 +380,46 @@ Authenticate webhooks using API keys passed in custom headers (e.g., `X-API-Key`
 - Validates empty keys and missing headers
 - Handles special characters, Unicode, and injection attempts
 
+#### HTTP Digest Authentication
+Authenticate webhooks using HTTP Digest Authentication (RFC 7616), a challenge-response authentication method that doesn't transmit passwords in plain text.
+
+```json
+{
+    "digest_auth_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "digest_auth": {
+            "username": "{$DIGEST_USERNAME:webhook_user}",
+            "password": "{$DIGEST_PASSWORD}",
+            "realm": "{$DIGEST_REALM:Webhook API}",
+            "algorithm": "MD5",
+            "qop": "auth"
+        }
+    }
+}
+```
+
+**Configuration Options:**
+- `username`: Expected username
+- `password`: Expected password
+- `realm`: Authentication realm (default: `"Webhook API"`)
+- `algorithm`: Hash algorithm (default: `"MD5"`)
+- `qop`: Quality of protection (default: `"auth"`, can be empty for no qop)
+
+**Usage:**
+- Send requests with Digest Authorization header: `Authorization: Digest username="...", realm="...", nonce="...", uri="...", response="...", ...`
+- Supports MD5 algorithm
+- Supports qop="auth" and no-qop modes
+- Validates username, realm, and response hash
+- Constant-time comparison for security
+
+**Security Features:**
+- No password transmission (uses MD5 hash)
+- Nonce-based challenge-response
+- Constant-time response comparison (timing attack resistant)
+- Realm validation
+- URI and method validation
+
 #### OAuth 2.0 Authentication
 Authenticate webhooks using OAuth 2.0 access tokens with token introspection or JWT validation.
 
@@ -672,7 +712,7 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **Cloudflare Turnstile Validation**: Implement backend validation for Cloudflare Turnstile tokens.
 
 ### 4. Authentication Methods Enhancement
-**Current Status**: 9/11 authentication methods implemented (81.8% coverage)
+**Current Status**: 10/11 authentication methods implemented (90.9% coverage)
 
 **Implemented** ✅:
 - [x] **Basic Auth**: HTTP Basic Authentication with constant-time comparison
@@ -689,20 +729,21 @@ This list is ordered from easiest/highest impact to more complex features.
 - [x] **Query Parameter Auth**: API key authentication via query parameters (?api_key=xxx) ✅
 - [x] **Generic Header Auth**: Custom header-based API key auth (X-API-Key, X-Auth-Token, etc.) ✅
 - [x] **OAuth 2.0**: OAuth 2.0 access token validation - Token introspection and JWT validation ✅
+- [x] **Digest Auth**: HTTP Digest Authentication (RFC 7616) - Challenge-response auth without password transmission ✅
 
 **Priority**:
-1. **Medium**: Digest Auth, OAuth 1.0
+1. **Low**: OAuth 1.0 (legacy, rarely used)
 
 See [docs/AUTH_METHODS_ANALYSIS.md](docs/AUTH_METHODS_ANALYSIS.md) for detailed analysis.
 
 ### 5. Testing & Documentation
-- [x] **Unit Tests**: Comprehensive test suite with 232 tests covering validators, modules, and core functionality. ✅
+- [x] **Unit Tests**: Comprehensive test suite with 255 tests covering validators, modules, and core functionality. ✅
 - [x] **Integration Tests**: Tests for full webhook flow, authentication, validation, and module processing. ✅
 - [ ] **Performance Tests**: Expand performance testing documentation and benchmarks.
 
 ## Test Status
 
-**Current Test Coverage: 232 tests passing** ✅
+**Current Test Coverage: 255 tests passing** ✅
 
 Test suites include:
 - Authentication tests (Basic Auth, JWT, Authorization)

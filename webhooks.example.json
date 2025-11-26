@@ -47,6 +47,17 @@
             "verify_exp": true
         }
     },
+    "digest_auth_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "digest_auth": {
+            "username": "{$DIGEST_USERNAME:webhook_user}",
+            "password": "{$DIGEST_PASSWORD}",
+            "realm": "{$DIGEST_REALM:Webhook API}",
+            "algorithm": "MD5",
+            "qop": "auth"
+        }
+    },
     "stripe_webhook": {
         "data_type": "json",
         "module": "save_to_disk",
