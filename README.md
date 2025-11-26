@@ -2,7 +2,7 @@
 
 A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, disk, or stdout.
 
-**Status**: Production-ready with comprehensive security features, 172 passing tests, and support for multiple output destinations.
+**Status**: Production-ready with comprehensive security features, 202 passing tests, and support for multiple output destinations.
 
 ## Features
 
@@ -345,6 +345,41 @@ Validate incoming webhook payloads against a JSON schema to ensure data structur
 }
 ```
 
+#### Header-based Authentication
+Authenticate webhooks using API keys passed in custom headers (e.g., `X-API-Key`, `X-Auth-Token`).
+
+```json
+{
+    "header_auth_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "header_auth": {
+            "header_name": "X-API-Key",
+            "api_key": "{$HEADER_AUTH_KEY:secret_api_key_123}",
+            "case_sensitive": false
+        }
+    }
+}
+```
+
+**Configuration Options:**
+- `header_name`: Header name to look for (default: `"X-API-Key"`)
+- `api_key`: Expected API key value (required)
+- `case_sensitive`: Whether key comparison is case-sensitive (default: `false`)
+
+**Usage:**
+- Send requests with API key in custom header: `X-API-Key: secret_api_key_123`
+- Header name lookup is case-insensitive (e.g., `x-api-key`, `X-API-Key`, `X-Api-Key` all work)
+- Supports common header names: `X-API-Key`, `X-Auth-Token`, `X-Access-Token`, `API-Key`, etc.
+- Uses constant-time comparison to resist timing attacks
+
+**Security Features:**
+- Constant-time key comparison (timing attack resistant)
+- Case-insensitive header name lookup
+- Case-insensitive key comparison by default (configurable)
+- Validates empty keys and missing headers
+- Handles special characters, Unicode, and injection attempts
+
 #### Query Parameter Authentication
 Authenticate webhooks using API keys passed as query parameters (e.g., `?api_key=xxx`).
 
@@ -571,7 +606,7 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **Cloudflare Turnstile Validation**: Implement backend validation for Cloudflare Turnstile tokens.
 
 ### 4. Authentication Methods Enhancement
-**Current Status**: 7/11 authentication methods implemented (63.6% coverage)
+**Current Status**: 8/11 authentication methods implemented (72.7% coverage)
 
 **Implemented** ✅:
 - [x] **Basic Auth**: HTTP Basic Authentication with constant-time comparison
@@ -586,22 +621,22 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **OAuth 1.0**: OAuth 1.0 signature validation - For Twitter and legacy OAuth providers
 - [ ] **OAuth 2.0**: OAuth 2.0 access token validation - Modern standard, token introspection
 - [x] **Query Parameter Auth**: API key authentication via query parameters (?api_key=xxx) ✅
-- [ ] **Generic Header Auth**: Custom header-based API key auth (X-API-Key, X-Auth-Token, etc.)
+- [x] **Generic Header Auth**: Custom header-based API key auth (X-API-Key, X-Auth-Token, etc.) ✅
 
 **Priority**:
-1. **High**: Query Parameter Auth, Generic Header Auth, OAuth 2.0
+1. **High**: OAuth 2.0 (remaining high priority)
 2. **Medium**: Digest Auth, OAuth 1.0
 
 See [docs/AUTH_METHODS_ANALYSIS.md](docs/AUTH_METHODS_ANALYSIS.md) for detailed analysis.
 
 ### 5. Testing & Documentation
-- [x] **Unit Tests**: Comprehensive test suite with 172 tests covering validators, modules, and core functionality. ✅
+- [x] **Unit Tests**: Comprehensive test suite with 202 tests covering validators, modules, and core functionality. ✅
 - [x] **Integration Tests**: Tests for full webhook flow, authentication, validation, and module processing. ✅
 - [ ] **Performance Tests**: Expand performance testing documentation and benchmarks.
 
 ## Test Status
 
-**Current Test Coverage: 172 tests passing** ✅
+**Current Test Coverage: 202 tests passing** ✅
 
 Test suites include:
 - Authentication tests (Basic Auth, JWT, Authorization)

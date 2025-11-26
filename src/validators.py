@@ -398,6 +398,72 @@ class QueryParameterAuthValidator(BaseValidator):
         return True, "Valid query parameter authentication"
 
 
+class HeaderAuthValidator(BaseValidator):
+    """Validates API key authentication via custom headers."""
+    
+    async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
+        """Validate API key from custom header."""
+        header_auth_config = self.config.get("header_auth")
+        
+        # If header_auth is not in config at all, no auth required
+        if header_auth_config is None:
+            return True, "No header auth required"
+        
+        # If header_auth exists but is empty dict or api_key is not set, it's a configuration error
+        if not header_auth_config or "api_key" not in header_auth_config:
+            return False, "Header auth API key not configured"
+        
+        header_name = header_auth_config.get("header_name", "X-API-Key")
+        expected_key = header_auth_config.get("api_key")
+        case_sensitive = header_auth_config.get("case_sensitive", False)
+        
+        # Check if api_key is configured (empty string is not valid)
+        if expected_key == "":
+            return False, "Header auth API key not configured"
+        
+        # Get the API key from headers (case-insensitive header lookup)
+        header_name_lower = header_name.lower()
+        received_key = None
+        header_found = False
+        
+        # Try exact match first
+        if header_name in headers:
+            received_key = headers[header_name]
+            header_found = True
+        # Try case-insensitive lookup
+        elif header_name_lower in headers:
+            received_key = headers[header_name_lower]
+            header_found = True
+        else:
+            # Check all headers case-insensitively
+            for key, value in headers.items():
+                if key.lower() == header_name_lower:
+                    received_key = value
+                    header_found = True
+                    break
+        
+        if not header_found:
+            return False, f"Missing required header: {header_name}"
+        
+        # Check if header value is empty (header exists but value is empty)
+        if received_key == "":
+            return False, f"Invalid API key in header: {header_name}"
+        
+        # Validate key with constant-time comparison
+        if case_sensitive:
+            is_valid = hmac.compare_digest(received_key.encode('utf-8'), expected_key.encode('utf-8'))
+        else:
+            is_valid = hmac.compare_digest(
+                received_key.lower().encode('utf-8'),
+                expected_key.lower().encode('utf-8')
+            )
+        
+        if not is_valid:
+            return False, f"Invalid API key in header: {header_name}"
+        
+        return True, "Valid header authentication"
+
+
 class RecaptchaValidator(BaseValidator):
     """Validates Google reCAPTCHA token."""
     

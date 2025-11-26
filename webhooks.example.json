@@ -13,6 +13,15 @@
             "case_sensitive": false
         }
     },
+    "header_auth_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "header_auth": {
+            "header_name": "X-API-Key",
+            "api_key": "{$HEADER_AUTH_KEY:secret_api_key_123}",
+            "case_sensitive": false
+        }
+    },
     "stripe_webhook": {
         "data_type": "json",
         "module": "save_to_disk",
