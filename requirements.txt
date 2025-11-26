@@ -18,3 +18,4 @@ websockets
 PyJWT
 
 clickhouse-driver
+jsonschema

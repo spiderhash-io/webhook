@@ -168,5 +168,36 @@
             "port": 6379,
             "channel": "webhook_events"
         }
+    },
+    "json_schema_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "json_schema": {
+            "type": "object",
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "integer"
+                        },
+                        "name": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "id",
+                        "name"
+                    ]
+                }
+            },
+            "required": [
+                "event",
+                "data"
+            ]
+        }
     }
 }

@@ -3,7 +3,7 @@ import asyncio
 
 from fastapi import HTTPException, Request
 from src.modules.registry import ModuleRegistry
-from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator
+from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator
 from src.input_validator import InputValidator
 
 
@@ -25,6 +25,7 @@ class WebhookHandler:
             AuthorizationValidator(self.config),  # Bearer token (simple)
             HMACValidator(self.config),  # HMAC signature
             IPWhitelistValidator(self.config),  # IP whitelist
+            JsonSchemaValidator(self.config),  # JSON Schema validation
         ]
 
     async def validate_webhook(self):

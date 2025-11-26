@@ -281,3 +281,39 @@ class RateLimitValidator(BaseValidator):
         )
         
         return is_allowed, message
+
+
+class JsonSchemaValidator(BaseValidator):
+    """Validates request body against a JSON schema."""
+    
+    async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
+        """Validate request body against JSON schema."""
+        schema = self.config.get("json_schema", {})
+        
+        if not schema:
+            return True, "No JSON schema configured"
+        
+        # Import here to avoid import errors if jsonschema is not installed
+        try:
+            import json
+            import jsonschema
+            from jsonschema import validate
+        except ImportError:
+            return False, "jsonschema library not installed"
+        
+        try:
+            # Parse body as JSON
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            return False, "Invalid JSON body"
+        
+        try:
+            # Validate against schema
+            validate(instance=payload, schema=schema)
+            return True, "Valid JSON schema"
+        except jsonschema.exceptions.ValidationError as e:
+            return False, f"JSON schema validation failed: {e.message}"
+        except jsonschema.exceptions.SchemaError as e:
+            return False, f"Invalid JSON schema configuration: {e.message}"
+        except Exception as e:
+            return False, f"JSON schema validation error: {str(e)}"

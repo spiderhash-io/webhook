@@ -18,6 +18,7 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - **IP Whitelisting**: Restrict webhooks to specific IP addresses.
 - **Multi-Layer Validation**: Combine multiple validators (Authorization + HMAC + IP whitelist).
 - **Payload Validation**: Validates JSON payloads.
+- **JSON Schema Validation**: Validate incoming payloads against defined JSON schemas.
 
 ## Project Structure
 
@@ -214,6 +215,34 @@ The application includes CORS middleware enabled by default, allowing webhooks t
 }
 ```
 
+#### JSON Schema Validation
+Validate incoming webhook payloads against a JSON schema to ensure data structure compliance:
+```json
+{
+    "validated_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer token",
+        "json_schema": {
+            "type": "object",
+            "properties": {
+                "event": {"type": "string"},
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "name": {"type": "string"}
+                    },
+                    "required": ["id", "name"]
+                }
+            },
+            "required": ["event", "data"]
+        }
+    }
+}
+```
+
+
 #### Kafka Integration
 ```json
 {
@@ -336,7 +365,7 @@ This list is ordered from easiest/highest impact to more complex features.
 - [x] **Analytics**: Create option to save statistics and logs to clickhouse db, there will be another UI project that will access it ✅
 - [ ] **Dynamic OpenAPI Docs**: Generate OpenAPI documentation automatically based on `webhooks.json` config.
 - [ ] **Payload Transformation**: Add a step to transform payload structure before sending to destination.
-- [ ] **JSON Schema Validation**: Validate incoming webhook payloads against a defined JSON schema.
+- [x] **JSON Schema Validation**: Validate incoming webhook payloads against a defined JSON schema.
 - [ ] **Google reCAPTCHA Validation**: Implement backend validation for Google reCAPTCHA tokens.
 - [ ] **Cloudflare Turnstile Validation**: Implement backend validation for Cloudflare Turnstile tokens.
 - [ ] **Retry Mechanism**: Implement retries for failed module executions (e.g., if RabbitMQ is down).
