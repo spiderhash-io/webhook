@@ -332,10 +332,11 @@ This list is ordered from easiest/highest impact to more complex features.
 - [x] **Implement Websockets Module**: Forward webhooks to a websocket connection.
 
 ### 3. Advanced Improvements
-- [ ] **Persistent Statistics**: Move stats from in-memory (`src/utils.py`) to Redis or a database to survive restarts.
+- [x] **Persistent Statistics**: Move stats from in-memory (`src/utils.py`) to Redis or a database to survive restarts.
 - [x] **Analytics**: Create option to save statistics and logs to clickhouse db, there will be another UI project that will access it ✅
 - [ ] **Dynamic OpenAPI Docs**: Generate OpenAPI documentation automatically based on `webhooks.json` config.
 - [ ] **Payload Transformation**: Add a step to transform payload structure before sending to destination.
+- [ ] **JSON Schema Validation**: Validate incoming webhook payloads against a defined JSON schema.
 - [ ] **Retry Mechanism**: Implement retries for failed module executions (e.g., if RabbitMQ is down).
 
 ### 4. Testing & Documentation
