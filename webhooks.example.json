@@ -4,6 +4,15 @@
         "module": "log",
         "authorization": "Bearer github_secret_token_123"
     },
+    "query_auth_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "query_auth": {
+            "parameter_name": "api_key",
+            "api_key": "{$QUERY_AUTH_KEY:secret_api_key_123}",
+            "case_sensitive": false
+        }
+    },
     "stripe_webhook": {
         "data_type": "json",
         "module": "save_to_disk",

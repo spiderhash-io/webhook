@@ -3,7 +3,7 @@ import asyncio
 
 from fastapi import HTTPException, Request
 from src.modules.registry import ModuleRegistry
-from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator, RecaptchaValidator
+from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator, RecaptchaValidator, QueryParameterAuthValidator
 from src.input_validator import InputValidator
 from src.retry_handler import retry_handler
 
@@ -28,6 +28,7 @@ class WebhookHandler:
             HMACValidator(self.config),  # HMAC signature
             IPWhitelistValidator(self.config),  # IP whitelist
             JsonSchemaValidator(self.config),  # JSON Schema validation
+            QueryParameterAuthValidator(self.config),  # Query parameter auth
         ]
 
     async def validate_webhook(self):
@@ -38,9 +39,19 @@ class WebhookHandler:
         # Convert headers to dict
         headers_dict = {k.lower(): v for k, v in self.request.headers.items()}
         
+        # Get query parameters for query auth validation
+        query_params = dict(self.request.query_params)
+        
         # Run all validators
         for validator in self.validators:
-            is_valid, message = await validator.validate(headers_dict, body)
+            # Query parameter auth needs special handling
+            if isinstance(validator, QueryParameterAuthValidator):
+                is_valid, message = QueryParameterAuthValidator.validate_query_params(
+                    query_params, self.config
+                )
+            else:
+                is_valid, message = await validator.validate(headers_dict, body)
+            
             if not is_valid:
                 return False, message
         

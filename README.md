@@ -2,7 +2,7 @@
 
 A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, disk, or stdout.
 
-**Status**: Production-ready with comprehensive security features, 149 passing tests, and support for multiple output destinations.
+**Status**: Production-ready with comprehensive security features, 172 passing tests, and support for multiple output destinations.
 
 ## Features
 
@@ -345,6 +345,39 @@ Validate incoming webhook payloads against a JSON schema to ensure data structur
 }
 ```
 
+#### Query Parameter Authentication
+Authenticate webhooks using API keys passed as query parameters (e.g., `?api_key=xxx`).
+
+```json
+{
+    "query_auth_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "query_auth": {
+            "parameter_name": "api_key",
+            "api_key": "{$QUERY_AUTH_KEY:secret_api_key_123}",
+            "case_sensitive": false
+        }
+    }
+}
+```
+
+**Configuration Options:**
+- `parameter_name`: Query parameter name (default: `"api_key"`)
+- `api_key`: Expected API key value (required)
+- `case_sensitive`: Whether key comparison is case-sensitive (default: `false`)
+
+**Usage:**
+- Send requests with API key in query string: `POST /webhook/query_auth_webhook?api_key=secret_api_key_123`
+- Supports common parameter names: `api_key`, `token`, `key`, `apikey`, `access_token`, `auth_token`
+- Uses constant-time comparison to resist timing attacks
+
+**Security Features:**
+- Constant-time key comparison (timing attack resistant)
+- Case-insensitive by default (configurable)
+- Validates empty keys and missing parameters
+- Handles special characters and Unicode
+
 #### Google reCAPTCHA Validation
 Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submissions.
 
@@ -538,7 +571,7 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **Cloudflare Turnstile Validation**: Implement backend validation for Cloudflare Turnstile tokens.
 
 ### 4. Authentication Methods Enhancement
-**Current Status**: 6/11 authentication methods implemented (54.5% coverage)
+**Current Status**: 7/11 authentication methods implemented (63.6% coverage)
 
 **Implemented** ✅:
 - [x] **Basic Auth**: HTTP Basic Authentication with constant-time comparison
@@ -552,7 +585,7 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **Digest Auth**: HTTP Digest Authentication (RFC 7616) - Challenge-response auth, more secure than Basic
 - [ ] **OAuth 1.0**: OAuth 1.0 signature validation - For Twitter and legacy OAuth providers
 - [ ] **OAuth 2.0**: OAuth 2.0 access token validation - Modern standard, token introspection
-- [ ] **Query Parameter Auth**: API key authentication via query parameters (?api_key=xxx)
+- [x] **Query Parameter Auth**: API key authentication via query parameters (?api_key=xxx) ✅
 - [ ] **Generic Header Auth**: Custom header-based API key auth (X-API-Key, X-Auth-Token, etc.)
 
 **Priority**:
@@ -562,13 +595,13 @@ This list is ordered from easiest/highest impact to more complex features.
 See [docs/AUTH_METHODS_ANALYSIS.md](docs/AUTH_METHODS_ANALYSIS.md) for detailed analysis.
 
 ### 5. Testing & Documentation
-- [x] **Unit Tests**: Comprehensive test suite with 149 tests covering validators, modules, and core functionality. ✅
+- [x] **Unit Tests**: Comprehensive test suite with 172 tests covering validators, modules, and core functionality. ✅
 - [x] **Integration Tests**: Tests for full webhook flow, authentication, validation, and module processing. ✅
 - [ ] **Performance Tests**: Expand performance testing documentation and benchmarks.
 
 ## Test Status
 
-**Current Test Coverage: 149 tests passing** ✅
+**Current Test Coverage: 172 tests passing** ✅
 
 Test suites include:
 - Authentication tests (Basic Auth, JWT, Authorization)

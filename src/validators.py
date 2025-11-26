@@ -320,6 +320,84 @@ class JsonSchemaValidator(BaseValidator):
             return False, f"JSON schema validation error: {str(e)}"
 
 
+class QueryParameterAuthValidator(BaseValidator):
+    """Validates API key authentication via query parameters."""
+    
+    async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
+        """Validate API key from query parameters."""
+        query_auth_config = self.config.get("query_auth", {})
+        
+        if not query_auth_config:
+            return True, "No query parameter auth required"
+        
+        parameter_name = query_auth_config.get("parameter_name", "api_key")
+        expected_key = query_auth_config.get("api_key")
+        case_sensitive = query_auth_config.get("case_sensitive", False)
+        
+        if not expected_key:
+            return False, "Query auth API key not configured"
+        
+        # Note: Query parameters need to be passed from the request
+        # Since we only have headers and body here, we need to get query params
+        # from the request object. This will be handled in webhook.py
+        
+        return True, "Query parameter auth validation (requires request object)"
+    
+    @staticmethod
+    def validate_query_params(query_params: Dict[str, str], config: Dict[str, Any]) -> Tuple[bool, str]:
+        """
+        Validate query parameters (static method to be called with request query params).
+        
+        Args:
+            query_params: Dictionary of query parameters from request
+            config: Webhook configuration
+            
+        Returns:
+            Tuple of (is_valid, message)
+        """
+        query_auth_config = config.get("query_auth")
+        
+        # If query_auth is not in config at all, no auth required
+        if query_auth_config is None:
+            return True, "No query parameter auth required"
+        
+        # If query_auth exists but is empty dict or api_key is not set, it's a configuration error
+        if not query_auth_config or "api_key" not in query_auth_config:
+            return False, "Query auth API key not configured"
+        
+        parameter_name = query_auth_config.get("parameter_name", "api_key")
+        expected_key = query_auth_config.get("api_key")
+        case_sensitive = query_auth_config.get("case_sensitive", False)
+        
+        # Check if api_key is configured (empty string is not valid)
+        if expected_key == "":
+            return False, "Query auth API key not configured"
+        
+        # Get the API key from query parameters
+        received_key = query_params.get(parameter_name)
+        
+        # Check if parameter is missing or empty
+        if received_key is None:
+            return False, f"Missing required query parameter: {parameter_name}"
+        
+        if received_key == "":
+            return False, f"Invalid API key in query parameter: {parameter_name}"
+        
+        # Validate key with constant-time comparison
+        if case_sensitive:
+            is_valid = hmac.compare_digest(received_key.encode('utf-8'), expected_key.encode('utf-8'))
+        else:
+            is_valid = hmac.compare_digest(
+                received_key.lower().encode('utf-8'),
+                expected_key.lower().encode('utf-8')
+            )
+        
+        if not is_valid:
+            return False, f"Invalid API key in query parameter: {parameter_name}"
+        
+        return True, "Valid query parameter authentication"
+
+
 class RecaptchaValidator(BaseValidator):
     """Validates Google reCAPTCHA token."""
     
