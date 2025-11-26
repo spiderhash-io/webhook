@@ -76,6 +76,65 @@ See [PERFORMANCE_TEST.md](PERFORMANCE_TEST.md) for detailed performance testing 
 
 ## Configuration
 
+### Environment Variables
+
+The configuration files (`webhooks.json` and `connections.json`) support environment variable substitution using the `{$VAR}` syntax. This allows you to keep sensitive data out of configuration files and use environment-specific values.
+
+#### Supported Patterns
+
+1. **Simple replacement**: `{$VAR}` - Replace entire value with environment variable
+2. **With default**: `{$VAR:default}` - Use environment variable or default value if not set
+3. **Embedded in strings**: Variables can be embedded within strings: `"http://{$HOST}:{$PORT}/api"`
+
+#### Examples
+
+**In `connections.json`:**
+```json
+{
+    "redis_prod": {
+        "type": "redis-rq",
+        "host": "{$REDIS_HOST}",
+        "port": "{$REDIS_PORT:6379}",
+        "db": "{$REDIS_DB:0}"
+    },
+    "rabbitmq_prod": {
+        "type": "rabbitmq",
+        "host": "{$RABBITMQ_HOST}",
+        "port": "{$RABBITMQ_PORT:5672}",
+        "user": "{$RABBITMQ_USER}",
+        "pass": "{$RABBITMQ_PASS}"
+    }
+}
+```
+
+**In `webhooks.json`:**
+```json
+{
+    "secure_webhook": {
+        "data_type": "json",
+        "module": "http_webhook",
+        "module-config": {
+            "url": "http://{$API_HOST:localhost}:{$API_PORT:8080}/webhooks",
+            "headers": {
+                "Authorization": "Bearer {$API_TOKEN}"
+            }
+        },
+        "authorization": "Bearer {$WEBHOOK_SECRET}",
+        "jwt": {
+            "secret": "{$JWT_SECRET}",
+            "algorithm": "{$JWT_ALGORITHM:HS256}"
+        }
+    }
+}
+```
+
+**Notes:**
+- Environment variables are loaded from the system environment and `.env` files (via `python-dotenv`)
+- Default values are used when environment variables are not set
+- Empty string defaults are supported: `{$VAR:}` 
+- Variables work in nested dictionaries and lists
+- Missing variables without defaults will show a warning and use a placeholder value
+
 ### `webhooks.json`
 Defines the webhooks to listen for.
 ```json

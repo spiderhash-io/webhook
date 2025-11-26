@@ -38,23 +38,80 @@ async def print_to_stdout(payload, headers, config):
 
 
 def load_env_vars(data):
-    # Regular expression to match the placeholder pattern
-    pattern = re.compile(r'^\{\$(\w+)\}$')
+    """
+    Load environment variables from configuration data.
+    
+    Supports multiple patterns:
+    1. {$VAR} - Replace entire value with environment variable
+    2. {$VAR:default} - Use environment variable or default value if not set
+    3. Embedded variables in strings: "http://{$HOST}:{$PORT}"
+    
+    Examples:
+        "host": "{$REDIS_HOST}" -> replaced with env var value
+        "host": "{$REDIS_HOST:localhost}" -> replaced with env var or "localhost"
+        "url": "http://{$HOST}:{$PORT}/api" -> replaced with env vars embedded in string
+    
+    Args:
+        data: Configuration data (dict, list, or primitive)
+        
+    Returns:
+        Data with environment variables replaced
+    """
+    # Pattern 1: Exact match {$VAR} or {$VAR:default} (default can be empty)
+    exact_pattern = re.compile(r'^\{\$(\w+)(?::(.*))?\}$')
+    # Pattern 2: Embedded variables in strings {$VAR} or {$VAR:default}
+    embedded_pattern = re.compile(r'\{\$(\w+)(?::([^}]*))?\}')
+
+    def process_string(value, context_key=None):
+        """Process a string value to replace environment variables."""
+        # Try exact match first (entire string is a variable)
+        exact_match = exact_pattern.match(value)
+        if exact_match:
+            env_var = exact_match.group(1)
+            default = exact_match.group(2)  # Can be None or empty string
+            env_value = os.getenv(env_var)
+            
+            if env_value is not None:
+                return env_value
+            elif default is not None:  # Includes empty string
+                return default
+            else:
+                # No default provided and env var not set
+                print(f"Warning: Environment variable '{env_var}' not set and no default provided for key '{context_key}'")
+                return f'Undefined variable {env_var}'
+        else:
+            # Try embedded variables (variables within strings)
+            def replace_embedded(match):
+                env_var = match.group(1)
+                default = match.group(2)  # Can be None or empty string
+                env_value = os.getenv(env_var)
+                
+                if env_value is not None:
+                    return env_value
+                elif default is not None:  # Includes empty string
+                    return default
+                else:
+                    # Keep original if not found and no default
+                    print(f"Warning: Environment variable '{env_var}' not set in embedded string for key '{context_key}'")
+                    return match.group(0)  # Return original placeholder
+            
+            # Replace all embedded variables
+            new_value = embedded_pattern.sub(replace_embedded, value)
+            return new_value
 
     if isinstance(data, dict):
         for key, value in data.items():
             if isinstance(value, str):
-                match = pattern.match(value)
-                if match:
-                    # Replace with environment variable if pattern matches
-                    env_var = match.group(1)
-                    data[key] = os.getenv(env_var, f'Undefined variable {env_var}')
+                data[key] = process_string(value, key)
             else:
                 # Recursive call for nested dictionaries or lists
                 load_env_vars(value)
     elif isinstance(data, list):
-        for item in data:
-            load_env_vars(item)
+        for i, item in enumerate(data):
+            if isinstance(item, str):
+                data[i] = process_string(item, f"list[{i}]")
+            else:
+                load_env_vars(item)
 
     return data
 

@@ -32,15 +32,16 @@
         "data_type": "json",
         "module": "http_webhook",
         "module-config": {
-            "url": "https://api.example.com/webhooks",
+            "url": "http://{$API_HOST:localhost}:{$API_PORT:8080}/webhooks",
             "method": "POST",
             "forward_headers": true,
             "headers": {
-                "X-Custom-Header": "value"
+                "X-Custom-Header": "{$CUSTOM_HEADER_VALUE:value}",
+                "X-API-Key": "{$API_KEY}"
             },
-            "timeout": 30
+            "timeout": "{$HTTP_TIMEOUT:30}"
         },
-        "authorization": "Bearer forward_secret_789"
+        "authorization": "Bearer {$FORWARD_SECRET}"
     },
     "github_webhook_with_hmac": {
         "data_type": "json",
@@ -145,18 +146,18 @@
         "data_type": "json",
         "module": "log",
         "basic_auth": {
-            "username": "admin",
-            "password": "secret_password_123"
+            "username": "{$BASIC_AUTH_USER:admin}",
+            "password": "{$BASIC_AUTH_PASSWORD}"
         }
     },
     "jwt_auth_webhook": {
         "data_type": "json",
         "module": "log",
         "jwt": {
-            "secret": "my_jwt_secret_key",
-            "algorithm": "HS256",
-            "issuer": "my-app",
-            "audience": "webhook-api",
+            "secret": "{$JWT_SECRET}",
+            "algorithm": "{$JWT_ALGORITHM:HS256}",
+            "issuer": "{$JWT_ISSUER:my-app}",
+            "audience": "{$JWT_AUDIENCE:webhook-api}",
             "verify_exp": true
         }
     },
@@ -204,11 +205,11 @@
         "data_type": "json",
         "module": "log",
         "recaptcha": {
-            "secret_key": "your_recaptcha_v3_secret_key",
-            "version": "v3",
-            "token_source": "header",
-            "token_field": "X-Recaptcha-Token",
-            "min_score": 0.5
+            "secret_key": "{$RECAPTCHA_SECRET_KEY}",
+            "version": "{$RECAPTCHA_VERSION:v3}",
+            "token_source": "{$RECAPTCHA_TOKEN_SOURCE:header}",
+            "token_field": "{$RECAPTCHA_TOKEN_FIELD:X-Recaptcha-Token}",
+            "min_score": "{$RECAPTCHA_MIN_SCORE:0.5}"
         }
     },
     "recaptcha_v2_webhook": {
@@ -225,15 +226,25 @@
         "data_type": "json",
         "module": "save_to_disk",
         "module-config": {
-            "path": "webhooks/recaptcha"
+            "path": "{$WEBHOOK_STORAGE_PATH:webhooks/recaptcha}"
         },
-        "authorization": "Bearer token_123",
+        "authorization": "Bearer {$AUTH_TOKEN}",
         "recaptcha": {
-            "secret_key": "your_recaptcha_secret_key",
-            "version": "v3",
+            "secret_key": "{$RECAPTCHA_SECRET_KEY}",
+            "version": "{$RECAPTCHA_VERSION:v3}",
             "token_source": "header",
             "token_field": "X-Recaptcha-Token",
-            "min_score": 0.7
+            "min_score": "{$RECAPTCHA_MIN_SCORE:0.7}"
         }
+    },
+    "webhook_with_embedded_env_vars": {
+        "data_type": "json",
+        "module": "http_webhook",
+        "module-config": {
+            "url": "http://{$API_HOST:localhost}:{$API_PORT:8080}/webhooks/{$ENDPOINT_PATH:events}",
+            "method": "{$HTTP_METHOD:POST}",
+            "timeout": "{$HTTP_TIMEOUT:30}"
+        },
+        "authorization": "Bearer {$API_TOKEN}"
     }
 }

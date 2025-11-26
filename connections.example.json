@@ -9,7 +9,7 @@
     "rabbitmq_prod": {
         "type": "rabbitmq",
         "host": "{$RABBITMQ_HOST}",
-        "port": 5672,
+        "port": "{$RABBITMQ_PORT:5672}",
         "user": "{$RABBITMQ_USER}",
         "pass": "{$RABBITMQ_PASS}"
     },
@@ -22,8 +22,8 @@
     "redis_prod": {
         "type": "redis-rq",
         "host": "{$REDIS_HOST}",
-        "port": 6379,
-        "db": 0
+        "port": "{$REDIS_PORT:6379}",
+        "db": "{$REDIS_DB:0}"
     },
     "kafka_local": {
         "type": "kafka",
@@ -50,10 +50,10 @@
     "clickhouse_prod": {
         "type": "clickhouse",
         "host": "{$CLICKHOUSE_HOST}",
-        "port": 9000,
-        "database": "{$CLICKHOUSE_DATABASE}",
-        "user": "{$CLICKHOUSE_USER}",
-        "password": "{$CLICKHOUSE_PASSWORD}"
+        "port": "{$CLICKHOUSE_PORT:9000}",
+        "database": "{$CLICKHOUSE_DATABASE:default}",
+        "user": "{$CLICKHOUSE_USER:default}",
+        "password": "{$CLICKHOUSE_PASSWORD:}"
     },
     "clickhouse_analytics": {
         "type": "clickhouse",
