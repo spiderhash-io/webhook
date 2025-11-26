@@ -1,7 +1,10 @@
 from typing import Any, Dict
 import json
 import redis
-import fakeredis
+try:
+    import fakeredis
+except ImportError:
+    fakeredis = None
 from src.modules.base import BaseModule
 
 

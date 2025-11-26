@@ -1,19 +1,31 @@
-# Use an official lightweight Python image.
-# alpine is much smaller than the standard Python image but requires
-# extra work to install some dependencies.
+# Optimized slim image with cleanup
 FROM python:3.9-slim
 
-# Set the working directory in the Docker container
+# Set working directory
 WORKDIR /app
 
-# Copy the dependencies file to the working directory
+# Set environment variables for Python optimization
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Copy requirements first (for better layer caching)
 COPY requirements.txt .
 
-# Install any dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies and clean up in same layer
+RUN pip install --no-cache-dir -r requirements.txt && \
+    find /usr/local/lib/python3.9/site-packages -type d -name __pycache__ -exec rm -r {} + 2>/dev/null || true && \
+    find /usr/local/lib/python3.9/site-packages -type f -name "*.pyc" -delete 2>/dev/null || true && \
+    find /usr/local/lib/python3.9/site-packages -type f -name "*.pyo" -delete 2>/dev/null || true && \
+    rm -rf /tmp/* /var/tmp/*
 
-# Copy the content of the local src directory to the working directory
+# Copy application code
 COPY ./src /app/src
+
+# Run as non-root user for security
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
 
 # Specify the command to run on container start
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
