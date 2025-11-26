@@ -2,7 +2,7 @@
 
 A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, disk, or stdout.
 
-**Status**: Production-ready with comprehensive security features, 128 passing tests, and support for multiple output destinations.
+**Status**: Production-ready with comprehensive security features, 149 passing tests, and support for multiple output destinations.
 
 ## Features
 
@@ -43,17 +43,55 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 
 **See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation and how to add new modules.**
 
+**See [DEVELOPMENT.md](DEVELOPMENT.md) for development setup and workflow guide.**
+
 ## Installation & Running
 
-### Local
-1. Install dependencies:
+### Local Development
+
+1. Create a virtual environment (recommended):
    ```bash
-   pip install -r requirements.txt
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
-2. Run the server:
+
+2. Install development dependencies (includes production deps + testing tools):
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+3. Run the server:
    ```bash
    uvicorn src.main:app --reload
    ```
+
+### Production Installation
+
+For production deployments, install only production dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+### Development Tools
+
+The development requirements include:
+- **pytest** - Testing framework
+- **pytest-asyncio** - Async test support
+- **fakeredis** - Redis mock for testing
+- **black** - Code formatter (optional)
+- **flake8** - Linter (optional)
+- **mypy** - Type checker (optional)
+- **pytest-cov** - Coverage reporting (optional)
+
+To run tests:
+```bash
+pytest
+```
+
+To format code (if black is installed):
+```bash
+black src/
+```
 
 ### Docker (Single Instance)
 ```bash
@@ -494,19 +532,43 @@ This list is ordered from easiest/highest impact to more complex features.
 - [x] **Analytics**: Create option to save statistics and logs to clickhouse db, there will be another UI project that will access it ✅
 - [x] **JSON Schema Validation**: Validate incoming webhook payloads against a defined JSON schema. ✅
 - [x] **Google reCAPTCHA Validation**: Implement backend validation for Google reCAPTCHA tokens (v2 and v3 support). ✅
+- [x] **Retry Mechanism**: Implement retries for failed module executions (e.g., if RabbitMQ is down). ✅
 - [ ] **Dynamic OpenAPI Docs**: Generate OpenAPI documentation automatically based on `webhooks.json` config.
 - [ ] **Payload Transformation**: Add a step to transform payload structure before sending to destination.
 - [ ] **Cloudflare Turnstile Validation**: Implement backend validation for Cloudflare Turnstile tokens.
-- [ ] **Retry Mechanism**: Implement retries for failed module executions (e.g., if RabbitMQ is down).
 
-### 4. Testing & Documentation
-- [x] **Unit Tests**: Comprehensive test suite with 128 tests covering validators, modules, and core functionality. ✅
+### 4. Authentication Methods Enhancement
+**Current Status**: 6/11 authentication methods implemented (54.5% coverage)
+
+**Implemented** ✅:
+- [x] **Basic Auth**: HTTP Basic Authentication with constant-time comparison
+- [x] **Bearer Auth**: Simple Bearer token authentication
+- [x] **Custom Auth**: Custom authorization header formats
+- [x] **JWT**: JSON Web Token validation with issuer/audience/expiration
+- [x] **HMAC**: HMAC signature validation (SHA1, SHA256, SHA512)
+- [x] **Header Auth (HMAC)**: Custom header with HMAC signature
+
+**Missing** ❌:
+- [ ] **Digest Auth**: HTTP Digest Authentication (RFC 7616) - Challenge-response auth, more secure than Basic
+- [ ] **OAuth 1.0**: OAuth 1.0 signature validation - For Twitter and legacy OAuth providers
+- [ ] **OAuth 2.0**: OAuth 2.0 access token validation - Modern standard, token introspection
+- [ ] **Query Parameter Auth**: API key authentication via query parameters (?api_key=xxx)
+- [ ] **Generic Header Auth**: Custom header-based API key auth (X-API-Key, X-Auth-Token, etc.)
+
+**Priority**:
+1. **High**: Query Parameter Auth, Generic Header Auth, OAuth 2.0
+2. **Medium**: Digest Auth, OAuth 1.0
+
+See [docs/AUTH_METHODS_ANALYSIS.md](docs/AUTH_METHODS_ANALYSIS.md) for detailed analysis.
+
+### 5. Testing & Documentation
+- [x] **Unit Tests**: Comprehensive test suite with 149 tests covering validators, modules, and core functionality. ✅
 - [x] **Integration Tests**: Tests for full webhook flow, authentication, validation, and module processing. ✅
 - [ ] **Performance Tests**: Expand performance testing documentation and benchmarks.
 
 ## Test Status
 
-**Current Test Coverage: 128 tests passing** ✅
+**Current Test Coverage: 149 tests passing** ✅
 
 Test suites include:
 - Authentication tests (Basic Auth, JWT, Authorization)
