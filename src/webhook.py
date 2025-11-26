@@ -3,7 +3,7 @@ import asyncio
 
 from fastapi import HTTPException, Request
 from src.modules.registry import ModuleRegistry
-from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator, RecaptchaValidator, QueryParameterAuthValidator, HeaderAuthValidator
+from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator, RecaptchaValidator, QueryParameterAuthValidator, HeaderAuthValidator, OAuth2Validator
 from src.input_validator import InputValidator
 from src.retry_handler import retry_handler
 
@@ -24,6 +24,7 @@ class WebhookHandler:
             RecaptchaValidator(self.config),  # Google reCAPTCHA validation
             BasicAuthValidator(self.config),  # Basic auth
             JWTValidator(self.config),  # JWT auth
+            OAuth2Validator(self.config),  # OAuth 2.0 token validation
             AuthorizationValidator(self.config),  # Bearer token (simple)
             HMACValidator(self.config),  # HMAC signature
             IPWhitelistValidator(self.config),  # IP whitelist

@@ -22,6 +22,31 @@
             "case_sensitive": false
         }
     },
+    "oauth2_introspection_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "oauth2": {
+            "token_type": "Bearer",
+            "introspection_endpoint": "{$OAUTH2_INTROSPECTION_URL:https://auth.example.com/introspect}",
+            "client_id": "{$OAUTH2_CLIENT_ID}",
+            "client_secret": "{$OAUTH2_CLIENT_SECRET}",
+            "required_scope": ["webhook:write"],
+            "validate_token": true
+        }
+    },
+    "oauth2_jwt_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "oauth2": {
+            "token_type": "Bearer",
+            "jwt_secret": "{$OAUTH2_JWT_SECRET}",
+            "jwt_algorithms": ["HS256"],
+            "audience": "{$OAUTH2_AUDIENCE:webhook-api}",
+            "issuer": "{$OAUTH2_ISSUER:https://auth.example.com}",
+            "required_scope": ["read", "write"],
+            "verify_exp": true
+        }
+    },
     "stripe_webhook": {
         "data_type": "json",
         "module": "save_to_disk",

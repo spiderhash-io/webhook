@@ -2,7 +2,7 @@
 
 A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, disk, or stdout.
 
-**Status**: Production-ready with comprehensive security features, 202 passing tests, and support for multiple output destinations.
+**Status**: Production-ready with comprehensive security features, 232 passing tests, and support for multiple output destinations.
 
 ## Features
 
@@ -380,6 +380,72 @@ Authenticate webhooks using API keys passed in custom headers (e.g., `X-API-Key`
 - Validates empty keys and missing headers
 - Handles special characters, Unicode, and injection attempts
 
+#### OAuth 2.0 Authentication
+Authenticate webhooks using OAuth 2.0 access tokens with token introspection or JWT validation.
+
+**Token Introspection (Recommended):**
+```json
+{
+    "oauth2_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "oauth2": {
+            "token_type": "Bearer",
+            "introspection_endpoint": "{$OAUTH2_INTROSPECTION_URL:https://auth.example.com/introspect}",
+            "client_id": "{$OAUTH2_CLIENT_ID}",
+            "client_secret": "{$OAUTH2_CLIENT_SECRET}",
+            "required_scope": ["webhook:write", "webhook:read"],
+            "validate_token": true
+        }
+    }
+}
+```
+
+**JWT Token Validation:**
+```json
+{
+    "oauth2_jwt_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "oauth2": {
+            "token_type": "Bearer",
+            "jwt_secret": "{$OAUTH2_JWT_SECRET}",
+            "jwt_algorithms": ["HS256", "RS256"],
+            "audience": "webhook-api",
+            "issuer": "https://auth.example.com",
+            "required_scope": ["read", "write"],
+            "verify_exp": true
+        }
+    }
+}
+```
+
+**Configuration Options:**
+- `token_type`: Token type in Authorization header (default: `"Bearer"`)
+- `introspection_endpoint`: OAuth 2.0 token introspection endpoint URL
+- `client_id` / `client_secret`: Client credentials for introspection endpoint
+- `jwt_secret`: Secret key for JWT validation (alternative to introspection)
+- `jwt_algorithms`: Allowed JWT algorithms (default: `["HS256", "RS256"]`)
+- `audience`: Required token audience (for JWT)
+- `issuer`: Required token issuer (for JWT)
+- `required_scope`: List of required OAuth scopes
+- `validate_token`: Whether to validate token (default: `true`)
+
+**Usage:**
+- Send requests with Bearer token: `Authorization: Bearer <access_token>`
+- Supports token introspection endpoint (RFC 7662)
+- Supports JWT access tokens with signature validation
+- Validates token scope, audience, and issuer
+- Handles expired tokens and invalid signatures
+
+**Security Features:**
+- Token introspection with active/inactive status
+- JWT signature validation
+- Scope validation
+- Audience and issuer validation
+- Expiration checking
+- Network error handling
+
 #### Query Parameter Authentication
 Authenticate webhooks using API keys passed as query parameters (e.g., `?api_key=xxx`).
 
@@ -606,7 +672,7 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **Cloudflare Turnstile Validation**: Implement backend validation for Cloudflare Turnstile tokens.
 
 ### 4. Authentication Methods Enhancement
-**Current Status**: 8/11 authentication methods implemented (72.7% coverage)
+**Current Status**: 9/11 authentication methods implemented (81.8% coverage)
 
 **Implemented** ✅:
 - [x] **Basic Auth**: HTTP Basic Authentication with constant-time comparison
@@ -622,21 +688,21 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **OAuth 2.0**: OAuth 2.0 access token validation - Modern standard, token introspection
 - [x] **Query Parameter Auth**: API key authentication via query parameters (?api_key=xxx) ✅
 - [x] **Generic Header Auth**: Custom header-based API key auth (X-API-Key, X-Auth-Token, etc.) ✅
+- [x] **OAuth 2.0**: OAuth 2.0 access token validation - Token introspection and JWT validation ✅
 
 **Priority**:
-1. **High**: OAuth 2.0 (remaining high priority)
-2. **Medium**: Digest Auth, OAuth 1.0
+1. **Medium**: Digest Auth, OAuth 1.0
 
 See [docs/AUTH_METHODS_ANALYSIS.md](docs/AUTH_METHODS_ANALYSIS.md) for detailed analysis.
 
 ### 5. Testing & Documentation
-- [x] **Unit Tests**: Comprehensive test suite with 202 tests covering validators, modules, and core functionality. ✅
+- [x] **Unit Tests**: Comprehensive test suite with 232 tests covering validators, modules, and core functionality. ✅
 - [x] **Integration Tests**: Tests for full webhook flow, authentication, validation, and module processing. ✅
 - [ ] **Performance Tests**: Expand performance testing documentation and benchmarks.
 
 ## Test Status
 
-**Current Test Coverage: 202 tests passing** ✅
+**Current Test Coverage: 232 tests passing** ✅
 
 Test suites include:
 - Authentication tests (Basic Auth, JWT, Authorization)

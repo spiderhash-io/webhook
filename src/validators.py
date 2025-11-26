@@ -464,6 +464,154 @@ class HeaderAuthValidator(BaseValidator):
         return True, "Valid header authentication"
 
 
+class OAuth2Validator(BaseValidator):
+    """Validates OAuth 2.0 access tokens."""
+    
+    async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
+        """Validate OAuth 2.0 access token."""
+        oauth2_config = self.config.get("oauth2", {})
+        
+        if not oauth2_config:
+            return True, "No OAuth 2.0 validation required"
+        
+        token_type = oauth2_config.get("token_type", "Bearer")
+        introspection_endpoint = oauth2_config.get("introspection_endpoint")
+        client_id = oauth2_config.get("client_id")
+        client_secret = oauth2_config.get("client_secret")
+        required_scope = oauth2_config.get("required_scope", [])
+        validate_token = oauth2_config.get("validate_token", True)
+        
+        # Get token from Authorization header
+        auth_header = headers.get('authorization', '')
+        
+        if not auth_header:
+            return False, "Missing Authorization header"
+        
+        # Extract token (support Bearer format)
+        if not auth_header.startswith(f'{token_type} '):
+            return False, f"OAuth 2.0 {token_type} token required"
+        
+        token = auth_header.split(' ', 1)[1].strip()
+        
+        if not token:
+            return False, "Empty OAuth 2.0 token"
+        
+        # If token introspection is configured, validate via endpoint
+        if introspection_endpoint and validate_token:
+            try:
+                import httpx
+                
+                # Prepare introspection request
+                data = {
+                    "token": token,
+                    "token_type_hint": "access_token"
+                }
+                
+                # Add client credentials if provided
+                auth = None
+                if client_id and client_secret:
+                    auth = (client_id, client_secret)
+                
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        introspection_endpoint,
+                        data=data,
+                        auth=auth,
+                        timeout=10.0
+                    )
+                    response.raise_for_status()
+                    introspection_result = response.json()
+                
+                # Check if token is active
+                if not introspection_result.get("active", False):
+                    return False, "OAuth 2.0 token is not active"
+                
+                # Validate scope if required
+                if required_scope:
+                    token_scope = introspection_result.get("scope", "")
+                    if isinstance(token_scope, str):
+                        token_scopes = token_scope.split()
+                    else:
+                        token_scopes = token_scope
+                    
+                    # Check if all required scopes are present
+                    missing_scopes = set(required_scope) - set(token_scopes)
+                    if missing_scopes:
+                        return False, f"OAuth 2.0 token missing required scopes: {', '.join(missing_scopes)}"
+                
+                return True, "Valid OAuth 2.0 token"
+                
+            except httpx.HTTPStatusError as e:
+                return False, f"OAuth 2.0 token introspection failed: HTTP {e.response.status_code}"
+            except httpx.RequestError as e:
+                return False, f"OAuth 2.0 token introspection network error: {str(e)}"
+            except Exception as e:
+                return False, f"OAuth 2.0 token introspection error: {str(e)}"
+        
+        # If JWT token validation is enabled, try to validate as JWT
+        jwt_secret = oauth2_config.get("jwt_secret")
+        if jwt_secret and not introspection_endpoint:
+            try:
+                import jwt
+                
+                # Decode and validate JWT token
+                decode_options = {
+                    "verify_signature": True,
+                    "verify_exp": oauth2_config.get("verify_exp", True),
+                }
+                
+                # Prepare audience and issuer for validation
+                audience = oauth2_config.get("audience")
+                issuer = oauth2_config.get("issuer")
+                
+                if audience:
+                    decode_options["verify_aud"] = True
+                if issuer:
+                    decode_options["verify_iss"] = True
+                
+                decoded = jwt.decode(
+                    token,
+                    key=jwt_secret,
+                    algorithms=oauth2_config.get("jwt_algorithms", ["HS256", "RS256"]),
+                    audience=audience,
+                    issuer=issuer,
+                    options=decode_options
+                )
+                
+                # Validate scope if required
+                if required_scope:
+                    token_scope = decoded.get("scope", "")
+                    if isinstance(token_scope, str):
+                        token_scopes = token_scope.split()
+                    else:
+                        token_scopes = token_scope
+                    
+                    missing_scopes = set(required_scope) - set(token_scopes)
+                    if missing_scopes:
+                        return False, f"OAuth 2.0 token missing required scopes: {', '.join(missing_scopes)}"
+                
+                return True, "Valid OAuth 2.0 JWT token"
+                
+            except jwt.ExpiredSignatureError:
+                return False, "OAuth 2.0 token expired"
+            except jwt.InvalidAudienceError:
+                return False, "OAuth 2.0 token audience mismatch"
+            except jwt.InvalidIssuerError:
+                return False, "OAuth 2.0 token issuer mismatch"
+            except jwt.InvalidTokenError as e:
+                return False, f"Invalid OAuth 2.0 JWT token: {str(e)}"
+            except ImportError:
+                return False, "PyJWT library not installed for JWT token validation"
+            except Exception as e:
+                return False, f"OAuth 2.0 JWT validation error: {str(e)}"
+        
+        # If no validation method is configured, just check token presence
+        if not validate_token:
+            return True, "OAuth 2.0 token present (validation disabled)"
+        
+        return False, "OAuth 2.0 validation not properly configured (missing introspection_endpoint or jwt_secret)"
+
+
 class RecaptchaValidator(BaseValidator):
     """Validates Google reCAPTCHA token."""
     
