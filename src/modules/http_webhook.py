@@ -1,6 +1,8 @@
 import httpx
 import re
-from typing import Any, Dict
+import ipaddress
+from urllib.parse import urlparse, parse_qs
+from typing import Any, Dict, Optional, List
 from src.modules.base import BaseModule
 
 
@@ -23,6 +25,13 @@ class HTTPWebhookModule(BaseModule):
             self.allowed_headers = {h.lower() for h in self.allowed_headers}
         else:
             self.allowed_headers = None
+        
+        # Validate URL during initialization to prevent SSRF attacks
+        url = self.module_config.get('url')
+        if url:
+            self._validated_url = self._validate_url(url)
+        else:
+            self._validated_url = None
     
     def _validate_header_name(self, name: str) -> bool:
         """
@@ -116,15 +125,189 @@ class HTTPWebhookModule(BaseModule):
         
         return sanitized
     
+    def _validate_url(self, url: str) -> str:
+        """
+        Validate URL to prevent SSRF attacks.
+        
+        This function:
+        - Only allows http:// and https:// schemes
+        - Blocks private IP ranges (RFC 1918, localhost, link-local)
+        - Blocks file://, gopher://, and other dangerous schemes
+        - Validates URL format
+        - Optionally allows whitelisting specific domains/IPs
+        
+        Args:
+            url: URL to validate
+            
+        Returns:
+            Validated URL string
+            
+        Raises:
+            ValueError: If URL is invalid or poses SSRF risk
+        """
+        if not url or not isinstance(url, str):
+            raise ValueError("URL must be a non-empty string")
+        
+        url = url.strip()
+        if not url:
+            raise ValueError("URL cannot be empty")
+        
+        # Parse URL
+        try:
+            parsed = urlparse(url)
+        except Exception as e:
+            raise ValueError(f"Invalid URL format: {str(e)}")
+        
+        # Only allow http and https schemes
+        allowed_schemes = {'http', 'https'}
+        if parsed.scheme.lower() not in allowed_schemes:
+            raise ValueError(
+                f"URL scheme '{parsed.scheme}' is not allowed. "
+                f"Only http:// and https:// are permitted."
+            )
+        
+        # Block URLs without hostname
+        if not parsed.netloc:
+            raise ValueError("URL must include a hostname")
+        
+        # Extract hostname (remove port if present, handle IPv6 brackets)
+        # IPv6 addresses in URLs are enclosed in brackets: [2001:db8::1]
+        # The netloc will be like "[2001:db8::1]:8080" or just "[2001:db8::1]"
+        netloc = parsed.netloc
+        # Check if it's an IPv6 address (starts with [)
+        if netloc.startswith('['):
+            # Extract IPv6 address (everything between [ and ])
+            end_bracket = netloc.find(']')
+            if end_bracket != -1:
+                hostname = netloc[1:end_bracket]  # Remove brackets
+                # Port might be after the closing bracket
+                if end_bracket + 1 < len(netloc) and netloc[end_bracket + 1] == ':':
+                    # Port is present, already extracted hostname
+                    pass
+            else:
+                # Malformed IPv6 URL
+                raise ValueError("Invalid IPv6 address format in URL")
+        else:
+            # Regular hostname or IPv4, extract before first colon (port)
+            hostname = netloc.split(':')[0]
+        
+        # Check for whitelist in config (optional)
+        allowed_hosts = self.module_config.get('allowed_hosts', None)
+        if allowed_hosts and isinstance(allowed_hosts, list):
+            # If whitelist is configured, only allow those hosts
+            allowed_hosts_lower = {h.lower().strip() for h in allowed_hosts if h}
+            if hostname.lower() not in allowed_hosts_lower:
+                raise ValueError(
+                    f"Hostname '{hostname}' is not in the allowed hosts whitelist"
+                )
+            # If whitelisted, skip further validation
+            return url
+        
+        # Block localhost and variations
+        localhost_variants = {
+            'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
+            '127.1', '127.0.1', '127.000.000.001', '0177.0.0.1',  # Octal
+            '0x7f.0.0.1', '2130706433', '0x7f000001',  # Decimal/Hex
+        }
+        if hostname.lower() in localhost_variants:
+            raise ValueError(
+                f"Access to localhost is not allowed for security reasons"
+            )
+        
+        # Block private IP ranges (RFC 1918)
+        # Also block link-local (169.254.0.0/16) and multicast (224.0.0.0/4)
+        try:
+            # Try to parse as IP address
+            ip = ipaddress.ip_address(hostname)
+            
+            # Block link-local addresses FIRST (169.254.0.0/16) - these are often used for metadata
+            if ip.is_link_local:
+                raise ValueError(
+                    f"Access to link-local address '{hostname}' is not allowed for security reasons"
+                )
+            
+            # Block loopback (should be caught by localhost check, but double-check)
+            if ip.is_loopback:
+                raise ValueError(
+                    f"Access to loopback address '{hostname}' is not allowed for security reasons"
+                )
+            
+            # Block multicast addresses
+            if ip.is_multicast:
+                raise ValueError(
+                    f"Access to multicast address '{hostname}' is not allowed for security reasons"
+                )
+            
+            # Block reserved addresses (0.0.0.0/8, etc.)
+            if ip.is_reserved:
+                raise ValueError(
+                    f"Access to reserved IP address '{hostname}' is not allowed for security reasons"
+                )
+            
+            # Block private IPs (RFC 1918) - check after link-local
+            if ip.is_private:
+                raise ValueError(
+                    f"Access to private IP address '{hostname}' is not allowed for security reasons"
+                )
+            
+        except ValueError as e:
+            # If ValueError is raised by ipaddress, it might be our validation error
+            # Re-raise it
+            if "is not allowed" in str(e):
+                raise
+            # Otherwise, it's not an IP address (might be a hostname), continue validation
+            pass
+        except Exception:
+            # Not an IP address, continue with hostname validation
+            pass
+        
+        # Block common cloud metadata endpoints (even if hostname resolves to public IP)
+        dangerous_hostnames = {
+            'metadata.google.internal',
+            '169.254.169.254',  # AWS, GCP, Azure metadata
+            'metadata',  # Short form
+        }
+        if hostname.lower() in dangerous_hostnames:
+            raise ValueError(
+                f"Access to metadata service '{hostname}' is not allowed for security reasons"
+            )
+        
+        # Block hostnames that look like IP addresses in unusual formats
+        # (already handled by ipaddress, but check for common bypass attempts)
+        if re.match(r'^0+\.0+\.0+\.0+$', hostname):
+            raise ValueError("Invalid hostname format")
+        
+        # Validate hostname format (basic check)
+        # Hostname should be valid DNS name or IP
+        # IPv6 addresses are already validated by ipaddress.ip_address above
+        if not self._is_valid_ip(hostname):
+            # Check DNS hostname format
+            if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$', hostname):
+                raise ValueError(f"Invalid hostname format: '{hostname}'")
+        
+        return url
+    
+    def _is_valid_ip(self, hostname: str) -> bool:
+        """Check if hostname is a valid IP address."""
+        try:
+            ipaddress.ip_address(hostname)
+            return True
+        except ValueError:
+            return False
+    
     async def process(self, payload: Any, headers: Dict[str, str]) -> None:
         """Forward payload to configured HTTP endpoint."""
-        url = self.module_config.get('url')
+        url = self._validated_url
         method = self.module_config.get('method', 'POST').upper()
         forward_headers = self.module_config.get('forward_headers', True)
         timeout = self.module_config.get('timeout', 30)
         
         if not url:
             raise Exception("URL not specified in module-config")
+        
+        # URL should already be validated in __init__, but double-check
+        if url != self._validated_url:
+            raise Exception("URL validation failed")
         
         # Prepare headers
         request_headers = {}
@@ -157,5 +340,8 @@ class HTTPWebhookModule(BaseModule):
                 print(f"HTTP webhook forwarded to {url}: {response.status_code}")
                 
         except httpx.HTTPError as e:
+            # Log detailed error server-side (includes URL for debugging)
             print(f"Failed to forward HTTP webhook to {url}: {e}")
-            raise e
+            # Raise generic error to client (don't expose URL or error details)
+            from src.utils import sanitize_error_message
+            raise Exception(sanitize_error_message(e, "HTTP webhook forwarding"))

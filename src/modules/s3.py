@@ -246,8 +246,14 @@ class S3Module(BaseModule):
         except ClientError as e:
             error_code = e.response['Error']['Code']
             error_message = e.response['Error']['Message']
+            # Log detailed error server-side (includes error code and message)
             print(f"Failed to save to S3: {error_code} - {error_message}")
-            raise Exception(f"S3 upload failed: {error_message}")
+            # Raise generic error to client (don't expose S3 error details)
+            from src.utils import sanitize_error_message
+            raise Exception(sanitize_error_message(e, "S3 upload"))
         except Exception as e:
+            # Log detailed error server-side
             print(f"Failed to save to S3: {e}")
-            raise e
+            # Raise generic error to client
+            from src.utils import sanitize_error_message
+            raise Exception(sanitize_error_message(e, "S3 operation"))

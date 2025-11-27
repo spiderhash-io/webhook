@@ -133,5 +133,8 @@ class KafkaModule(BaseModule):
             print(f"Message published to Kafka topic: {topic}")
             
         except Exception as e:
+            # Log detailed error server-side
             print(f"Failed to publish message to Kafka: {e}")
-            raise e
+            # Raise generic error to client (don't expose Kafka details)
+            from src.utils import sanitize_error_message
+            raise Exception(sanitize_error_message(e, "Kafka operation"))

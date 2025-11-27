@@ -5,6 +5,67 @@ import re
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 import asyncio
+import logging
+from typing import Any
+
+
+def sanitize_error_message(error: Any, context: str = None) -> str:
+    """
+    Sanitize error messages to prevent information disclosure.
+    
+    This function removes sensitive information from error messages that
+    will be sent to clients, while logging detailed information server-side.
+    
+    Args:
+        error: The error object or error message string
+        context: Optional context about where the error occurred
+        
+    Returns:
+        Generic error message safe for client exposure
+    """
+    # Convert error to string if it's an exception
+    if hasattr(error, '__str__'):
+        error_str = str(error)
+    else:
+        error_str = str(error)
+    
+    # Log detailed error server-side (for debugging)
+    if context:
+        print(f"ERROR [{context}]: {error_str}")
+    else:
+        print(f"ERROR: {error_str}")
+    
+    # Return generic message for client
+    # Don't expose:
+    # - URLs, file paths, hostnames
+    # - Module names, configuration details
+    # - Internal error details
+    # - Stack traces
+    
+    # Check for common sensitive patterns
+    sensitive_patterns = [
+        (r'http[s]?://[^\s]+', 'URL'),
+        (r'file://[^\s]+', 'file path'),
+        (r'/[^\s]+', 'file path'),
+        (r'[a-zA-Z0-9_]+://[^\s]+', 'URL'),
+        (r'localhost:\d+', 'service address'),
+        (r'\d+\.\d+\.\d+\.\d+:\d+', 'service address'),
+        (r'module[_\s]+[\w]+', 'module name'),
+        (r'Failed to.*:\s*[^\n]+', 'error details'),
+    ]
+    
+    # If error contains sensitive patterns, return generic message
+    for pattern, pattern_type in sensitive_patterns:
+        if re.search(pattern, error_str, re.IGNORECASE):
+            if context:
+                return f"Processing error occurred in {context}"
+            return "An error occurred while processing the request"
+    
+    # For generic errors, return a safe message
+    # Don't expose the actual error text
+    if context:
+        return f"Processing error occurred in {context}"
+    return "An error occurred while processing the request"
 
 
 def count_words_at_url(url):

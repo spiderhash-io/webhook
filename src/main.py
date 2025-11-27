@@ -163,7 +163,17 @@ async def read_webhook(webhook_id: str,  request: Request):
             request,
         )
     except HTTPException as e:
+        # HTTPException is already sanitized, re-raise as-is
         raise e
+    except Exception as e:
+        # Log detailed error server-side
+        print(f"ERROR: Failed to initialize webhook handler for '{webhook_id}': {e}")
+        # Raise generic error to client (don't expose webhook ID or config details)
+        from src.utils import sanitize_error_message
+        raise HTTPException(
+            status_code=500,
+            detail=sanitize_error_message(e, "webhook initialization")
+        )
 
     is_valid, message = await webhook_handler.validate_webhook()
     if not is_valid:

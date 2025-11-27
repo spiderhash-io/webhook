@@ -76,14 +76,12 @@ class SaveToDiskModule(BaseModule):
             if not real_path.startswith(base_dir_real):
                 raise ValueError(f"Path escapes base directory: {path}")
         
-        # Return the real (resolved) path
-        return real_path
-        
         # Check if the path points to an existing file (should be a directory)
         # Use real_path to check the actual target (not the symlink)
         if os.path.exists(real_path) and not os.path.isdir(real_path):
             raise ValueError(f"Path points to an existing file, not a directory: {path}")
         
+        # Return the real (resolved) path
         return real_path
     
     async def process(self, payload: Any, headers: Dict[str, str]) -> None:
@@ -98,7 +96,11 @@ class SaveToDiskModule(BaseModule):
         try:
             validated_path = self._validate_path(path, base_dir)
         except ValueError as e:
-            raise Exception(f"Invalid path configuration: {str(e)}")
+            # Log detailed error server-side (includes path details)
+            print(f"ERROR: Invalid path configuration for webhook: {str(e)}")
+            # Raise generic error to client (don't expose path details)
+            from src.utils import sanitize_error_message
+            raise Exception(sanitize_error_message(e, "path validation"))
         
         # Create directory if it doesn't exist
         if not os.path.exists(validated_path):
@@ -115,4 +117,8 @@ class SaveToDiskModule(BaseModule):
             # Set file permissions to owner-only (0o600 = rw-------)
             os.chmod(file_path, 0o600)
         except (OSError, IOError) as e:
-            raise Exception(f"Failed to write file: {str(e)}")
+            # Log detailed error server-side (includes file path details)
+            print(f"ERROR: Failed to write file: {str(e)}")
+            # Raise generic error to client (don't expose file path)
+            from src.utils import sanitize_error_message
+            raise Exception(sanitize_error_message(e, "file write operation"))

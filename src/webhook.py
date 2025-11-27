@@ -110,7 +110,10 @@ class WebhookHandler:
         try:
             module_class = ModuleRegistry.get(module_name)
         except KeyError:
-            raise HTTPException(status_code=501, detail=f"Unsupported module: {module_name}")
+            # Don't expose module name to prevent information disclosure
+            # Log detailed error server-side only
+            print(f"ERROR: Unsupported module '{module_name}' for webhook '{self.webhook_id}'")
+            raise HTTPException(status_code=501, detail="Module configuration error")
         
         # Instantiate and process
         # Add webhook_id to config for modules that need it (e.g., ClickHouse)

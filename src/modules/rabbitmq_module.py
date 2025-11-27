@@ -120,8 +120,11 @@ class RabbitMQModule(BaseModule):
 
             print("Message published to: " + str(queue_name))
         except Exception as e:
-            print(f"Failed to publish message: {e}")
-            raise e
+            # Log detailed error server-side
+            print(f"Failed to publish message to RabbitMQ: {e}")
+            # Raise generic error to client (don't expose RabbitMQ details)
+            from src.utils import sanitize_error_message
+            raise Exception(sanitize_error_message(e, "RabbitMQ operation"))
         finally:
             # Always release the connection back to the pool
             await connection_pool.release(connection)

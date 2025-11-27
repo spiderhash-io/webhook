@@ -136,8 +136,11 @@ class ClickHouseModule(BaseModule):
             await loop.run_in_executor(None, lambda: self.client.execute('SELECT 1'))
             await self._ensure_table()
         except Exception as e:
+            # Log detailed error server-side
             print(f"Failed to connect to ClickHouse: {e}")
-            raise
+            # Raise generic error to client (don't expose connection details)
+            from src.utils import sanitize_error_message
+            raise Exception(sanitize_error_message(e, "ClickHouse connection"))
     
     async def _ensure_table(self) -> None:
         """Ensure the webhook logs table exists."""

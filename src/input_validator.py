@@ -109,13 +109,80 @@ class InputValidator:
     
     @staticmethod
     def validate_webhook_id(webhook_id: str) -> Tuple[bool, str]:
-        """Validate webhook ID format."""
-        # Only allow alphanumeric, underscore, and hyphen
-        if not re.match(r'^[a-zA-Z0-9_-]+$', webhook_id):
-            return False, "Invalid webhook ID format"
+        """
+        Validate webhook ID format and prevent DoS/reserved name conflicts.
         
-        if len(webhook_id) > 100:
-            return False, "Webhook ID too long"
+        This function:
+        - Validates format (alphanumeric, underscore, hyphen only)
+        - Enforces reasonable length limit to prevent DoS
+        - Blocks reserved names that conflict with system endpoints
+        - Prevents empty or whitespace-only IDs
+        
+        Args:
+            webhook_id: The webhook ID to validate
+            
+        Returns:
+            Tuple of (is_valid, message)
+        """
+        if not webhook_id or not isinstance(webhook_id, str):
+            return False, "Webhook ID must be a non-empty string"
+        
+        # Strip whitespace
+        webhook_id = webhook_id.strip()
+        
+        # Check for empty after stripping
+        if not webhook_id:
+            return False, "Webhook ID cannot be empty or whitespace-only"
+        
+        # Enforce maximum length to prevent DoS attacks
+        # Reduced from 100 to 64 characters for better security
+        MAX_WEBHOOK_ID_LENGTH = 64
+        if len(webhook_id) > MAX_WEBHOOK_ID_LENGTH:
+            return False, f"Webhook ID too long: {len(webhook_id)} characters (max: {MAX_WEBHOOK_ID_LENGTH})"
+        
+        # Minimum length to prevent abuse
+        MIN_WEBHOOK_ID_LENGTH = 1
+        if len(webhook_id) < MIN_WEBHOOK_ID_LENGTH:
+            return False, "Webhook ID too short"
+        
+        # Only allow alphanumeric, underscore, and hyphen
+        # Must start with alphanumeric (not underscore or hyphen)
+        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', webhook_id):
+            return False, "Invalid webhook ID format. Must start with alphanumeric and contain only alphanumeric, underscore, and hyphen characters"
+        
+        # Block reserved names that conflict with system endpoints
+        # These are case-insensitive to prevent bypass attempts
+        # Only exact matches are blocked (not substrings)
+        RESERVED_NAMES = {
+            'stats', 'health', 'docs', 'openapi.json', 'redoc',
+            'api', 'admin', 'root', 'system', 'internal',
+            'favicon.ico', 'robots.txt',  # Common web paths
+        }
+        
+        if webhook_id.lower() in RESERVED_NAMES:
+            return False, f"Webhook ID '{webhook_id}' is reserved and cannot be used"
+        
+        # Block names that start with reserved prefixes
+        RESERVED_PREFIXES = ['_', '__', 'internal_', 'system_', 'admin_']
+        for prefix in RESERVED_PREFIXES:
+            if webhook_id.lower().startswith(prefix):
+                return False, f"Webhook ID cannot start with reserved prefix '{prefix}'"
+        
+        # Block names that end with reserved suffixes (system/internal/admin only)
+        # Note: _test and _debug are not blocked as they're common in development
+        RESERVED_SUFFIXES = ['_internal', '_system', '_admin']
+        for suffix in RESERVED_SUFFIXES:
+            if webhook_id.lower().endswith(suffix):
+                return False, f"Webhook ID cannot end with reserved suffix '{suffix}'"
+        
+        # Block consecutive special characters (e.g., 'webhook--id', 'webhook__id')
+        # Check for 2+ consecutive hyphens or 2+ consecutive underscores
+        if re.search(r'--+', webhook_id) or re.search(r'__+', webhook_id):
+            return False, "Webhook ID cannot contain consecutive underscores or hyphens"
+        
+        # Block names that are only special characters
+        if re.match(r'^[-_]+$', webhook_id):
+            return False, "Webhook ID cannot consist only of underscores or hyphens"
         
         return True, "Valid webhook ID"
     

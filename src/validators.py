@@ -142,6 +142,76 @@ class BasicAuthValidator(BaseValidator):
 class JWTValidator(BaseValidator):
     """Validates JSON Web Tokens (JWT)."""
     
+    # Whitelist of allowed JWT algorithms (strong algorithms only)
+    # Reject "none" and weak algorithms to prevent algorithm confusion attacks
+    ALLOWED_ALGORITHMS = {
+        'HS256',  # HMAC with SHA-256
+        'HS384',  # HMAC with SHA-384
+        'HS512',  # HMAC with SHA-512
+        'RS256',  # RSA with SHA-256
+        'RS384',  # RSA with SHA-384
+        'RS512',  # RSA with SHA-512
+        'ES256',  # ECDSA with SHA-256
+        'ES384',  # ECDSA with SHA-384
+        'ES512',  # ECDSA with SHA-512
+        'PS256',  # RSASSA-PSS with SHA-256
+        'PS384',  # RSASSA-PSS with SHA-384
+        'PS512',  # RSASSA-PSS with SHA-512
+    }
+    
+    # Explicitly blocked algorithms (security risks)
+    BLOCKED_ALGORITHMS = {
+        'none',  # No signature (critical security risk)
+        'HS1',   # Weak HMAC
+        'MD5',   # Weak hash
+    }
+    
+    def _validate_algorithm(self, algorithm: str) -> str:
+        """
+        Validate JWT algorithm to prevent algorithm confusion attacks.
+        
+        This function:
+        - Whitelists only strong, secure algorithms
+        - Explicitly blocks "none" algorithm
+        - Blocks weak/deprecated algorithms
+        - Normalizes algorithm name (uppercase)
+        
+        Args:
+            algorithm: Algorithm name from configuration
+            
+        Returns:
+            Validated algorithm name (normalized)
+            
+        Raises:
+            ValueError: If algorithm is invalid, blocked, or not whitelisted
+        """
+        if not algorithm or not isinstance(algorithm, str):
+            raise ValueError("JWT algorithm must be a non-empty string")
+        
+        # Normalize to uppercase for comparison
+        algorithm_normalized = algorithm.strip().upper()
+        
+        if not algorithm_normalized:
+            raise ValueError("JWT algorithm cannot be empty")
+        
+        # Explicitly block dangerous algorithms FIRST (check normalized version)
+        # Convert blocked algorithms to uppercase for comparison
+        blocked_normalized = {alg.upper() for alg in self.BLOCKED_ALGORITHMS}
+        if algorithm_normalized in blocked_normalized:
+            raise ValueError(
+                f"JWT algorithm '{algorithm}' is explicitly blocked for security reasons. "
+                f"The 'none' algorithm and weak algorithms are not allowed."
+            )
+        
+        # Check if algorithm is in whitelist
+        if algorithm_normalized not in self.ALLOWED_ALGORITHMS:
+            raise ValueError(
+                f"JWT algorithm '{algorithm}' is not in the allowed algorithms whitelist. "
+                f"Allowed algorithms: {', '.join(sorted(self.ALLOWED_ALGORITHMS))}"
+            )
+        
+        return algorithm_normalized
+    
     async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
         """Validate JWT token."""
         jwt_config = self.config.get("jwt", {})
@@ -166,6 +236,14 @@ class JWTValidator(BaseValidator):
         try:
             token = auth_header.split(' ', 1)[1]
             
+            # Get algorithm from config and validate it
+            raw_algorithm = jwt_config.get('algorithm', 'HS256')
+            try:
+                validated_algorithm = self._validate_algorithm(raw_algorithm)
+            except ValueError as e:
+                # Algorithm validation failed - this is a configuration error
+                return False, f"JWT algorithm validation failed: {str(e)}"
+            
             # Prepare validation options
             options = {
                 'verify_exp': jwt_config.get('verify_exp', True),
@@ -173,11 +251,12 @@ class JWTValidator(BaseValidator):
                 'verify_iss': bool(jwt_config.get('issuer')),
             }
             
-            # Decode and validate
+            # Decode and validate with validated algorithm
+            # Use list with single algorithm to prevent algorithm confusion
             jwt.decode(
                 token,
                 key=jwt_config.get('secret'),
-                algorithms=[jwt_config.get('algorithm', 'HS256')],
+                algorithms=[validated_algorithm],  # Use validated algorithm only
                 issuer=jwt_config.get('issuer'),
                 audience=jwt_config.get('audience'),
                 options=options
