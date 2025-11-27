@@ -27,13 +27,13 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": channel_name
                 }
             }
             module = RedisPublishModule(config)
-            assert module._validate_channel_name(channel_name) == channel_name
+            assert module._validated_channel == channel_name
     
     def test_injection_attempts_rejected(self):
         """Test that injection attempts in channel names are rejected."""
@@ -52,7 +52,7 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": malicious_name
                 }
@@ -85,7 +85,7 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": keyword.lower()
                 }
@@ -114,7 +114,7 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": pattern
                 }
@@ -147,7 +147,7 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": name
                 }
@@ -169,7 +169,7 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": name
                 }
@@ -186,7 +186,7 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": name
                 }
@@ -203,7 +203,7 @@ class TestRedisChannelInjection:
         config = {
             "module": "redis_publish",
             "redis": {
-                "host": "localhost",
+                "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                 "port": 6379,
                 "channel": long_name
             }
@@ -218,20 +218,20 @@ class TestRedisChannelInjection:
         config = {
             "module": "redis_publish",
             "redis": {
-                "host": "localhost",
+                "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                 "port": 6379,
                 "channel": "  webhook_events  "
             }
         }
         module = RedisPublishModule(config)
-        validated = module._validate_channel_name("  webhook_events  ")
-        assert validated == "webhook_events"
+        # Whitespace is stripped during validation in __init__
+        assert module._validated_channel == "webhook_events"
         
         # But whitespace-only should be rejected
         config = {
             "module": "redis_publish",
             "redis": {
-                "host": "localhost",
+                "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                 "port": 6379,
                 "channel": "   "
             }
@@ -244,42 +244,39 @@ class TestRedisChannelInjection:
         config = {
             "module": "redis_publish",
             "redis": {
-                "host": "localhost",
+                "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                 "port": 6379,
                 "channel": "WebhookEvents"
             }
         }
         module = RedisPublishModule(config)
-        validated = module._validate_channel_name("WebhookEvents")
-        assert validated == "WebhookEvents"
+        assert module._validated_channel == "WebhookEvents"
     
     def test_default_channel_name(self):
         """Test that default channel name is used when not specified."""
         config = {
             "module": "redis_publish",
             "redis": {
-                "host": "localhost",
+                "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                 "port": 6379
             }
         }
         module = RedisPublishModule(config)
-        # Channel should be validated when accessed
-        validated = module._validate_channel_name("webhook_events")
-        assert validated == "webhook_events"
+        # Default channel name is validated during __init__
+        assert module._validated_channel == "webhook_events"
     
     def test_channel_name_with_numbers(self):
         """Test that channel names with numbers are accepted."""
         config = {
             "module": "redis_publish",
             "redis": {
-                "host": "localhost",
+                "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                 "port": 6379,
                 "channel": "webhook_events_2024_01"
             }
         }
         module = RedisPublishModule(config)
-        validated = module._validate_channel_name("webhook_events_2024_01")
-        assert validated == "webhook_events_2024_01"
+        assert module._validated_channel == "webhook_events_2024_01"
     
     def test_channel_name_underscore_hyphen_dot(self):
         """Test edge cases with underscores, hyphens, and dots."""
@@ -296,7 +293,7 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": name
                 }
@@ -307,22 +304,20 @@ class TestRedisChannelInjection:
                     RedisPublishModule(config)
             else:
                 module = RedisPublishModule(config)
-                validated = module._validate_channel_name(name)
-                assert validated == name
+                assert module._validated_channel == name
     
     def test_channel_name_starts_with_number(self):
         """Test that channel names starting with numbers are accepted."""
         config = {
             "module": "redis_publish",
             "redis": {
-                "host": "localhost",
+                "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                 "port": 6379,
                 "channel": "2024_webhook_events"
             }
         }
         module = RedisPublishModule(config)
-        validated = module._validate_channel_name("2024_webhook_events")
-        assert validated == "2024_webhook_events"
+        assert module._validated_channel == "2024_webhook_events"
     
     def test_control_characters_rejected(self):
         """Test that control characters are rejected."""
@@ -337,7 +332,7 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": name
                 }
@@ -366,7 +361,7 @@ class TestRedisChannelInjection:
             config = {
                 "module": "redis_publish",
                 "redis": {
-                    "host": "localhost",
+                    "host": "8.8.8.8",  # Use public IP instead of localhost (blocked by SSRF protection)
                     "port": 6379,
                     "channel": pattern
                 }

@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Tuple, Optional, Tuple, Optional
 
 
 def sanitize_error_message(error: Any, context: str = None) -> str:
@@ -68,6 +68,90 @@ def sanitize_error_message(error: Any, context: str = None) -> str:
     return "An error occurred while processing the request"
 
 
+def detect_encoding_from_content_type(content_type: Optional[str]) -> Optional[str]:
+    """
+    Detect encoding from Content-Type header.
+    
+    Args:
+        content_type: Content-Type header value (e.g., "application/json; charset=utf-8")
+        
+    Returns:
+        Encoding name if found, None otherwise
+    """
+    if not content_type:
+        return None
+    
+    # Parse charset from Content-Type header
+    # Format: "type/subtype; charset=encoding" or "type/subtype; charset='encoding'"
+    charset_match = re.search(r'charset\s*=\s*["\']?([^"\'\s;]+)["\']?', content_type, re.IGNORECASE)
+    if charset_match:
+        return charset_match.group(1).lower()
+    
+    return None
+
+
+def safe_decode_body(body: bytes, content_type: Optional[str] = None, default_encoding: str = 'utf-8') -> Tuple[str, str]:
+    """
+    Safely decode request body bytes to string with encoding detection and fallback.
+    
+    This function:
+    - Detects encoding from Content-Type header if available
+    - Falls back to common encodings (UTF-8, UTF-16, Latin-1, etc.)
+    - Handles UnicodeDecodeError gracefully
+    - Sanitizes error messages to prevent information disclosure
+    
+    Args:
+        body: Request body as bytes
+        content_type: Optional Content-Type header value
+        default_encoding: Default encoding to use if detection fails (default: 'utf-8')
+        
+    Returns:
+        Tuple of (decoded_string, encoding_used)
+        
+    Raises:
+        HTTPException: If body cannot be decoded with any encoding
+    """
+    from fastapi import HTTPException
+    
+    # Try encoding from Content-Type header first
+    detected_encoding = detect_encoding_from_content_type(content_type)
+    
+    # List of encodings to try (in order of preference)
+    encodings_to_try = []
+    
+    if detected_encoding:
+        encodings_to_try.append(detected_encoding)
+    
+    # Add common encodings as fallback
+    common_encodings = ['utf-8', 'utf-16', 'utf-16le', 'utf-16be', 'latin-1', 'iso-8859-1', 'cp1252']
+    for enc in common_encodings:
+        if enc not in encodings_to_try:
+            encodings_to_try.append(enc)
+    
+    # Try each encoding
+    for encoding in encodings_to_try:
+        try:
+            decoded = body.decode(encoding)
+            return decoded, encoding
+        except (UnicodeDecodeError, LookupError):
+            # LookupError for invalid encoding names
+            continue
+    
+    # Final fallback: try default encoding with error handling
+    try:
+        # Use 'replace' error handling to get partial decode
+        decoded = body.decode(default_encoding, errors='replace')
+        # If we got here, return it but log a warning
+        print(f"WARNING: Request body decoded with errors using {default_encoding}. Some characters may be lost.")
+        return decoded, default_encoding
+    except Exception:
+        # If even this fails, raise an error
+        raise HTTPException(
+            status_code=400,
+            detail="Request body encoding could not be determined or decoded. Please ensure the body is valid UTF-8 or specify charset in Content-Type header."
+        )
+
+
 def count_words_at_url(url):
     resp = requests.get(url)
     txt = len(resp.text.split())
@@ -98,6 +182,105 @@ async def print_to_stdout(payload, headers, config):
     # await asyncio.sleep(5)  # Simulating delay
 
 
+def _sanitize_env_value(value: str, context_key: str = None) -> str:
+    """
+    Sanitize environment variable value to prevent injection attacks.
+    
+    This function:
+    - Removes or escapes dangerous characters that could be used for injection
+    - Validates value format based on context
+    - Prevents command injection, URL injection, and code injection
+    
+    Args:
+        value: The environment variable value to sanitize
+        context_key: Optional context key to determine validation rules
+        
+    Returns:
+        Sanitized value
+    """
+    if not isinstance(value, str):
+        return value
+    
+    original_value = value
+    
+    # Remove null bytes (always dangerous)
+    if '\x00' in value:
+        print(f"WARNING: Environment variable value contains null byte (context: {context_key}), removing")
+        value = value.replace('\x00', '')
+    
+    # Check for URL injection patterns FIRST (if context suggests URL)
+    # This must be done before command injection checks to catch schemes
+    if context_key and ('url' in context_key.lower() or 'host' in context_key.lower()):
+        # Check for dangerous URL schemes
+        dangerous_schemes = ['javascript:', 'data:', 'vbscript:', 'file:', 'gopher:']
+        for scheme in dangerous_schemes:
+            if value.lower().startswith(scheme):
+                print(f"WARNING: Environment variable value contains dangerous URL scheme (context: {context_key}): {scheme}")
+                # Remove the dangerous scheme
+                value = value[len(scheme):].lstrip()
+    
+    # Check for command injection patterns - remove dangerous characters
+    # Command separators and injection characters
+    dangerous_chars = [';', '|', '&', '`', '$', '(', ')', '{', '}']
+    for char in dangerous_chars:
+        if char in value:
+            print(f"WARNING: Environment variable value contains dangerous character '{char}' (context: {context_key}): {value[:50]}")
+            value = value.replace(char, '')
+    
+    # Check for SQL injection patterns (if context suggests SQL)
+    if context_key and ('sql' in context_key.lower() or 'query' in context_key.lower() or 'table' in context_key.lower()):
+        sql_injection_patterns = [
+            r"';",  # SQL injection with single quote
+            r'";',  # SQL injection with double quote
+            r'--',  # SQL comment
+            r'/\*',  # SQL comment start
+            r'\*/',  # SQL comment end
+            r'union\s+select',  # UNION SELECT
+            r'drop\s+table',  # DROP TABLE
+            r'delete\s+from',  # DELETE FROM
+            r'insert\s+into',  # INSERT INTO
+            r'update\s+set',  # UPDATE SET
+        ]
+        for pattern in sql_injection_patterns:
+            if re.search(pattern, value, re.IGNORECASE):
+                print(f"WARNING: Environment variable value contains potential SQL injection pattern (context: {context_key}): {value[:50]}")
+                # Remove SQL injection patterns
+                value = re.sub(pattern, '', value, flags=re.IGNORECASE)
+    
+    # Check for path traversal patterns
+    if '..' in value:
+        print(f"WARNING: Environment variable value contains path traversal pattern (context: {context_key}): {value[:50]}")
+        # Remove path traversal
+        value = value.replace('..', '')
+    
+    # Check for absolute paths in non-path contexts
+    if value.startswith('/') and context_key and 'path' not in context_key.lower() and 'url' not in context_key.lower():
+        print(f"WARNING: Environment variable value contains absolute path (context: {context_key}): {value[:50]}")
+        # Remove leading slash
+        value = value.lstrip('/')
+    
+    # Remove common command injection keywords
+    command_keywords = ['rm ', 'rm -rf', 'cat ', 'ls ', 'pwd', 'whoami', 'id', 'uname']
+    for keyword in command_keywords:
+        if keyword.lower() in value.lower():
+            print(f"WARNING: Environment variable value contains command keyword '{keyword}' (context: {context_key}): {value[:50]}")
+            # Remove the keyword and surrounding context
+            value = re.sub(re.escape(keyword), '', value, flags=re.IGNORECASE)
+    
+    # Limit length to prevent DoS
+    MAX_ENV_VALUE_LENGTH = 4096
+    if len(value) > MAX_ENV_VALUE_LENGTH:
+        print(f"WARNING: Environment variable value too long (context: {context_key}): {len(value)} characters, truncating")
+        value = value[:MAX_ENV_VALUE_LENGTH]
+    
+    # If value became empty after sanitization, return a safe default
+    if not value.strip() and original_value.strip():
+        print(f"WARNING: Environment variable value was completely sanitized (context: {context_key}), using safe default")
+        return 'sanitized_value'
+    
+    return value
+
+
 def load_env_vars(data):
     """
     Load environment variables from configuration data.
@@ -112,11 +295,13 @@ def load_env_vars(data):
         "host": "{$REDIS_HOST:localhost}" -> replaced with env var or "localhost"
         "url": "http://{$HOST}:{$PORT}/api" -> replaced with env vars embedded in string
     
+    Security: All environment variable values are sanitized to prevent injection attacks.
+    
     Args:
         data: Configuration data (dict, list, or primitive)
         
     Returns:
-        Data with environment variables replaced
+        Data with environment variables replaced and sanitized
     """
     # Pattern 1: Exact match {$VAR} or {$VAR:default} (default can be empty)
     exact_pattern = re.compile(r'^\{\$(\w+)(?::(.*))?\}$')
@@ -133,9 +318,13 @@ def load_env_vars(data):
             env_value = os.getenv(env_var)
             
             if env_value is not None:
-                return env_value
+                # Sanitize environment variable value
+                sanitized = _sanitize_env_value(env_value, context_key)
+                return sanitized
             elif default is not None:  # Includes empty string
-                return default
+                # Sanitize default value as well
+                sanitized = _sanitize_env_value(default, context_key)
+                return sanitized
             else:
                 # No default provided and env var not set
                 print(f"Warning: Environment variable '{env_var}' not set and no default provided for key '{context_key}'")
@@ -148,9 +337,13 @@ def load_env_vars(data):
                 env_value = os.getenv(env_var)
                 
                 if env_value is not None:
-                    return env_value
+                    # Sanitize environment variable value
+                    sanitized = _sanitize_env_value(env_value, context_key)
+                    return sanitized
                 elif default is not None:  # Includes empty string
-                    return default
+                    # Sanitize default value as well
+                    sanitized = _sanitize_env_value(default, context_key)
+                    return sanitized
                 else:
                     # Keep original if not found and no default
                     print(f"Warning: Environment variable '{env_var}' not set in embedded string for key '{context_key}'")

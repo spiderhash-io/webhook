@@ -3,6 +3,8 @@ import hashlib
 import base64
 import json
 import time
+import re
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional
 
@@ -37,6 +39,77 @@ class BaseValidator(ABC):
 class AuthorizationValidator(BaseValidator):
     """Validates Authorization header."""
     
+    def _validate_header_format(self, header_value: str) -> Tuple[bool, str]:
+        """
+        Validate header format to prevent header injection attacks.
+        
+        Args:
+            header_value: The header value to validate
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not header_value:
+            return True, ""
+        
+        # Reject headers with newlines, carriage returns, or null bytes (header injection)
+        dangerous_chars = ['\n', '\r', '\0']
+        for char in dangerous_chars:
+            if char in header_value:
+                return False, f"Invalid header format: contains forbidden character"
+        
+        # Reject headers that are too long (DoS protection)
+        MAX_HEADER_LENGTH = 8192  # Standard HTTP header limit
+        if len(header_value) > MAX_HEADER_LENGTH:
+            return False, f"Header too long: {len(header_value)} characters (max: {MAX_HEADER_LENGTH})"
+        
+        return True, ""
+    
+    def _extract_bearer_token(self, auth_header: str) -> Tuple[bool, str, str]:
+        """
+        Extract Bearer token from authorization header with strict format validation.
+        
+        Args:
+            auth_header: The authorization header value
+            
+        Returns:
+            Tuple of (is_valid, token, error_message)
+        """
+        # Strip leading/trailing whitespace from entire header
+        auth_header = auth_header.strip()
+        
+        # Must start with "Bearer " (case-sensitive, with exactly one space)
+        if not auth_header.startswith("Bearer "):
+            return False, "", "Invalid Bearer token format: must start with 'Bearer '"
+        
+        # Check that there's exactly one space after "Bearer" (not multiple spaces)
+        # "Bearer " is 7 characters, so check character at index 6
+        if len(auth_header) > 7 and auth_header[6] != ' ':
+            # This shouldn't happen if startswith worked, but double-check
+            return False, "", "Invalid Bearer token format: must start with 'Bearer '"
+        
+        # Extract token part (everything after "Bearer ")
+        token = auth_header[7:]  # "Bearer " is 7 characters
+        
+        # Token cannot be empty
+        if not token:
+            return False, "", "Invalid Bearer token format: token cannot be empty"
+        
+        # Token cannot contain only whitespace
+        if not token.strip():
+            return False, "", "Invalid Bearer token format: token cannot be whitespace only"
+        
+        # Check for multiple spaces at the start (after "Bearer ")
+        # This prevents "Bearer  token" (double space) from being accepted
+        if token.startswith(' '):
+            return False, "", "Invalid Bearer token format: token cannot start with whitespace"
+        
+        # Normalize token (strip only trailing whitespace, preserve leading and internal spaces)
+        # This ensures exact token matching while allowing trailing whitespace to be normalized
+        token = token.rstrip()
+        
+        return True, token, ""
+    
     async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
         """Validate authorization header using constant-time comparison."""
         expected_auth = self.config.get("authorization", "")
@@ -46,21 +119,28 @@ class AuthorizationValidator(BaseValidator):
         
         authorization_header = headers.get('authorization', '')
         
+        # Validate header format to prevent header injection
+        is_valid_format, format_error = self._validate_header_format(authorization_header)
+        if not is_valid_format:
+            return False, format_error
+        
         # Normalize header value (strip whitespace)
         authorization_header = authorization_header.strip()
         expected_auth = expected_auth.strip()
         
-        # Check Bearer token format if expected
-        if "Bearer" in expected_auth:
-            if not authorization_header.startswith("Bearer"):
-                return False, "Unauthorized: Bearer token required"
+        # Check if expected auth is a Bearer token
+        if expected_auth.startswith("Bearer "):
+            # Strictly validate Bearer token format for received header
+            is_valid_format, received_token, format_error = self._extract_bearer_token(authorization_header)
+            if not is_valid_format:
+                return False, format_error
             
-            # Extract token part for comparison
-            # Both should have "Bearer " prefix, compare tokens
-            expected_token = expected_auth
-            received_token = authorization_header
+            # Extract expected token (everything after "Bearer ")
+            # Only strip trailing whitespace to match the normalization of received token
+            expected_token = expected_auth[7:].rstrip()
             
             # Use constant-time comparison to prevent timing attacks
+            # Compare only the token parts, not the "Bearer " prefix
             if not hmac.compare_digest(
                 expected_token.encode('utf-8'),
                 received_token.encode('utf-8')
@@ -68,6 +148,7 @@ class AuthorizationValidator(BaseValidator):
                 return False, "Unauthorized"
         else:
             # For non-Bearer tokens, use constant-time comparison
+            # Compare the full normalized strings
             if not hmac.compare_digest(
                 expected_auth.encode('utf-8'),
                 authorization_header.encode('utf-8')
@@ -99,7 +180,14 @@ class BasicAuthValidator(BaseValidator):
             # Extract and decode base64 credentials
             encoded_credentials = auth_header.split(' ', 1)[1]
             decoded_bytes = base64.b64decode(encoded_credentials)
-            decoded_str = decoded_bytes.decode('utf-8')
+            try:
+                decoded_str = decoded_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                # Try other common encodings as fallback
+                try:
+                    decoded_str = decoded_bytes.decode('latin-1')
+                except UnicodeDecodeError:
+                    return False, "Invalid UTF-8 encoding in Authorization header credentials"
             
             # Split username and password
             if ':' not in decoded_str:
@@ -330,24 +418,105 @@ class HMACValidator(BaseValidator):
 class IPWhitelistValidator(BaseValidator):
     """Validates IP address against whitelist."""
     
+    def __init__(self, config: Dict[str, Any], request=None):
+        """
+        Initialize IP whitelist validator.
+        
+        Args:
+            config: The webhook configuration
+            request: Optional FastAPI Request object for getting actual client IP
+        """
+        super().__init__(config)
+        self.request = request
+    
+    def _get_client_ip(self, headers: Dict[str, str]) -> Tuple[str, bool]:
+        """
+        Get client IP address with security considerations.
+        
+        Security: Only trust X-Forwarded-For from trusted proxies to prevent IP spoofing.
+        Uses request.client.host as primary source, only falls back to headers if:
+        1. Request object is available
+        2. Proxy IP is in trusted_proxies list (if configured)
+        
+        Args:
+            headers: Request headers
+            
+        Returns:
+            Tuple of (client_ip, is_from_trusted_proxy)
+        """
+        # Get trusted proxy IPs from config (if behind a reverse proxy)
+        trusted_proxies = self.config.get("trusted_proxies", [])
+        
+        # If we have the Request object, use it as primary source (most secure)
+        if self.request and hasattr(self.request, 'client') and self.request.client:
+            actual_client_ip = self.request.client.host
+            
+            # If we're behind a trusted proxy, check X-Forwarded-For
+            if trusted_proxies and actual_client_ip in trusted_proxies:
+                # Trust X-Forwarded-For only if actual client is a trusted proxy
+                x_forwarded_for = headers.get('x-forwarded-for', '').strip()
+                if x_forwarded_for:
+                    # X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+                    # The first IP is the original client
+                    client_ip = x_forwarded_for.split(',')[0].strip()
+                    if client_ip:
+                        return client_ip, True
+                
+                # Fallback to X-Real-IP if X-Forwarded-For is not present
+                x_real_ip = headers.get('x-real-ip', '').strip()
+                if x_real_ip:
+                    return x_real_ip, True
+            
+            # Use actual client IP from connection (most secure, cannot be spoofed)
+            return actual_client_ip, False
+        
+        # Fallback: If no Request object, we can't trust headers (security risk)
+        # But for backward compatibility, we'll use headers with a warning
+        # In production, Request object should always be available
+        x_forwarded_for = headers.get('x-forwarded-for', '').strip()
+        if x_forwarded_for:
+            client_ip = x_forwarded_for.split(',')[0].strip()
+            if client_ip:
+                # Log warning that we're using untrusted header
+                print(f"WARNING: Using X-Forwarded-For header without Request object validation: {client_ip}")
+                return client_ip, False
+        
+        x_real_ip = headers.get('x-real-ip', '').strip()
+        if x_real_ip:
+            print(f"WARNING: Using X-Real-IP header without Request object validation: {x_real_ip}")
+            return x_real_ip, False
+        
+        remote_addr = headers.get('remote-addr', '').strip()
+        if remote_addr:
+            return remote_addr, False
+        
+        return "", False
+    
     async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
-        """Validate IP address."""
+        """Validate IP address against whitelist."""
         ip_whitelist = self.config.get("ip_whitelist", [])
         
         if not ip_whitelist:
             return True, "No IP whitelist configured"
         
-        # Get client IP from headers (consider proxy headers)
-        client_ip = (
-            headers.get('x-forwarded-for', '').split(',')[0].strip() or
-            headers.get('x-real-ip', '') or
-            headers.get('remote-addr', '')
-        )
+        # Get client IP with security validation
+        client_ip, is_from_trusted_proxy = self._get_client_ip(headers)
         
         if not client_ip:
             return False, "Could not determine client IP"
         
+        # Validate IP format (basic check)
+        import ipaddress
+        try:
+            ipaddress.ip_address(client_ip)
+        except ValueError:
+            return False, f"Invalid IP address format: {client_ip}"
+        
+        # Check if IP is in whitelist
         if client_ip not in ip_whitelist:
+            # Log IP spoofing attempt if using untrusted headers
+            if not is_from_trusted_proxy and (headers.get('x-forwarded-for') or headers.get('x-real-ip')):
+                print(f"SECURITY: IP whitelist check failed for {client_ip} (may be spoofed via X-Forwarded-For)")
             return False, f"IP {client_ip} not in whitelist"
         
         return True, "Valid IP address"
@@ -429,6 +598,80 @@ class JsonSchemaValidator(BaseValidator):
 class QueryParameterAuthValidator(BaseValidator):
     """Validates API key authentication via query parameters."""
     
+    # Maximum length for parameter names and values to prevent DoS
+    MAX_PARAM_NAME_LENGTH = 100
+    MAX_PARAM_VALUE_LENGTH = 1000
+    
+    @staticmethod
+    def _validate_parameter_name(name: str) -> Tuple[bool, str]:
+        """
+        Validate query parameter name format and length.
+        
+        Args:
+            name: Parameter name to validate
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not name or not isinstance(name, str):
+            return False, "Parameter name must be a non-empty string"
+        
+        # Check length
+        if len(name) > QueryParameterAuthValidator.MAX_PARAM_NAME_LENGTH:
+            return False, f"Parameter name too long: {len(name)} characters (max: {QueryParameterAuthValidator.MAX_PARAM_NAME_LENGTH})"
+        
+        # Check for null bytes and control characters
+        if '\x00' in name:
+            return False, "Parameter name cannot contain null bytes"
+        
+        # Check for dangerous control characters (newline, carriage return, tab)
+        dangerous_chars = ['\n', '\r', '\t']
+        for char in dangerous_chars:
+            if char in name:
+                return False, f"Parameter name cannot contain control character: {repr(char)}"
+        
+        # Validate format: alphanumeric, underscore, hyphen, dot only
+        # This prevents injection via special characters
+        if not re.match(r'^[a-zA-Z0-9_\-\.]+$', name):
+            return False, "Parameter name contains invalid characters. Only alphanumeric, underscore, hyphen, and dot are allowed"
+        
+        return True, ""
+    
+    @staticmethod
+    def _sanitize_parameter_value(value: str) -> Tuple[str, bool]:
+        """
+        Sanitize query parameter value by removing control characters and limiting length.
+        
+        Args:
+            value: Parameter value to sanitize
+            
+        Returns:
+            Tuple of (sanitized_value, is_valid)
+        """
+        if not isinstance(value, str):
+            return "", False
+        
+        # Check length
+        if len(value) > QueryParameterAuthValidator.MAX_PARAM_VALUE_LENGTH:
+            return "", False
+        
+        # Remove null bytes and control characters
+        # Keep only printable characters and common whitespace (space)
+        sanitized = ''.join(
+            char for char in value 
+            if char.isprintable() or char == ' '
+        )
+        
+        # Remove null bytes explicitly
+        sanitized = sanitized.replace('\x00', '')
+        
+        # Remove other dangerous control characters
+        dangerous_chars = ['\n', '\r', '\t', '\v', '\f']
+        for char in dangerous_chars:
+            sanitized = sanitized.replace(char, '')
+        
+        return sanitized, True
+    
     async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
         """Validate API key from query parameters."""
         query_auth_config = self.config.get("query_auth", {})
@@ -479,22 +722,37 @@ class QueryParameterAuthValidator(BaseValidator):
         if expected_key == "":
             return False, "Query auth API key not configured"
         
+        # Validate parameter name from config (prevent injection via config)
+        is_valid_name, name_error = QueryParameterAuthValidator._validate_parameter_name(parameter_name)
+        if not is_valid_name:
+            return False, f"Invalid parameter name configuration: {name_error}"
+        
         # Get the API key from query parameters
         received_key = query_params.get(parameter_name)
         
-        # Check if parameter is missing or empty
+        # Check if parameter is missing
         if received_key is None:
             return False, f"Missing required query parameter: {parameter_name}"
         
-        if received_key == "":
+        # Validate and sanitize received parameter value
+        if not isinstance(received_key, str):
+            return False, f"Invalid query parameter value type for: {parameter_name}"
+        
+        # Sanitize parameter value (remove control characters, limit length)
+        sanitized_key, is_valid_value = QueryParameterAuthValidator._sanitize_parameter_value(received_key)
+        if not is_valid_value:
+            return False, f"Invalid query parameter value for: {parameter_name} (too long or contains invalid characters)"
+        
+        # Check if sanitized value is empty
+        if not sanitized_key or sanitized_key.strip() == "":
             return False, f"Invalid API key in query parameter: {parameter_name}"
         
-        # Validate key with constant-time comparison
+        # Validate key with constant-time comparison (use sanitized value)
         if case_sensitive:
-            is_valid = hmac.compare_digest(received_key.encode('utf-8'), expected_key.encode('utf-8'))
+            is_valid = hmac.compare_digest(sanitized_key.encode('utf-8'), expected_key.encode('utf-8'))
         else:
             is_valid = hmac.compare_digest(
-                received_key.lower().encode('utf-8'),
+                sanitized_key.lower().encode('utf-8'),
                 expected_key.lower().encode('utf-8')
             )
         
@@ -822,6 +1080,81 @@ class DigestAuthValidator(BaseValidator):
         return params
 
 
+class OAuth1NonceTracker:
+    """Tracks OAuth 1.0 nonces to prevent replay attacks."""
+    
+    def __init__(self, max_age_seconds: int = 600):
+        """
+        Initialize nonce tracker.
+        
+        Args:
+            max_age_seconds: Maximum age of nonces to keep (default: 600 = 10 minutes)
+        """
+        self.nonces: Dict[str, float] = {}  # nonce -> expiration_time
+        self.lock = asyncio.Lock()
+        self.max_age_seconds = max_age_seconds
+        self._last_cleanup = time.time()
+        self._cleanup_interval = 60  # Cleanup every 60 seconds
+    
+    async def check_and_store_nonce(self, nonce: str, timestamp: int, timestamp_window: int) -> Tuple[bool, str]:
+        """
+        Check if nonce has been used before and store it if valid.
+        
+        Args:
+            nonce: The nonce to check
+            timestamp: The OAuth timestamp
+            timestamp_window: The timestamp window in seconds
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        async with self.lock:
+            # Periodic cleanup of expired nonces
+            current_time = time.time()
+            if current_time - self._last_cleanup > self._cleanup_interval:
+                self._cleanup_expired_nonces(current_time)
+                self._last_cleanup = current_time
+            
+            # Check if nonce already exists
+            if nonce in self.nonces:
+                expiration = self.nonces[nonce]
+                if current_time < expiration:
+                    return False, "OAuth 1.0 nonce has already been used (replay attack detected)"
+                else:
+                    # Expired nonce, remove it
+                    del self.nonces[nonce]
+            
+            # Calculate expiration time: timestamp + window + buffer
+            # Use timestamp from request, not current time, to prevent clock skew issues
+            expiration_time = timestamp + timestamp_window + 60  # Add 60s buffer for clock skew
+            
+            # Store nonce with expiration
+            self.nonces[nonce] = expiration_time
+            
+            return True, "Nonce is valid"
+    
+    def _cleanup_expired_nonces(self, current_time: float):
+        """Remove expired nonces from memory."""
+        expired_nonces = [
+            nonce for nonce, expiration in self.nonces.items()
+            if current_time >= expiration
+        ]
+        for nonce in expired_nonces:
+            del self.nonces[nonce]
+    
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get statistics about nonce tracker."""
+        async with self.lock:
+            return {
+                "total_nonces": len(self.nonces),
+                "max_age_seconds": self.max_age_seconds,
+            }
+
+
+# Global nonce tracker instance
+_oauth1_nonce_tracker = OAuth1NonceTracker()
+
+
 class OAuth1Validator(BaseValidator):
     """Validates OAuth 1.0 signatures (RFC 5849)."""
     
@@ -871,6 +1204,7 @@ class OAuth1Validator(BaseValidator):
                 return False, f"Invalid OAuth 1.0 signature method: {oauth_params['oauth_signature_method']}"
             
             # Validate timestamp if enabled
+            timestamp = None
             if verify_timestamp and 'oauth_timestamp' in oauth_params:
                 try:
                     timestamp = int(oauth_params['oauth_timestamp'])
@@ -881,6 +1215,31 @@ class OAuth1Validator(BaseValidator):
                         return False, f"OAuth 1.0 timestamp out of window (diff: {time_diff}s, max: {timestamp_window}s)"
                 except (ValueError, TypeError):
                     return False, "Invalid OAuth 1.0 timestamp"
+            
+            # Validate and track nonce to prevent replay attacks
+            verify_nonce = oauth1_config.get("verify_nonce", True)
+            if verify_nonce:
+                if 'oauth_nonce' not in oauth_params:
+                    return False, "Missing required OAuth 1.0 parameter: oauth_nonce"
+                
+                nonce = oauth_params['oauth_nonce']
+                
+                # Validate nonce format (should be non-empty string)
+                if not nonce or not isinstance(nonce, str) or not nonce.strip():
+                    return False, "Invalid OAuth 1.0 nonce format"
+                
+                # Use timestamp for nonce expiration (if available)
+                if timestamp is None:
+                    # If timestamp validation is disabled, use current time
+                    timestamp = int(time.time())
+                
+                # Check and store nonce
+                is_valid_nonce, nonce_message = await _oauth1_nonce_tracker.check_and_store_nonce(
+                    nonce, timestamp, timestamp_window
+                )
+                
+                if not is_valid_nonce:
+                    return False, nonce_message
             
             # Get request URI from config
             request_uri = '/'
@@ -981,8 +1340,18 @@ class OAuth1Validator(BaseValidator):
         # Add body parameters if present (for form-encoded body)
         if body:
             try:
-                body_str = body.decode('utf-8')
-                if 'application/x-www-form-urlencoded' in str(body):
+                # Try UTF-8 first, fallback to latin-1 for form-encoded data
+                try:
+                    body_str = body.decode('utf-8')
+                except UnicodeDecodeError:
+                    # Form-encoded data often uses latin-1
+                    try:
+                        body_str = body.decode('latin-1')
+                    except UnicodeDecodeError:
+                        # Skip body parsing if encoding fails
+                        body_str = None
+                
+                if body_str and 'application/x-www-form-urlencoded' in str(body):
                     from urllib.parse import parse_qs
                     body_params = parse_qs(body_str, keep_blank_values=True)
                     for key, values in body_params.items():
@@ -1067,7 +1436,17 @@ class RecaptchaValidator(BaseValidator):
             return token
         else:  # body
             try:
-                payload = json.loads(body.decode('utf-8'))
+                # Try UTF-8 first, fallback to other encodings
+                try:
+                    decoded_body = body.decode('utf-8')
+                except UnicodeDecodeError:
+                    # Try latin-1 as fallback for JSON (less common but possible)
+                    try:
+                        decoded_body = body.decode('latin-1')
+                    except UnicodeDecodeError:
+                        return None
+                
+                payload = json.loads(decoded_body)
                 if isinstance(payload, dict):
                     # Try common field names
                     token = payload.get("recaptcha_token") or payload.get("recaptcha") or payload.get("g-recaptcha-response")

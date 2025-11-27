@@ -1,11 +1,122 @@
 import json
 import asyncio
+import time
+from typing import Optional
 
 from fastapi import HTTPException, Request
 from src.modules.registry import ModuleRegistry
 from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator, RecaptchaValidator, QueryParameterAuthValidator, HeaderAuthValidator, OAuth2Validator, DigestAuthValidator, OAuth1Validator
 from src.input_validator import InputValidator
 from src.retry_handler import retry_handler
+
+
+class TaskManager:
+    """
+    Manages concurrent async tasks to prevent memory exhaustion.
+    
+    Features:
+    - Semaphore-based concurrency limiting
+    - Task queue monitoring
+    - Task timeout protection
+    - Automatic cleanup of completed tasks
+    """
+    
+    def __init__(self, max_concurrent_tasks: int = 100, task_timeout: float = 300.0):
+        """
+        Initialize task manager.
+        
+        Args:
+            max_concurrent_tasks: Maximum number of concurrent tasks allowed
+            task_timeout: Maximum time (seconds) for a task to complete
+        """
+        self.max_concurrent_tasks = max_concurrent_tasks
+        self.task_timeout = task_timeout
+        self.semaphore = asyncio.Semaphore(max_concurrent_tasks)
+        self.active_tasks = set()
+        self._total_tasks_created = 0
+        self._total_tasks_completed = 0
+        self._total_tasks_timeout = 0
+        self._lock = asyncio.Lock()
+    
+    async def create_task(self, coro, timeout: Optional[float] = None) -> asyncio.Task:
+        """
+        Create a task with concurrency limiting and timeout protection.
+        
+        Args:
+            coro: Coroutine to execute
+            timeout: Optional timeout override (uses self.task_timeout if None)
+            
+        Returns:
+            asyncio.Task object
+            
+        Raises:
+            Exception: If task queue is full or timeout exceeded
+        """
+        timeout = timeout or self.task_timeout
+        
+        # Acquire semaphore (will block if limit reached)
+        # This provides natural backpressure - tasks will wait if queue is full
+        await self.semaphore.acquire()
+        
+        async def task_wrapper():
+            """Wrapper to handle cleanup and timeout."""
+            try:
+                # Execute with timeout
+                return await asyncio.wait_for(coro, timeout=timeout)
+            except asyncio.TimeoutError:
+                async with self._lock:
+                    self._total_tasks_timeout += 1
+                raise Exception(f"Task exceeded timeout of {timeout}s")
+            finally:
+                # Release semaphore and remove from active tasks
+                self.semaphore.release()
+                async with self._lock:
+                    self.active_tasks.discard(task)
+                    self._total_tasks_completed += 1
+                    # Clean up completed tasks periodically
+                    if len(self.active_tasks) % 10 == 0:
+                        self._cleanup_completed_tasks()
+        
+        # Create task
+        task = asyncio.create_task(task_wrapper())
+        
+        async with self._lock:
+            self.active_tasks.add(task)
+            self._total_tasks_created += 1
+        
+        return task
+    
+    def _cleanup_completed_tasks(self):
+        """Remove completed tasks from active_tasks set."""
+        completed = {t for t in self.active_tasks if t.done()}
+        self.active_tasks -= completed
+    
+    def get_metrics(self) -> dict:
+        """
+        Get task manager metrics.
+        
+        Returns:
+            Dictionary with task metrics
+        """
+        # Clean up completed tasks before getting metrics
+        self._cleanup_completed_tasks()
+        
+        return {
+            "max_concurrent_tasks": self.max_concurrent_tasks,
+            "active_tasks": len(self.active_tasks),
+            "total_tasks_created": self._total_tasks_created,
+            "total_tasks_completed": self._total_tasks_completed,
+            "total_tasks_timeout": self._total_tasks_timeout,
+            "queue_usage_percent": (len(self.active_tasks) / self.max_concurrent_tasks * 100) if self.max_concurrent_tasks > 0 else 0.0,
+        }
+
+
+# Global task manager instance
+# Can be configured via environment variables
+import os
+_max_concurrent_tasks = int(os.getenv("MAX_CONCURRENT_TASKS", "100"))
+_task_timeout = float(os.getenv("TASK_TIMEOUT", "300.0"))
+task_manager = TaskManager(max_concurrent_tasks=_max_concurrent_tasks, task_timeout=_task_timeout)
 
 
 class WebhookHandler:
@@ -17,6 +128,7 @@ class WebhookHandler:
         self.connection_config = connection_config
         self.request = request
         self.headers = self.request.headers
+        self._cached_body = None  # Cache request body after first read
         
         # Initialize validators
         self.validators = [
@@ -29,7 +141,7 @@ class WebhookHandler:
             OAuth2Validator(self.config),  # OAuth 2.0 token validation
             AuthorizationValidator(self.config),  # Bearer token (simple)
             HMACValidator(self.config),  # HMAC signature
-            IPWhitelistValidator(self.config),  # IP whitelist
+            IPWhitelistValidator(self.config, request=self.request),  # IP whitelist (pass request for secure IP detection)
             JsonSchemaValidator(self.config),  # JSON Schema validation
             QueryParameterAuthValidator(self.config),  # Query parameter auth
             HeaderAuthValidator(self.config),  # Header-based API key auth
@@ -38,7 +150,11 @@ class WebhookHandler:
     async def validate_webhook(self):
         """Validate webhook using all configured validators."""
         # Get raw body for HMAC validation
-        body = await self.request.body()
+        # Cache body after first read since FastAPI Request.body() can only be read once
+        if self._cached_body is None:
+            self._cached_body = await self.request.body()
+        
+        body = self._cached_body
         
         # Convert headers to dict
         headers_dict = {k.lower(): v for k, v in self.request.headers.items()}
@@ -69,7 +185,12 @@ class WebhookHandler:
             raise HTTPException(status_code=400, detail=msg)
         
         # Get raw body for validation
-        body = await self.request.body()
+        # Reuse cached body from validate_webhook() since FastAPI Request.body() can only be read once
+        if self._cached_body is None:
+            # If validate_webhook() wasn't called, read body now (shouldn't happen in normal flow)
+            self._cached_body = await self.request.body()
+        
+        body = self._cached_body
         
         # Validate headers
         headers_dict = {k: v for k, v in self.request.headers.items()}
@@ -85,9 +206,23 @@ class WebhookHandler:
         # Read the incoming data based on its type
         if self.config['data_type'] == 'json':
             try:
-                payload = json.loads(body.decode('utf-8'))
+                # Safely decode body with encoding detection and fallback
+                from src.utils import safe_decode_body
+                content_type = self.headers.get('content-type', '')
+                decoded_body, encoding_used = safe_decode_body(body, content_type)
+                payload = json.loads(decoded_body)
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Malformed JSON payload")
+            except HTTPException:
+                # Re-raise HTTPException from safe_decode_body
+                raise
+            except Exception as e:
+                # Handle any other decoding errors
+                from src.utils import sanitize_error_message
+                raise HTTPException(
+                    status_code=400,
+                    detail=sanitize_error_message(e, "request body decoding")
+                )
             
             # Validate JSON depth
             is_valid, msg = InputValidator.validate_json_depth(payload)
@@ -134,12 +269,27 @@ class WebhookHandler:
                     retry_config=retry_config
                 )
             
-            # Execute with retry (fire-and-forget, but track result)
-            task = asyncio.create_task(execute_module())
+            # Execute with retry using task manager (fire-and-forget, but track result)
+            try:
+                task = await task_manager.create_task(execute_module())
+            except Exception as e:
+                # If task queue is full, log and continue (task will be lost, but webhook is accepted)
+                print(f"WARNING: Could not create task for webhook '{self.webhook_id}': {e}")
+                # Return None for task to indicate it wasn't created
+                return payload, dict(self.headers.items()), None
             
             # Return payload, headers, and task for status checking
             return payload, dict(self.headers.items()), task
         else:
-            # No retry configured, execute normally (fire-and-forget)
-            asyncio.create_task(module.process(payload, dict(self.headers.items())))
+            # No retry configured, execute normally using task manager (fire-and-forget)
+            async def execute_module():
+                await module.process(payload, dict(self.headers.items()))
+            
+            try:
+                # Create task with task manager (fire-and-forget, no tracking needed)
+                await task_manager.create_task(execute_module())
+            except Exception as e:
+                # If task queue is full, log and continue (task will be lost, but webhook is accepted)
+                print(f"WARNING: Could not create task for webhook '{self.webhook_id}': {e}")
+            
             return payload, dict(self.headers.items()), None

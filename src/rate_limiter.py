@@ -51,6 +51,34 @@ class RateLimiter:
             
             return True, "Request allowed"
     
+    async def check_rate_limit(
+        self, 
+        key: str, 
+        max_requests: int, 
+        window_seconds: int
+    ) -> Tuple[bool, int]:
+        """
+        Check if request is allowed based on rate limit and return remaining.
+        
+        Args:
+            key: The identifier for rate limiting (e.g., IP address, webhook ID)
+            max_requests: Maximum number of requests allowed
+            window_seconds: Time window in seconds
+            
+        Returns:
+            Tuple of (is_allowed, remaining_requests)
+        """
+        is_allowed, message = await self.is_allowed(key, max_requests, window_seconds)
+        
+        if is_allowed:
+            # Calculate remaining requests
+            async with self.lock:
+                remaining = max(0, max_requests - len(self.requests[key]))
+            return True, remaining
+        else:
+            # No remaining requests if rate limited
+            return False, 0
+    
     async def cleanup_old_entries(self, max_age_seconds: int = 3600):
         """
         Cleanup old entries to prevent memory bloat.

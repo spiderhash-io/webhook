@@ -1,6 +1,9 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
 import asyncio
 import os
 from datetime import datetime
@@ -97,6 +100,88 @@ app.add_middleware(
     expose_headers=[],  # Don't expose any headers
     max_age=600,  # Cache preflight requests for 10 minutes
 )
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Middleware to add security headers to all HTTP responses."""
+    
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response = await call_next(request)
+        
+        # X-Content-Type-Options: Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        
+        # X-Frame-Options: Prevent clickjacking
+        response.headers["X-Frame-Options"] = "DENY"
+        
+        # X-XSS-Protection: Enable XSS filter (legacy browsers)
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        
+        # Referrer-Policy: Control referrer information
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        # Permissions-Policy: Restrict browser features
+        # Disable potentially dangerous features
+        permissions_policy = (
+            "geolocation=(), "
+            "microphone=(), "
+            "camera=(), "
+            "payment=(), "
+            "usb=(), "
+            "magnetometer=(), "
+            "gyroscope=(), "
+            "accelerometer=()"
+        )
+        response.headers["Permissions-Policy"] = permissions_policy
+        
+        # Strict-Transport-Security: Force HTTPS (only if HTTPS is detected)
+        # Check if request is over HTTPS
+        is_https = (
+            request.url.scheme == "https" or
+            request.headers.get("x-forwarded-proto", "").lower() == "https" or
+            os.getenv("FORCE_HTTPS", "false").lower() == "true"
+        )
+        
+        if is_https:
+            # HSTS: Force HTTPS for 1 year, include subdomains, preload
+            hsts_max_age = int(os.getenv("HSTS_MAX_AGE", "31536000"))  # Default: 1 year
+            hsts_include_subdomains = os.getenv("HSTS_INCLUDE_SUBDOMAINS", "true").lower() == "true"
+            hsts_preload = os.getenv("HSTS_PRELOAD", "false").lower() == "true"
+            
+            hsts_value = f"max-age={hsts_max_age}"
+            if hsts_include_subdomains:
+                hsts_value += "; includeSubDomains"
+            if hsts_preload:
+                hsts_value += "; preload"
+            
+            response.headers["Strict-Transport-Security"] = hsts_value
+        
+        # Content-Security-Policy: Restrict resource loading
+        # Default policy: Only allow same-origin resources
+        csp_policy = os.getenv("CSP_POLICY", "")
+        if csp_policy:
+            # Use custom CSP if provided
+            response.headers["Content-Security-Policy"] = csp_policy
+        else:
+            # Default restrictive CSP
+            default_csp = (
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "style-src 'self' 'unsafe-inline'; "  # Allow inline styles (needed for some frameworks)
+                "img-src 'self' data:; "
+                "font-src 'self'; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none'; "  # Prevent framing (redundant with X-Frame-Options but more specific)
+                "base-uri 'self'; "
+                "form-action 'self'"
+            )
+            response.headers["Content-Security-Policy"] = default_csp
+        
+        return response
+
+
+# Add security headers middleware (after CORS, before routes)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 async def cleanup_task():
@@ -199,8 +284,11 @@ async def read_webhook(webhook_id: str,  request: Request):
     global clickhouse_logger
     if clickhouse_logger:
         try:
-            # Log asynchronously (fire and forget)
-            asyncio.create_task(clickhouse_logger.save_log(webhook_id, payload, headers))
+            # Log asynchronously using task manager (fire and forget)
+            from src.webhook import task_manager
+            async def log_to_clickhouse():
+                await clickhouse_logger.save_log(webhook_id, payload, headers)
+            await task_manager.create_task(log_to_clickhouse())
         except Exception as e:
             # Don't fail webhook if logging fails
             print(f"Failed to log webhook event to ClickHouse: {e}")

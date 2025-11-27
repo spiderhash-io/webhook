@@ -122,7 +122,7 @@ class TestAuthorizationTiming:
         headers = {"authorization": "secret_token"}
         is_valid, message = await validator.validate(headers, b"")
         assert is_valid is False
-        assert "Bearer token required" in message
+        assert "must start with 'Bearer '" in message
         
         # Correct Bearer format
         headers = {"authorization": "Bearer secret_token"}
@@ -181,7 +181,7 @@ class TestAuthorizationTiming:
         headers = {"authorization": ""}
         is_valid, message = await validator.validate(headers, b"")
         assert is_valid is False
-        assert "Unauthorized" in message
+        assert ("must start with 'Bearer '" in message or "Unauthorized" in message)
     
     @pytest.mark.asyncio
     async def test_authorization_missing_header(self):
@@ -194,7 +194,7 @@ class TestAuthorizationTiming:
         headers = {}
         is_valid, message = await validator.validate(headers, b"")
         assert is_valid is False
-        assert "Unauthorized" in message
+        assert ("must start with 'Bearer '" in message or "Unauthorized" in message)
     
     @pytest.mark.asyncio
     async def test_authorization_no_config(self):
@@ -245,8 +245,10 @@ class TestAuthorizationTiming:
     
     @pytest.mark.asyncio
     async def test_authorization_long_tokens(self):
-        """Test validation with very long tokens."""
-        long_token = "Bearer " + "a" * 10000
+        """Test validation with very long tokens (within header length limit)."""
+        # Use token that's long but within 8192 byte header limit
+        # "Bearer " is 7 bytes, so max token is ~8185 bytes
+        long_token = "Bearer " + "a" * 5000  # Well within limit
         config = {
             "authorization": long_token
         }
@@ -258,7 +260,7 @@ class TestAuthorizationTiming:
         assert is_valid is True
         
         # Invalid long token (one char different)
-        invalid_long_token = "Bearer " + "a" * 9999 + "b"
+        invalid_long_token = "Bearer " + "a" * 4999 + "b"
         headers = {"authorization": invalid_long_token}
         is_valid, message = await validator.validate(headers, b"")
         assert is_valid is False

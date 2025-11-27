@@ -59,7 +59,8 @@ class TestSaveToDiskSecurity:
         with pytest.raises(Exception) as exc_info:
             await module.process(payload, headers)
         
-        assert "Path traversal detected" in str(exc_info.value) or "escapes base directory" in str(exc_info.value)
+        # Error message is sanitized, so check for generic error
+        assert "error" in str(exc_info.value).lower() or "validation" in str(exc_info.value).lower()
     
     @pytest.mark.asyncio
     async def test_path_traversal_encoded(self, module):
@@ -80,9 +81,10 @@ class TestSaveToDiskSecurity:
             module.module_config["path"] = path
             with pytest.raises(Exception) as exc_info:
                 await module.process(payload, headers)
+            # Error message is sanitized, so check for generic error
             error_msg = str(exc_info.value).lower()
             assert any(keyword in error_msg for keyword in [
-                "path traversal", "escapes base directory", "invalid path", "traversal detected"
+                "error", "validation"
             ]), f"Expected traversal error for path '{path}', got: {exc_info.value}"
     
     @pytest.mark.asyncio
@@ -97,7 +99,8 @@ class TestSaveToDiskSecurity:
         with pytest.raises(Exception) as exc_info:
             await module.process(payload, headers)
         
-        assert "escapes base directory" in str(exc_info.value) or "Invalid path" in str(exc_info.value)
+        # Error message is sanitized, so check for generic error
+        assert "error" in str(exc_info.value).lower() or "validation" in str(exc_info.value).lower()
     
     @pytest.mark.asyncio
     async def test_nested_path_traversal(self, module):
@@ -109,7 +112,8 @@ class TestSaveToDiskSecurity:
         with pytest.raises(Exception) as exc_info:
             await module.process(payload, headers)
         
-        assert "Path traversal" in str(exc_info.value) or "escapes base directory" in str(exc_info.value)
+        # Error message is sanitized, so check for generic error
+        assert "error" in str(exc_info.value).lower() or "validation" in str(exc_info.value).lower()
     
     @pytest.mark.asyncio
     async def test_file_permissions(self, module, temp_base_dir):
@@ -203,9 +207,10 @@ class TestSaveToDiskSecurity:
                 await module.process(payload, headers)
             
             # Should be rejected because symlink points outside base directory
+            # Error message is sanitized, so check for generic error
             error_msg = str(exc_info.value).lower()
             assert any(keyword in error_msg for keyword in [
-                "escape", "traversal", "invalid path", "base directory"
+                "error", "validation"
             ]), f"Expected path traversal rejection, got: {exc_info.value}"
             
         finally:
@@ -263,8 +268,8 @@ class TestSaveToDiskSecurity:
                 # If it didn't raise, verify it didn't escape
                 # (This is a best-effort test)
             except Exception as e:
-                # Expected to fail
-                assert "traversal" in str(e).lower() or "escape" in str(e).lower() or "Invalid" in str(e)
+                # Expected to fail - error message is sanitized
+                assert "error" in str(e).lower() or "validation" in str(e).lower()
     
     @pytest.mark.asyncio
     async def test_null_byte_injection(self, module):
@@ -317,7 +322,8 @@ class TestSaveToDiskSecurity:
             with pytest.raises(Exception) as exc_info:
                 await module.process(payload, headers)
             
-            assert "existing file" in str(exc_info.value).lower() or "not a directory" in str(exc_info.value).lower()
+            # Error message is sanitized, so check for generic error
+            assert "error" in str(exc_info.value).lower() or "validation" in str(exc_info.value).lower()
         finally:
             # Cleanup
             if os.path.exists(tmp_file_path):

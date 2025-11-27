@@ -116,19 +116,28 @@ async def test_hmac_validator_missing_header():
 @pytest.mark.asyncio
 async def test_ip_whitelist_validator():
     """Test IP whitelist validator."""
+    from unittest.mock import Mock
+    
+    # Mock Request object for secure IP detection
+    mock_request = Mock()
+    mock_request.client = Mock()
+    mock_request.client.host = "192.168.1.1"
+    
     config = {
         "ip_whitelist": ["192.168.1.1", "10.0.0.1"]
     }
     
-    validator = IPWhitelistValidator(config)
+    validator = IPWhitelistValidator(config, request=mock_request)
     
-    # Valid IP
-    headers = {"x-forwarded-for": "192.168.1.1"}
+    # Valid IP (from request.client.host)
+    headers = {}
     is_valid, message = await validator.validate(headers, b"")
     assert is_valid is True
     
     # Invalid IP
-    headers = {"x-forwarded-for": "192.168.1.2"}
+    mock_request.client.host = "192.168.1.2"
+    validator = IPWhitelistValidator(config, request=mock_request)
+    headers = {}
     is_valid, message = await validator.validate(headers, b"")
     assert is_valid is False
 
