@@ -1,6 +1,7 @@
 from typing import Any, Dict
 import json
 import asyncio
+import re
 from datetime import datetime
 from clickhouse_driver import Client
 from src.modules.base import BaseModule
@@ -26,10 +27,80 @@ class ClickHouseModule(BaseModule):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.client = None
-        self.table_name = self.module_config.get('table', 'webhook_logs')
+        raw_table_name = self.module_config.get('table', 'webhook_logs')
+        self.table_name = self._validate_table_name(raw_table_name)
         self.include_headers = self.module_config.get('include_headers', True)
         self.include_timestamp = self.module_config.get('include_timestamp', True)
         self._ensure_table_created = False
+    
+    def _validate_table_name(self, table_name: str) -> str:
+        """
+        Validate and sanitize ClickHouse table name to prevent SQL injection.
+        
+        Args:
+            table_name: The table name from configuration
+            
+        Returns:
+            Validated and sanitized table name
+            
+        Raises:
+            ValueError: If table name is invalid or contains dangerous characters
+        """
+        if not table_name or not isinstance(table_name, str):
+            raise ValueError("Table name must be a non-empty string")
+        
+        # Remove whitespace
+        table_name = table_name.strip()
+        
+        if not table_name:
+            raise ValueError("Table name cannot be empty")
+        
+        # ClickHouse table names can contain alphanumeric, underscore, and dots
+        # But we'll be more restrictive for security: alphanumeric and underscore only
+        # Maximum length to prevent DoS
+        if len(table_name) > 255:
+            raise ValueError(f"Table name too long: {len(table_name)} characters (max: 255)")
+        
+        # Validate format: alphanumeric and underscore only
+        # ClickHouse allows dots, but we restrict for security
+        if not re.match(r'^[a-zA-Z0-9_]+$', table_name):
+            raise ValueError(
+                f"Invalid table name format: '{table_name}'. "
+                f"Only alphanumeric characters and underscores are allowed."
+            )
+        
+        # Reject SQL keywords that could be used in injection
+        sql_keywords = [
+            'select', 'insert', 'update', 'delete', 'drop', 'create', 'alter',
+            'truncate', 'exec', 'execute', 'union', 'script', '--', ';', '/*', '*/'
+        ]
+        table_name_lower = table_name.lower()
+        for keyword in sql_keywords:
+            if keyword in table_name_lower:
+                raise ValueError(f"Table name contains forbidden keyword: '{keyword}'")
+        
+        # Reject dangerous patterns
+        dangerous_patterns = ['..', '--', ';', '/*', '*/', 'xp_', 'sp_']
+        for pattern in dangerous_patterns:
+            if pattern in table_name_lower:
+                raise ValueError(f"Table name contains dangerous pattern: '{pattern}'")
+        
+        return table_name
+    
+    def _quote_identifier(self, identifier: str) -> str:
+        """
+        Quote ClickHouse identifier to prevent injection.
+        
+        Args:
+            identifier: The identifier to quote
+            
+        Returns:
+            Quoted identifier safe for use in SQL
+        """
+        # ClickHouse uses backticks for identifier quoting
+        # Escape backticks in the identifier
+        escaped = identifier.replace('`', '``')
+        return f"`{escaped}`"
     
     async def setup(self) -> None:
         """Initialize ClickHouse client connection."""
@@ -74,9 +145,13 @@ class ClickHouseModule(BaseModule):
             return
         
         try:
+            # Quote table name to prevent injection
+            quoted_table_name = self._quote_identifier(self.table_name)
+            
             # Create table if it doesn't exist
+            # Table name is validated and quoted, so it's safe to use in f-string
             create_table_query = f"""
-            CREATE TABLE IF NOT EXISTS {self.table_name} (
+            CREATE TABLE IF NOT EXISTS {quoted_table_name} (
                 id String,
                 webhook_id String,
                 timestamp DateTime,
@@ -113,8 +188,10 @@ class ClickHouseModule(BaseModule):
             headers_str = json.dumps(headers) if self.include_headers else '{}'
             
             # Insert into ClickHouse
+            # Table name is validated and quoted, so it's safe to use in f-string
+            quoted_table_name = self._quote_identifier(self.table_name)
             insert_query = f"""
-            INSERT INTO {self.table_name} (id, webhook_id, timestamp, payload, headers)
+            INSERT INTO {quoted_table_name} (id, webhook_id, timestamp, payload, headers)
             VALUES
             """
             

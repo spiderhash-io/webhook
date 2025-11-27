@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
+import os
 from datetime import datetime
 
 from src.webhook import WebhookHandler
@@ -14,13 +15,50 @@ app = FastAPI()
 stats = RedisEndpointStats()  # Use Redis for persistent stats
 clickhouse_logger: ClickHouseAnalytics = None  # For logging events only
 
-# Add CORS middleware
+# Configure CORS securely
+# Read allowed origins from environment variable (comma-separated)
+# Default: empty list (no CORS allowed) - most secure
+# Example: CORS_ALLOWED_ORIGINS=https://example.com,https://app.example.com
+cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+if cors_origins_env:
+    # Parse comma-separated origins
+    cors_allowed_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+else:
+    # Default: no CORS (most secure)
+    # Set to ["*"] only if explicitly needed (not recommended for production)
+    cors_allowed_origins = []
+
+# Only allow credentials if origins are explicitly configured (not wildcard)
+cors_allow_credentials = len(cors_allowed_origins) > 0 and "*" not in cors_allowed_origins
+
+# Restrict methods to only what's needed for webhooks
+cors_allowed_methods = ["POST", "GET", "OPTIONS"]
+
+# Restrict headers to common webhook headers
+cors_allowed_headers = [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "X-HMAC-Signature",
+    "X-HMAC-Signature-256",
+    "X-Hub-Signature",
+    "X-Hub-Signature-256",
+    "X-API-Key",
+    "X-Auth-Token",
+    "X-Recaptcha-Token",
+    "X-Forwarded-For",
+    "X-Real-IP",
+]
+
+# Add CORS middleware with secure defaults
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_origins=cors_allowed_origins,  # Whitelist specific origins
+    allow_credentials=cors_allow_credentials,  # Only if origins are whitelisted
+    allow_methods=cors_allowed_methods,  # Restricted to needed methods
+    allow_headers=cors_allowed_headers,  # Restricted to needed headers
+    expose_headers=[],  # Don't expose any headers
+    max_age=600,  # Cache preflight requests for 10 minutes
 )
 
 

@@ -38,7 +38,7 @@ class AuthorizationValidator(BaseValidator):
     """Validates Authorization header."""
     
     async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
-        """Validate authorization header."""
+        """Validate authorization header using constant-time comparison."""
         expected_auth = self.config.get("authorization", "")
         
         if not expected_auth:
@@ -46,11 +46,33 @@ class AuthorizationValidator(BaseValidator):
         
         authorization_header = headers.get('authorization', '')
         
-        if "Bearer" in expected_auth and not authorization_header.startswith("Bearer"):
-            return False, "Unauthorized: Bearer token required"
+        # Normalize header value (strip whitespace)
+        authorization_header = authorization_header.strip()
+        expected_auth = expected_auth.strip()
         
-        if authorization_header != expected_auth:
-            return False, "Unauthorized"
+        # Check Bearer token format if expected
+        if "Bearer" in expected_auth:
+            if not authorization_header.startswith("Bearer"):
+                return False, "Unauthorized: Bearer token required"
+            
+            # Extract token part for comparison
+            # Both should have "Bearer " prefix, compare tokens
+            expected_token = expected_auth
+            received_token = authorization_header
+            
+            # Use constant-time comparison to prevent timing attacks
+            if not hmac.compare_digest(
+                expected_token.encode('utf-8'),
+                received_token.encode('utf-8')
+            ):
+                return False, "Unauthorized"
+        else:
+            # For non-Bearer tokens, use constant-time comparison
+            if not hmac.compare_digest(
+                expected_auth.encode('utf-8'),
+                authorization_header.encode('utf-8')
+            ):
+                return False, "Unauthorized"
         
         return True, "Valid authorization"
 
@@ -92,9 +114,13 @@ class BasicAuthValidator(BaseValidator):
             if not expected_username or not expected_password:
                 return False, "Basic auth credentials not configured"
             
-            # Validate credentials (constant-time comparison for password)
+            # Validate credentials using constant-time comparison for both username and password
+            # This prevents timing attacks that could enumerate valid usernames
             # Encode to bytes for consistent comparison, especially with unicode
-            username_match = username == expected_username
+            username_match = hmac.compare_digest(
+                username.encode('utf-8'),
+                expected_username.encode('utf-8')
+            )
             password_match = hmac.compare_digest(
                 password.encode('utf-8'), 
                 expected_password.encode('utf-8')
