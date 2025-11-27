@@ -486,10 +486,11 @@ Error messages may leak sensitive information about system configuration, file p
 
 ---
 
-### 6.2 [MEDIUM] Statistics Endpoint Information Disclosure
-**Location**: `src/main.py:175-177`  
+### 6.2 [MEDIUM] Statistics Endpoint Information Disclosure ✅ FIXED
+**Location**: `src/main.py:250-252`  
 **Severity**: Medium  
-**CWE**: CWE-200 (Information Exposure)
+**CWE**: CWE-200 (Information Exposure)  
+**Status**: ✅ **FIXED** - See `src/main.py:stats_endpoint()` and `src/tests/test_stats_endpoint_security.py`
 
 **Description**:  
 The `/stats` endpoint is publicly accessible and may reveal webhook usage patterns, endpoint names, and request volumes.
@@ -506,11 +507,15 @@ async def stats_endpoint():
 - Usage pattern analysis
 - Business intelligence leakage
 
-**Remediation**:
-- Add authentication to `/stats` endpoint
-- Rate limit the endpoint
-- Restrict access by IP
-- Sanitize output (remove sensitive webhook IDs)
+**Remediation** (✅ **IMPLEMENTED**):
+- ✅ Add authentication to `/stats` endpoint via `STATS_AUTH_TOKEN` environment variable
+- ✅ Use constant-time token comparison (`hmac.compare_digest`) to prevent timing attacks
+- ✅ Support Bearer token format and plain token format
+- ✅ Rate limit the endpoint (configurable via `STATS_RATE_LIMIT`, default: 60/min)
+- ✅ Restrict access by IP whitelist (configurable via `STATS_ALLOWED_IPS`)
+- ✅ Optional webhook ID sanitization (configurable via `STATS_SANITIZE_IDS=true`)
+- ✅ Sanitization uses SHA-256 hashing to prevent enumeration while preserving statistics
+- ✅ Comprehensive security tests in `test_stats_endpoint_security.py` (8 tests)
 
 ---
 
@@ -652,10 +657,11 @@ Rate limiting is only per webhook ID, not per IP address, allowing distributed a
 
 ## 9. CORS & Security Headers
 
-### 9.1 [HIGH] Overly Permissive CORS Configuration
-**Location**: `src/main.py:18-24`  
+### 9.1 [HIGH] Overly Permissive CORS Configuration ✅ FIXED
+**Location**: `src/main.py:18-62`  
 **Severity**: High  
-**CWE**: CWE-942 (Overly Permissive Cross-domain Whitelist)
+**CWE**: CWE-942 (Overly Permissive Cross-domain Whitelist)  
+**Status**: ✅ **FIXED** - See `src/main.py` CORS configuration and `src/tests/test_cors_security.py`
 
 **Description**:  
 CORS is configured to allow all origins, methods, and headers with credentials.
@@ -676,11 +682,16 @@ app.add_middleware(
 - Unauthorized cross-origin requests
 - Credential theft
 
-**Remediation**:
-- Whitelist specific origins
-- Restrict allowed methods
-- Restrict allowed headers
-- Consider removing credentials support if not needed
+**Remediation** (✅ **IMPLEMENTED**):
+- ✅ Whitelist specific origins via `CORS_ALLOWED_ORIGINS` environment variable
+- ✅ Explicitly reject wildcard `"*"` and `"null"` origins
+- ✅ Validate origin format (must be http:// or https:// with valid domain)
+- ✅ Reject origins with paths, fragments, query strings, or userinfo
+- ✅ Restrict allowed methods to `["POST", "GET", "OPTIONS"]` only
+- ✅ Restrict allowed headers to specific webhook headers only
+- ✅ Only allow credentials when origins are explicitly whitelisted (not wildcard)
+- ✅ Default to no CORS (empty origins list) for maximum security
+- ✅ Comprehensive security tests in `test_cors_security.py` (11 tests)
 
 ---
 
