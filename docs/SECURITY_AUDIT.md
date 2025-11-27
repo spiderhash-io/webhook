@@ -852,10 +852,11 @@ Module names from configuration are used directly without validation, potentiall
 
 ---
 
-### 12.3 [HIGH] RabbitMQ Queue Name Injection
+### 12.3 [HIGH] RabbitMQ Queue Name Injection ✅ FIXED
 **Location**: `src/modules/rabbitmq_module.py:30`  
 **Severity**: High  
-**CWE**: CWE-20 (Improper Input Validation)
+**CWE**: CWE-20 (Improper Input Validation)  
+**Status**: ✅ **FIXED** - See `src/modules/rabbitmq_module.py:_validate_queue_name()` and `src/tests/test_rabbitmq_queue_injection.py`
 
 **Description**:  
 Queue name from configuration is used directly without validation, potentially allowing queue manipulation or injection.
@@ -872,11 +873,15 @@ queue = await channel.declare_queue(queue_name, durable=True)
 - Queue manipulation
 - Potential DoS via queue creation
 
-**Remediation**:
-- Validate queue names (alphanumeric + specific chars only)
-- Restrict queue name length
-- Whitelist allowed queue names (if possible)
-- Sanitize queue names
+**Remediation** (✅ **IMPLEMENTED**):
+- ✅ Validate queue names against strict format (alphanumeric, underscore, hyphen, dot, colon only)
+- ✅ Reject RabbitMQ command keywords (`DECLARE`, `BIND`, `DELETE`, `PURGE`, etc.)
+- ✅ Reject queue names starting with `amq.` (reserved for system queues)
+- ✅ Reject dangerous patterns (`..`, `--`, `;`, `|`, `&`, `$`, `` ` ``, etc.)
+- ✅ Reject control characters (`\n`, `\r`, `\0`, `\t`)
+- ✅ Length limit (255 characters) to prevent DoS
+- ✅ Validation occurs during `__init__` for early failure
+- ✅ Comprehensive security tests in `test_rabbitmq_queue_injection.py` (17 tests)
 
 ---
 
@@ -959,10 +964,11 @@ AWS credentials are stored in configuration and may be logged or exposed.
 
 ---
 
-### 12.7 [MEDIUM] S3 Object Key Injection
+### 12.7 [MEDIUM] S3 Object Key Injection ✅ FIXED
 **Location**: `src/modules/s3.py:45-53`  
 **Severity**: Medium  
-**CWE**: CWE-20 (Improper Input Validation)
+**CWE**: CWE-20 (Improper Input Validation)  
+**Status**: ✅ **FIXED** - See `src/modules/s3.py:_validate_s3_path_component()`, `_validate_filename_pattern()`, `_validate_object_key()` and `src/tests/test_s3_object_key_injection.py`
 
 **Description**:  
 S3 object key is constructed from user-controlled configuration (prefix, filename_pattern) without sufficient validation.
@@ -979,11 +985,16 @@ object_key = f"{prefix}/{timestamp}/{filename}"
 - Unauthorized object access
 - Object key collision
 
-**Remediation**:
-- Validate prefix and filename patterns
-- Sanitize object keys
-- Prevent path traversal sequences
-- Use strict naming conventions
+**Remediation** (✅ **IMPLEMENTED**):
+- ✅ Validate prefix against strict format (alphanumeric, underscore, hyphen, forward slash only)
+- ✅ Validate filename pattern (alphanumeric, underscore, hyphen, dot, placeholders only)
+- ✅ Reject path traversal sequences (`..`, `/`, `\`)
+- ✅ Reject dangerous patterns (`//`, `--`, `;`, `|`, `&`, `$`, `` ` ``, etc.)
+- ✅ Reject control characters (`\n`, `\r`, `\0`, `\t`)
+- ✅ Validate final object key (length limit 1024 bytes, no path traversal)
+- ✅ Sanitize timestamp placeholder (replace colons with hyphens)
+- ✅ Validation occurs during `__init__` for early failure
+- ✅ Comprehensive security tests in `test_s3_object_key_injection.py` (16 tests)
 
 ---
 
@@ -1007,10 +1018,11 @@ Retry mechanism could be abused to cause resource exhaustion with many retry att
 
 ---
 
-### 12.9 [MEDIUM] Kafka Topic Name Injection
+### 12.9 [MEDIUM] Kafka Topic Name Injection ✅ FIXED
 **Location**: `src/modules/kafka.py:31-34`  
 **Severity**: Medium  
-**CWE**: CWE-20 (Improper Input Validation)
+**CWE**: CWE-20 (Improper Input Validation)  
+**Status**: ✅ **FIXED** - See `src/modules/kafka.py:_validate_topic_name()` and `src/tests/test_kafka_topic_injection.py`
 
 **Description**:  
 Kafka topic name from configuration is used without validation.
@@ -1026,10 +1038,14 @@ await self.producer.send(topic, ...)
 - Unauthorized topic access
 - Topic manipulation
 
-**Remediation**:
-- Validate topic names
-- Restrict topic name format
-- Whitelist allowed topics (if possible)
+**Remediation** (✅ **IMPLEMENTED**):
+- ✅ Validate topic names against strict format (alphanumeric, underscore, hyphen, dot only)
+- ✅ Reject Kafka command keywords (`CREATE`, `DELETE`, `ALTER`, `CONFIG`, `PRODUCE`, `CONSUME`, etc.)
+- ✅ Reject dangerous patterns (`..`, `--`, `;`, `|`, `&`, `$`, `` ` ``, etc.)
+- ✅ Reject control characters (`\n`, `\r`, `\0`, `\t`)
+- ✅ Length limits (minimum 2, maximum 249 characters) to prevent DoS
+- ✅ Validation occurs during `__init__` for early failure
+- ✅ Comprehensive security tests in `test_kafka_topic_injection.py` (17 tests)
 
 ---
 
