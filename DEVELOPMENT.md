@@ -8,7 +8,7 @@ This guide covers setting up and working with the development environment.
 - pip (Python package manager)
 - Git
 
-## Initial Setup
+## Initial Setup (Local venv)
 
 ### 1. Clone the Repository
 
@@ -37,9 +37,9 @@ Or use the Makefile:
 make install-dev
 ```
 
-## Development Workflow
+## Development Workflow (Local)
 
-### Running the Server
+### Running the Server (Local)
 
 ```bash
 # Development mode with auto-reload
@@ -48,18 +48,20 @@ make run
 uvicorn src.main:app --reload --port 8000
 ```
 
-### Running Tests
+### Running Tests (Local venv)
 
 ```bash
-# Run all tests
-make test
-# or
-pytest
+# 1) Activate venv (if not already)
+source venv/bin/activate
 
-# Run with coverage
-make test-cov
-# or
-pytest --cov=src --cov-report=html --cov-report=term
+# 2) Run all unit/integration tests
+make test           # equivalent to: pytest -v
+
+# 3) Run with coverage
+make test-cov       # equivalent to: pytest --cov=src --cov-report=html --cov-report=term
+
+# 4) Run a single test file (example)
+pytest src/tests/test_webhook_flow.py -v
 ```
 
 ### Code Quality
@@ -181,30 +183,109 @@ The project uses:
 
 Run `make format` before committing code.
 
-## Docker Development
+## Docker Workflows
 
-### Building Docker Image
+This project supports three common workflows:
+
+- **Local venv**: Fast inner-loop development and running the full test suite.
+- **Single-instance Docker**: Run one FastAPI instance in a container (no Redis/ClickHouse required unless your config uses them).
+- **Full multi-instance Docker (with Redis & ClickHouse)**: 5 webhook instances + Redis + ClickHouse + RabbitMQ + analytics service, mainly for performance/load testing.
+
+### 1. Single-Instance Docker (App Only)
+
+Use this when you just want the webhook service running in Docker on your machine.
+
+**Step 1 – Build the image (optimized small image):**
 
 ```bash
-make docker-build
-# or
-docker-compose build
+# From project root
+docker build -f Dockerfile.small -t core-webhook-module:small .
 ```
 
-### Running in Docker
+**Step 2 – Prepare configuration files:**
+
+- `webhooks.json` – webhook definitions (you can copy/modify `webhooks.example.json`)
+- `connections.json` – connections for modules (you can copy/modify `connections.example.json`)
+- Optional: `.env` – environment variables used in configs
 
 ```bash
-make docker-up
-# or
+cp webhooks.example.json webhooks.json
+cp connections.example.json connections.json
+```
+
+Adjust these files so that:
+- You only enable modules you actually have backends for (e.g., disable ClickHouse modules if you don’t have ClickHouse running).
+- Or point Redis/ClickHouse hosts to external services you manage separately.
+
+**Step 3 – Run a single container:**
+
+```bash
+docker run --rm \
+  -p 8000:8000 \
+  -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
+  -v "$(pwd)/connections.json:/app/connections.json:ro" \
+  --env-file .env \
+  core-webhook-module:small
+```
+
+Now the service is available at:
+
+- API root: `http://localhost:8000/`
+- OpenAPI docs (Swagger UI): `http://localhost:8000/docs`
+- ReDoc docs: `http://localhost:8000/redoc`
+
+### 2. Full Multi-Instance Docker (Redis + ClickHouse + RabbitMQ)
+
+Use this for **load/performance testing** and for seeing the complete architecture (5 webhook instances, analytics, Redis, ClickHouse, RabbitMQ).
+
+**Step 1 – Start all services with Docker Compose:**
+
+```bash
 docker-compose up -d
 ```
 
-### Viewing Logs
+This starts:
+- `webhook-1` … `webhook-5` (ports 8000–8004)
+- `analytics` (analytics processor)
+- `redis` (exposed on host port 6380)
+- `rabbitmq` (ports 5672, 15672)
+- `clickhouse` (ports 8123, 9000)
+
+**Step 2 – Verify services are up:**
 
 ```bash
-make docker-logs
-# or
+docker-compose ps
+
+# Check a webhook instance
+curl http://localhost:8000/
+
+# Check docs for an instance
+curl http://localhost:8000/docs
+```
+
+**Step 3 – Run performance tests (optional but recommended):**
+
+```bash
+# Quick automated run
+./src/tests/run_performance_test.sh
+
+# Or manual:
+python3 src/tests/performance_test_multi_instance.py
+```
+
+See `docs/PERFORMANCE_TEST.md` for detailed performance test options and how to inspect ClickHouse data.
+
+**Step 4 – Inspect logs and stop services:**
+
+```bash
+# Logs
 docker-compose logs -f
+
+# Stop and remove services
+docker-compose down
+
+# Stop and also remove volumes (including ClickHouse data)
+docker-compose down -v
 ```
 
 ## Common Tasks

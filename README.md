@@ -47,7 +47,7 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 
 ## Installation & Running
 
-### Local Development
+### Local Development (venv)
 
 1. Create a virtual environment (recommended):
    ```bash
@@ -64,6 +64,14 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
    ```bash
    uvicorn src.main:app --reload
    ```
+
+4. Run the tests:
+
+```bash
+make test        # or: pytest -v
+```
+
+See `DEVELOPMENT.md` for a more detailed development workflow.
 
 ### Production Installation
 
@@ -94,23 +102,39 @@ black src/
 ```
 
 ### Docker (Single Instance)
+
+Use the optimized small image to run a single FastAPI instance in Docker:
+
 ```bash
-docker-compose up --build
+# Build image
+docker build -f Dockerfile.small -t core-webhook-module:small .
+
+# Run container (mount configs from host)
+docker run --rm \
+  -p 8000:8000 \
+  -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
+  -v "$(pwd)/connections.json:/app/connections.json:ro" \
+  --env-file .env \
+  core-webhook-module:small
 ```
 
-### Docker (Multiple Instances with Analytics)
-For performance testing and production deployments with multiple webhook instances:
+Then open `http://localhost:8000/docs` for the interactive API docs.
+
+### Docker (Multi-Instance with Redis & ClickHouse)
+
+For performance testing and a full deployment with multiple webhook instances:
+
 ```bash
-# Start all services (5 webhook instances + ClickHouse + Redis + Analytics)
+# Start all services (5 webhook instances + ClickHouse + Redis + RabbitMQ + Analytics)
 docker-compose up -d
 
 # Run performance tests
-./run_performance_test.sh
+./src/tests/run_performance_test.sh
 # Or manually:
 python3 src/tests/performance_test_multi_instance.py
 ```
 
-See [PERFORMANCE_TEST.md](PERFORMANCE_TEST.md) for detailed performance testing documentation.
+See `docs/PERFORMANCE_TEST.md` and `DEVELOPMENT.md` for detailed multi-instance and performance testing documentation.
 
 ## Configuration
 
