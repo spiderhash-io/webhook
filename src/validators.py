@@ -1149,6 +1149,12 @@ class OAuth1NonceTracker:
                 "total_nonces": len(self.nonces),
                 "max_age_seconds": self.max_age_seconds,
             }
+    
+    async def clear(self):
+        """Clear all nonces (useful for testing)."""
+        async with self.lock:
+            self.nonces.clear()
+            self._last_cleanup = time.time()
 
 
 # Global nonce tracker instance
