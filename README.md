@@ -806,6 +806,107 @@ See [docs/AUTH_METHODS_ANALYSIS.md](docs/AUTH_METHODS_ANALYSIS.md) for detailed 
 - [x] **Integration Tests**: Tests for full webhook flow, authentication, validation, and module processing. ✅
 - [ ] **Performance Tests**: Expand performance testing documentation and benchmarks.
 
+### 6. Database Webhook Storage Modules
+- [ ] **PostgreSQL Module**: Store webhook payloads in PostgreSQL database
+  - Support JSONB storage for flexible schema-less storage
+  - Support relational mapping with explicit field definitions
+  - Auto table creation with schema validation
+  - Connection pooling for performance
+  - Transaction support for atomic operations
+  - Upsert support (INSERT ... ON CONFLICT) for idempotency
+  - Batch insert support for high-throughput scenarios
+  - Error handling with retry mechanism integration
+  - Support for PostgreSQL-specific features (JSONB queries, full-text search)
+
+- [ ] **MariaDB/MySQL Module**: Store webhook payloads in MariaDB/MySQL database
+  - Support JSON column type for flexible storage
+  - Support relational mapping with explicit field definitions
+  - Auto table creation with schema validation
+  - Connection pooling for performance
+  - Transaction support for atomic operations
+  - INSERT ... ON DUPLICATE KEY UPDATE for upsert operations
+  - Batch insert support for high-throughput scenarios
+  - Error handling with retry mechanism integration
+  - Support for MySQL/MariaDB JSON functions
+
+**Storage Format Options**:
+1. **JSON Storage** (Default):
+   - PostgreSQL: Store entire payload in JSONB column
+   - MySQL/MariaDB: Store entire payload in JSON column
+   - Flexible, no schema changes needed
+   - Supports nested structures
+   - Enables JSON querying (PostgreSQL JSONB operators, MySQL JSON functions)
+
+2. **Relational Mapping**:
+   - Map payload fields to table columns
+   - Requires explicit schema definition in webhook config
+   - Better for structured data and SQL queries
+   - Type validation and constraints
+   - Index support for performance
+
+3. **Hybrid Approach**:
+   - Store mapped fields in columns + full payload in JSON column
+   - Best of both worlds: queryable columns + full payload preservation
+
+**Validation Requirements**:
+- **Optional**: Allow unvalidated storage (JSON only, no schema)
+- **Schema Required**: Require explicit field mapping definition
+  - Field name mapping (payload field → column name)
+  - Data type definitions (string, integer, float, boolean, datetime, JSON)
+  - Optional constraints (NOT NULL, UNIQUE, DEFAULT values)
+  - Index definitions for performance
+
+**Configuration Example**:
+```json
+{
+  "webhook_to_db": {
+    "data_type": "json",
+    "module": "postgresql",  // or "mysql", "mariadb"
+    "connection": "postgres_local",
+    "module-config": {
+      "table": "webhook_events",
+      "storage_mode": "json",  // or "relational", "hybrid"
+      "schema": {
+        "fields": {
+          "event_id": {"type": "string", "column": "event_id", "constraints": ["NOT NULL", "UNIQUE"]},
+          "user_id": {"type": "integer", "column": "user_id", "index": true},
+          "timestamp": {"type": "datetime", "column": "created_at", "default": "CURRENT_TIMESTAMP"},
+          "metadata": {"type": "json", "column": "metadata"}
+        }
+      },
+      "upsert": true,
+      "upsert_key": "event_id",
+      "batch_size": 100,
+      "include_headers": true,
+      "include_timestamp": true
+    },
+    "authorization": "Bearer db_secret"
+  }
+}
+```
+
+**Required Features** (Industry Standard):
+- Connection pooling (asyncpg for PostgreSQL, aiomysql for MySQL/MariaDB)
+- Auto table creation with schema validation
+- Upsert/conflict resolution (ON CONFLICT for PostgreSQL, ON DUPLICATE KEY UPDATE for MySQL)
+- Batch insert support for performance
+- Transaction support (optional, configurable)
+- Error handling with retry integration (use existing retry_handler)
+- Connection health checks
+- SSRF prevention (validate database hostnames)
+- SQL injection prevention (parameterized queries only)
+- Connection timeout and retry configuration
+- Support for SSL/TLS connections
+- Support for connection string and individual parameters
+
+**Compatibility Considerations**:
+- PostgreSQL 12+ (for JSONB support and modern features)
+- MySQL 5.7+ / MariaDB 10.2+ (for JSON column type support)
+- Use async database drivers (asyncpg, aiomysql) for non-blocking I/O
+- Support both connection string format and individual parameters
+- Handle database-specific SQL syntax differences
+- Support for read replicas (optional, future enhancement)
+
 ## Test Status
 
 **Current Test Coverage: 274 tests passing** ✅
