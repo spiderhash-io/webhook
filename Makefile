@@ -14,20 +14,34 @@ install-dev: ## Install development dependencies (includes production + testing 
 install-prod: ## Install production dependencies only
 	pip install -r requirements.txt
 
-test: ## Run tests
-	pytest -v
+# Detect if we're in a virtual environment or use venv if available
+PYTHON := $(shell which python3 || which python)
+VENV_PYTHON := $(shell if [ -f venv/bin/python ]; then echo venv/bin/python; else echo $(PYTHON); fi)
+PYTEST := $(VENV_PYTHON) -m pytest
+
+test: ## Run unit tests
+	$(PYTEST) -v -m "not integration"
+
+test-integration: ## Run integration tests (requires Docker services and API server)
+	@echo "Checking Docker services..."
+	@(docker compose ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || docker-compose ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || sudo docker compose ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda") || (echo "ERROR: Docker services not running. Start with: docker compose up -d redis rabbitmq clickhouse redpanda" && exit 1)
+	@echo "Running integration tests..."
+	$(PYTEST) tests/integration/ -v -m integration
+
+test-all: ## Run all tests (unit + integration)
+	$(PYTEST) -v
 
 test-cov: ## Run tests with coverage
-	pytest --cov=src --cov-report=html --cov-report=term
+	$(PYTEST) --cov=src --cov-report=html --cov-report=term
 
 format: ## Format code with black
-	black src/ tests/
+	$(VENV_PYTHON) -m black src/ tests/
 
 lint: ## Lint code with flake8
-	flake8 src/ tests/
+	$(VENV_PYTHON) -m flake8 src/ tests/
 
 type-check: ## Type check with mypy
-	mypy src/
+	$(VENV_PYTHON) -m mypy src/
 
 clean: ## Clean cache and temporary files
 	find . -type d -name __pycache__ -exec rm -r {} + 2>/dev/null || true

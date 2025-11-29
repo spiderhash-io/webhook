@@ -1,4 +1,14 @@
-
+# Docker Compose configuration for Core Webhook Module
+#
+# For running real integration tests (not mocks):
+#   docker compose up -d redis rabbitmq clickhouse redpanda
+#   # Wait for services to be healthy, then run: pytest -v
+#
+# The main services (redis, rabbitmq, clickhouse, redpanda) are configured with:
+# - Health checks for reliable test execution
+# - Correct ports matching test expectations (Redis on 6380, Kafka on 19092)
+# - Data persistence volumes
+#
 services:
   # Multiple webhook instances for load testing
   webhook-1:
@@ -14,9 +24,12 @@ services:
       - RABBITMQ_HOST=rabbitmq
       - CLICKHOUSE_HOST=clickhouse
     depends_on:
-      - redis
-      - rabbitmq
-      - clickhouse
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     networks:
       - webhook-network
     restart: unless-stopped
@@ -34,9 +47,12 @@ services:
       - RABBITMQ_HOST=rabbitmq
       - CLICKHOUSE_HOST=clickhouse
     depends_on:
-      - redis
-      - rabbitmq
-      - clickhouse
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     networks:
       - webhook-network
     restart: unless-stopped
@@ -54,9 +70,12 @@ services:
       - RABBITMQ_HOST=rabbitmq
       - CLICKHOUSE_HOST=clickhouse
     depends_on:
-      - redis
-      - rabbitmq
-      - clickhouse
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     networks:
       - webhook-network
     restart: unless-stopped
@@ -74,9 +93,12 @@ services:
       - RABBITMQ_HOST=rabbitmq
       - CLICKHOUSE_HOST=clickhouse
     depends_on:
-      - redis
-      - rabbitmq
-      - clickhouse
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     networks:
       - webhook-network
     restart: unless-stopped
@@ -94,9 +116,12 @@ services:
       - RABBITMQ_HOST=rabbitmq
       - CLICKHOUSE_HOST=clickhouse
     depends_on:
-      - redis
-      - rabbitmq
-      - clickhouse
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     networks:
       - webhook-network
     restart: unless-stopped
@@ -111,7 +136,8 @@ services:
     environment:
       - CLICKHOUSE_HOST=clickhouse
     depends_on:
-      - clickhouse
+      clickhouse:
+        condition: service_healthy
     networks:
       - webhook-network
     restart: unless-stopped
@@ -119,22 +145,39 @@ services:
   redis:
     image: redis:alpine
     ports:
-      - "6380:6379"  # External port 6380, internal 6379
+      - "6380:6379"  # External port 6380, internal 6379 (matches test expectations)
     networks:
       - webhook-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_test_data:/data
 
   rabbitmq:
     image: rabbitmq:3-management
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     networks:
       - webhook-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - rabbitmq_test_data:/var/lib/rabbitmq
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest
@@ -175,9 +218,46 @@ services:
         </clickhouse>' > /etc/clickhouse-server/users.d/default-password.xml
         /entrypoint.sh
 
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.1.7
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=info
+    ports:
+      - "18081:18081"  # Schema Registry
+      - "18082:18082"  # Pandaproxy
+      - "19092:19092"  # Kafka (external)
+      - "19644:9644"   # Admin API
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+
+
 networks:
   webhook-network:
     driver: bridge
 
 volumes:
   clickhouse_data:
+  redis_test_data:       # Redis data persistence
+  rabbitmq_test_data:    # RabbitMQ data persistence
+  redpanda_data:         # Redpanda data persistence
