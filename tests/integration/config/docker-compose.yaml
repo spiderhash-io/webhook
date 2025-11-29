@@ -106,7 +106,7 @@ services:
   api-server:
     build:
       context: ../..
-      dockerfile: Dockerfile
+      dockerfile: ../..//Dockerfile
     container_name: webhook-api-server
     working_dir: /app
     ports:
