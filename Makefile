@@ -24,9 +24,47 @@ test: ## Run unit tests
 
 test-integration: ## Run integration tests (requires Docker services and API server)
 	@echo "Checking Docker services..."
-	@(docker compose ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || docker-compose ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || sudo docker compose ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda") || (echo "ERROR: Docker services not running. Start with: docker compose up -d redis rabbitmq clickhouse redpanda" && exit 1)
+	@(docker compose -f tests/integration/config/docker-compose.yaml ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || docker-compose -f tests/integration/config/docker-compose.yaml ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || sudo docker compose -f tests/integration/config/docker-compose.yaml ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda") || (echo "ERROR: Docker services not running. Start with: make integration-up" && exit 1)
 	@echo "Running integration tests..."
 	$(PYTEST) tests/integration/ -v -m integration
+
+integration-up: ## Start integration test services
+	@echo "Starting integration test services..."
+	@cd tests/integration/config && \
+	if docker compose version &> /dev/null 2>&1; then \
+		docker compose -f docker-compose.yaml up -d redis rabbitmq clickhouse redpanda api-server || \
+		sudo docker compose -f docker-compose.yaml up -d redis rabbitmq clickhouse redpanda api-server; \
+	elif docker-compose version &> /dev/null 2>&1; then \
+		docker-compose -f docker-compose.yaml up -d redis rabbitmq clickhouse redpanda api-server || \
+		sudo docker-compose -f docker-compose.yaml up -d redis rabbitmq clickhouse redpanda api-server; \
+	else \
+		sudo docker compose -f docker-compose.yaml up -d redis rabbitmq clickhouse redpanda api-server; \
+	fi
+
+integration-down: ## Stop integration test services
+	@echo "Stopping integration test services..."
+	@cd tests/integration/config && \
+	if docker compose version &> /dev/null 2>&1; then \
+		docker compose -f docker-compose.yaml down || \
+		sudo docker compose -f docker-compose.yaml down; \
+	elif docker-compose version &> /dev/null 2>&1; then \
+		docker-compose -f docker-compose.yaml down || \
+		sudo docker-compose -f docker-compose.yaml down; \
+	else \
+		sudo docker compose -f docker-compose.yaml down; \
+	fi
+
+integration-logs: ## Show integration test service logs
+	@cd tests/integration/config && \
+	if docker compose version &> /dev/null 2>&1; then \
+		docker compose -f docker-compose.yaml logs -f || \
+		sudo docker compose -f docker-compose.yaml logs -f; \
+	elif docker-compose version &> /dev/null 2>&1; then \
+		docker-compose -f docker-compose.yaml logs -f || \
+		sudo docker-compose -f docker-compose.yaml logs -f; \
+	else \
+		sudo docker compose -f docker-compose.yaml logs -f; \
+	fi
 
 test-all: ## Run all tests (unit + integration)
 	$(PYTEST) -v

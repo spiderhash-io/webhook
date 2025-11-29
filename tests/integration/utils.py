@@ -9,6 +9,7 @@ import asyncio
 import httpx
 import subprocess
 import socket
+import os
 from typing import Optional, Dict, Any
 from tests.integration.test_config import (
     REDIS_HOST,
@@ -50,7 +51,7 @@ def check_clickhouse_health() -> bool:
     """Check if ClickHouse HTTP interface is accessible."""
     try:
         response = httpx.get(f"{CLICKHOUSE_HTTP_URL}/ping", timeout=2.0)
-        return response.status_code == 200 and response.text.strip() == "Ok"
+        return response.status_code == 200 and response.text.strip() in ["Ok", "Ok."]
     except Exception:
         return False
 
@@ -73,22 +74,32 @@ def check_docker_services() -> Dict[str, bool]:
     """Check if Docker services are running using docker-compose."""
     try:
         # Try docker compose (v2) first, fallback to docker-compose (v1)
+        # Use integration test docker-compose file
+        compose_file = "tests/integration/config/docker-compose.yaml"
         try:
             result = subprocess.run(
-                ["docker", "compose", "ps", "--format", "json"],
+                ["docker", "compose", "-f", compose_file, "ps", "--format", "json"],
                 capture_output=True,
                 text=True,
-                timeout=5.0
+                timeout=5.0,
+                cwd=os.path.join(os.path.dirname(__file__), "../..")
             )
         except FileNotFoundError:
             result = subprocess.run(
-                ["docker-compose", "ps", "--format", "json"],
+                ["docker-compose", "-f", compose_file, "ps", "--format", "json"],
                 capture_output=True,
                 text=True,
-                timeout=5.0
+                timeout=5.0,
+                cwd=os.path.join(os.path.dirname(__file__), "../..")
             )
         if result.returncode != 0:
-            return {"redis": False, "rabbitmq": False, "clickhouse": False}
+            # Fallback to port checks if docker compose ps fails
+            return {
+                "redis": check_redis_health(),
+                "rabbitmq": check_rabbitmq_health(),
+                "clickhouse": check_clickhouse_health(),
+                "kafka": check_kafka_health(),
+            }
         
         # Parse docker-compose output
         services = {}
@@ -106,14 +117,25 @@ def check_docker_services() -> Dict[str, bool]:
                     services["rabbitmq"] = status == "running"
                 elif "clickhouse" in service_name.lower():
                     services["clickhouse"] = status == "running"
+                elif "redpanda" in service_name.lower() or "kafka" in service_name.lower():
+                    services["kafka"] = status == "running"
             except json.JSONDecodeError:
                 continue
+        
+        # If we didn't find services in JSON format, try port checks as fallback
+        if not services:
+            return {
+                "redis": check_redis_health(),
+                "rabbitmq": check_rabbitmq_health(),
+                "clickhouse": check_clickhouse_health(),
+                "kafka": check_kafka_health(),
+            }
         
         return {
             "redis": services.get("redis", False),
             "rabbitmq": services.get("rabbitmq", False),
             "clickhouse": services.get("clickhouse", False),
-            "kafka": services.get("redpanda", False) or services.get("kafka", False),
+            "kafka": services.get("kafka", False),
         }
     except Exception:
         # Fallback to port checks

@@ -1,0 +1,5 @@
+# Ignore any local overrides or temporary files
+*.local.json
+*.tmp
+.env.local
+

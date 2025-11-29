@@ -1,146 +1,30 @@
-# Docker Compose configuration for Core Webhook Module
+# Docker Compose configuration for Integration Tests
 #
-# For running real integration tests (not mocks):
-#   docker compose up -d redis rabbitmq clickhouse redpanda
-#   # Wait for services to be healthy, then run: pytest -v
+# This file is located in tests/integration/config/ and contains all services
+# needed for running integration tests.
 #
-# The main services (redis, rabbitmq, clickhouse, redpanda) are configured with:
+# Usage:
+#   # From project root
+#   make integration-up
+#   make test-integration
+#   make integration-down
+#
+#   # Or manually
+#   cd tests/integration/config
+#   docker compose -f docker-compose.yaml up -d redis rabbitmq clickhouse redpanda api-server
+#   cd ../..
+#   pytest tests/integration/ -v -m integration
+#
+# The main services (redis, rabbitmq, clickhouse, redpanda, api-server) are configured with:
 # - Health checks for reliable test execution
 # - Correct ports matching test expectations (Redis on 6380, Kafka on 19092)
 # - Data persistence volumes
+# - Integration test webhook configurations
 #
 services:
-  # Multiple webhook instances for load testing
-  webhook-1:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
-    environment:
-      - REDIS_HOST=redis
-      - RABBITMQ_HOST=rabbitmq
-      - CLICKHOUSE_HOST=clickhouse
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    networks:
-      - webhook-network
-    restart: unless-stopped
-
-  webhook-2:
-    build: .
-    ports:
-      - "8001:8000"
-    volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
-    environment:
-      - REDIS_HOST=redis
-      - RABBITMQ_HOST=rabbitmq
-      - CLICKHOUSE_HOST=clickhouse
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    networks:
-      - webhook-network
-    restart: unless-stopped
-
-  webhook-3:
-    build: .
-    ports:
-      - "8002:8000"
-    volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
-    environment:
-      - REDIS_HOST=redis
-      - RABBITMQ_HOST=rabbitmq
-      - CLICKHOUSE_HOST=clickhouse
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    networks:
-      - webhook-network
-    restart: unless-stopped
-
-  webhook-4:
-    build: .
-    ports:
-      - "8003:8000"
-    volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
-    environment:
-      - REDIS_HOST=redis
-      - RABBITMQ_HOST=rabbitmq
-      - CLICKHOUSE_HOST=clickhouse
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    networks:
-      - webhook-network
-    restart: unless-stopped
-
-  webhook-5:
-    build: .
-    ports:
-      - "8004:8000"
-    volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
-    environment:
-      - REDIS_HOST=redis
-      - RABBITMQ_HOST=rabbitmq
-      - CLICKHOUSE_HOST=clickhouse
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    networks:
-      - webhook-network
-    restart: unless-stopped
-
-  # Analytics processor service (separate from webhook instances)
-  analytics:
-    build: .
-    command: python -m src.analytics_processor
-    volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-    environment:
-      - CLICKHOUSE_HOST=clickhouse
-    depends_on:
-      clickhouse:
-        condition: service_healthy
-    networks:
-      - webhook-network
-    restart: unless-stopped
+  # Note: Performance testing webhook instances (webhook-1 through webhook-5) 
+  # and analytics service are not included here as they are for performance 
+  # testing, not integration testing. They remain in the root docker-compose.yaml
 
   redis:
     image: redis:alpine
@@ -220,12 +104,15 @@ services:
 
   # API server for integration tests
   api-server:
-    build: .
+    build:
+      context: ../..
+      dockerfile: Dockerfile
     container_name: webhook-api-server
+    working_dir: /app
     ports:
       - "8000:8000"
     volumes:
-      - ./src:/app/src
+      - ../../src:/app/src
       - ./connections.json:/app/connections.json
       - ./webhooks.json:/app/webhooks.json
     environment:

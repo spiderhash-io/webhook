@@ -11,20 +11,20 @@ This directory contains integration tests that run against real services (Redis,
 
 Before running integration tests, you must have:
 
-1. **Docker services running**:
+1. **Docker services running** (includes API server):
    ```bash
-   docker compose up -d redis rabbitmq clickhouse redpanda
+   # Using Makefile (recommended)
+   make integration-up
+   
+   # Or manually
+   cd tests/integration/config
+   docker compose up -d redis rabbitmq clickhouse redpanda api-server
    ```
 
-2. **FastAPI server running** (optional, but recommended):
-   ```bash
-   uvicorn src.main:app --port 8000
-   ```
-
-   Or use the Makefile:
-   ```bash
-   make run
-   ```
+   All configuration files are in `tests/integration/config/`:
+   - `docker-compose.yaml` - Service definitions
+   - `connections.json` - Service connection configs
+   - `webhooks.json` - Test webhook definitions
 
 ## Running Integration Tests
 
@@ -44,7 +44,17 @@ pytest tests/integration/modules/ -v -m integration
 
 ### Run with Makefile:
 ```bash
+# Start services
+make integration-up
+
+# Run tests
 make test-integration
+
+# Stop services
+make integration-down
+
+# View logs
+make integration-logs
 ```
 
 ## Test Structure
