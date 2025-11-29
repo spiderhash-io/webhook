@@ -791,6 +791,10 @@ This list is ordered from easiest/highest impact to more complex features.
 - [ ] **Digest Auth**: HTTP Digest Authentication (RFC 7616) - Challenge-response auth, more secure than Basic
 - [ ] **OAuth 1.0**: OAuth 1.0 signature validation - For Twitter and legacy OAuth providers
 - [ ] **OAuth 2.0**: OAuth 2.0 access token validation - Modern standard, token introspection
+- [ ] **Mutual TLS (mTLS)**: Certificate-based authentication requiring both client and server certificates for high-security environments
+- [ ] **AWS Signature Version 4**: AWS-compatible signature authentication for integrating with AWS services (API Gateway, S3, etc.)
+- [ ] **Timestamp/Nonce Replay Protection**: Explicit timestamp and nonce validation for HMAC signatures to prevent replay attacks
+- [ ] **API Key in Request Body**: Support for API key authentication via JSON request body (alternative to header/query param)
 - [x] **Query Parameter Auth**: API key authentication via query parameters (?api_key=xxx) ✅
 - [x] **Generic Header Auth**: Custom header-based API key auth (X-API-Key, X-Auth-Token, etc.) ✅
 - [x] **OAuth 2.0**: OAuth 2.0 access token validation - Token introspection and JWT validation ✅
