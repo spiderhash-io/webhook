@@ -388,15 +388,21 @@ async def test_rate_limit_zero_window():
 async def test_ip_whitelist_with_ipv6():
     """Test IP whitelist with IPv6 addresses."""
     from src.validators import IPWhitelistValidator
+    from unittest.mock import Mock
     
     config = {
         "ip_whitelist": ["2001:0db8:85a3:0000:0000:8a2e:0370:7334", "::1"]
     }
     
-    validator = IPWhitelistValidator(config)
+    # Mock Request object with IPv6 client IP
+    mock_request = Mock()
+    mock_request.client = Mock()
+    mock_request.client.host = "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
     
-    # Test IPv6
-    headers = {"x-forwarded-for": "2001:0db8:85a3:0000:0000:8a2e:0370:7334"}
+    validator = IPWhitelistValidator(config, request=mock_request)
+    
+    # Test IPv6 (using Request object, not headers)
+    headers = {}
     is_valid, _ = await validator.validate(headers, b"")
     assert is_valid == True
 
@@ -405,14 +411,21 @@ async def test_ip_whitelist_with_ipv6():
 async def test_ip_whitelist_with_proxy_chain():
     """Test IP whitelist with proxy chain."""
     from src.validators import IPWhitelistValidator
+    from unittest.mock import Mock
     
     config = {
-        "ip_whitelist": ["192.168.1.1"]
+        "ip_whitelist": ["192.168.1.1"],
+        "trusted_proxies": ["10.0.0.1"]  # Trusted proxy
     }
     
-    validator = IPWhitelistValidator(config)
+    # Mock Request object with trusted proxy IP
+    mock_request = Mock()
+    mock_request.client = Mock()
+    mock_request.client.host = "10.0.0.1"  # Trusted proxy
     
-    # Test proxy chain (first IP should be used)
+    validator = IPWhitelistValidator(config, request=mock_request)
+    
+    # Test proxy chain (first IP should be used from X-Forwarded-For)
     headers = {"x-forwarded-for": "192.168.1.1, 10.0.0.1, 172.16.0.1"}
     is_valid, _ = await validator.validate(headers, b"")
     assert is_valid == True
