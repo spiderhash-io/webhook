@@ -165,20 +165,21 @@ class TestIPWhitelistSecurity:
     
     @pytest.mark.asyncio
     async def test_ip_whitelist_fallback_to_headers_without_request(self):
-        """Test fallback to headers when Request object is not available (backward compatibility)."""
+        """Test that headers are NOT trusted when Request object is not available (security fix)."""
         config = {
             "ip_whitelist": ["192.168.1.100"]
         }
         validator = IPWhitelistValidator(config, request=None)  # No request object
         
-        # Should fall back to headers (with warning)
+        # Should NOT fall back to headers (security fix prevents spoofing)
         headers = {
             "x-forwarded-for": "192.168.1.100"
         }
         is_valid, message = await validator.validate(headers, b"")
         
-        # Should work but with security warning (tested via print statements)
-        assert is_valid is True
+        # Should fail - no Request object means we can't trust headers (prevents IP spoofing)
+        assert is_valid is False
+        assert "Could not determine client IP" in message
     
     @pytest.mark.asyncio
     async def test_ip_whitelist_invalid_ip_format(self):

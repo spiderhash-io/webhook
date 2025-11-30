@@ -27,7 +27,6 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - **JSON Schema Validation**: Validate incoming payloads against defined JSON schemas.
 
 ## Project Structure
-
 - `src/main.py`: Entry point, FastAPI app, and route definitions.
 - `src/webhook.py`: Core logic for handling and processing webhooks.
 - `src/config.py`: Configuration loading and injection.

@@ -14,15 +14,20 @@ class HTTPWebhookModule(BaseModule):
     VALID_HEADER_NAME_PATTERN = re.compile(r'^[!#$%&\'*+\-.^_`|~0-9A-Za-z]+$')
     
     # Dangerous characters in header values that could lead to injection
-    DANGEROUS_CHARS = ['\r', '\n', '\0']
+    # Includes standard newlines, Unicode line/paragraph separators, and control chars
+    DANGEROUS_CHARS = ['\r', '\n', '\0', '\u2028', '\u2029', '\u000B', '\u000C']
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         # Get whitelist of allowed headers from config (optional)
         self.allowed_headers = self.module_config.get('allowed_headers', None)
-        if self.allowed_headers and isinstance(self.allowed_headers, list):
-            # Normalize to lowercase for case-insensitive comparison
-            self.allowed_headers = {h.lower() for h in self.allowed_headers}
+        if self.allowed_headers is not None and isinstance(self.allowed_headers, list):
+            # Empty list means block all headers
+            if len(self.allowed_headers) == 0:
+                self.allowed_headers = set()  # Empty set means block all
+            else:
+                # Normalize to lowercase for case-insensitive comparison
+                self.allowed_headers = {h.lower() for h in self.allowed_headers}
         else:
             self.allowed_headers = None
         
@@ -109,7 +114,11 @@ class HTTPWebhookModule(BaseModule):
             
             # Check whitelist if configured
             if self.allowed_headers is not None:
-                if name.lower() not in self.allowed_headers:
+                # Empty set means block all headers
+                if len(self.allowed_headers) == 0:
+                    # Skip all headers if whitelist is empty
+                    continue
+                elif name.lower() not in self.allowed_headers:
                     # Skip headers not in whitelist
                     continue
             
@@ -189,7 +198,12 @@ class HTTPWebhookModule(BaseModule):
                 raise ValueError("Invalid IPv6 address format in URL")
         else:
             # Regular hostname or IPv4, extract before first colon (port)
-            hostname = netloc.split(':')[0]
+            # Handle userinfo (user:pass@host) by splitting on @ first
+            if '@' in netloc:
+                # Extract hostname part after @
+                hostname = netloc.split('@')[-1].split(':')[0]
+            else:
+                hostname = netloc.split(':')[0]
         
         # Check for whitelist in config (optional)
         allowed_hosts = self.module_config.get('allowed_hosts', None)
@@ -202,6 +216,52 @@ class HTTPWebhookModule(BaseModule):
                 )
             # If whitelisted, skip further validation
             return url
+        
+        # Normalize and check for octal IP formats (0177.0.0.1, 127.0.00.1, etc.)
+        # Python's urlparse doesn't interpret octal, but we should catch common patterns
+        parts = hostname.split('.')
+        if len(parts) == 4:
+            try:
+                decimal_parts = []
+                has_octal = False
+                
+                for part in parts:
+                    # Check if part looks like octal (starts with 0, has more digits, all 0-7)
+                    # Examples: 0177, 00, 000, 001 (but not 0, 08, 09, 010)
+                    if re.match(r'^0[0-7]+$', part):
+                        # Parse as octal
+                        decimal_parts.append(int(part, 8))
+                        has_octal = True
+                    elif re.match(r'^[0-9]+$', part):
+                        # Regular decimal
+                        decimal_parts.append(int(part))
+                    else:
+                        # Not numeric, skip octal check
+                        break
+                
+                # Only check if we found octal parts and all 4 parts were numeric
+                if has_octal and len(decimal_parts) == 4:
+                    # Convert to normalized IP
+                    normalized_ip = '.'.join(str(p) for p in decimal_parts)
+                    # Check if normalized IP is localhost or private
+                    try:
+                        ip = ipaddress.ip_address(normalized_ip)
+                        if ip.is_loopback or ip.is_private or ip.is_link_local:
+                            raise ValueError(
+                                f"Access to localhost/private IP is not allowed for security reasons"
+                            )
+                    except ValueError as e:
+                        # Re-raise our validation errors, but let ipaddress errors pass through
+                        if "is not allowed" in str(e):
+                            raise
+            except ValueError as e:
+                # Re-raise validation errors from octal normalization
+                if "is not allowed" in str(e):
+                    raise
+                # Otherwise, it's not a valid octal IP, continue
+                pass
+            except (AttributeError, TypeError):
+                pass  # Not a valid octal IP, continue
         
         # Block localhost and variations
         localhost_variants = {
@@ -266,8 +326,18 @@ class HTTPWebhookModule(BaseModule):
             'metadata.google.internal',
             '169.254.169.254',  # AWS, GCP, Azure metadata
             'metadata',  # Short form
+            'metadata.azure.com',
+            '100.100.100.200',  # Alibaba Cloud metadata
+            '192.0.0.192',  # Oracle Cloud metadata
         }
-        if hostname.lower() in dangerous_hostnames:
+        # Also check if hostname contains metadata-related patterns
+        hostname_lower = hostname.lower()
+        if hostname_lower in dangerous_hostnames:
+            raise ValueError(
+                f"Access to metadata service '{hostname}' is not allowed for security reasons"
+            )
+        # Check for metadata in hostname (e.g., metadata.example.com)
+        if 'metadata' in hostname_lower and ('internal' in hostname_lower or 'azure' in hostname_lower or 'google' in hostname_lower):
             raise ValueError(
                 f"Access to metadata service '{hostname}' is not allowed for security reasons"
             )
@@ -281,6 +351,10 @@ class HTTPWebhookModule(BaseModule):
         # Hostname should be valid DNS name or IP
         # IPv6 addresses are already validated by ipaddress.ip_address above
         if not self._is_valid_ip(hostname):
+            # Block purely numeric hostnames (invalid DNS, potential IP encoding bypass)
+            if re.match(r'^[0-9]+$', hostname):
+                raise ValueError(f"Invalid hostname format: '{hostname}' (numeric-only hostnames are not allowed)")
+            
             # Check DNS hostname format
             if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$', hostname):
                 raise ValueError(f"Invalid hostname format: '{hostname}'")

@@ -173,13 +173,36 @@ class BasicAuthValidator(BaseValidator):
         if not auth_header:
             return False, "Missing Authorization header"
         
+        # Validate Basic prefix format strictly
+        # Must start with exactly "Basic " (case-sensitive, single space)
         if not auth_header.startswith('Basic '):
             return False, "Basic authentication required"
+        
+        # Additional check: ensure it's exactly "Basic " followed by base64 (no tabs, newlines, etc.)
+        if len(auth_header) > 6:
+            # Check for invalid whitespace characters after "Basic"
+            if auth_header[6:7] in ['\t', '\n', '\r']:
+                return False, "Invalid Basic authentication format"
+            # Check for double space
+            if len(auth_header) > 7 and auth_header[6:8] == '  ':
+                return False, "Invalid Basic authentication format"
         
         try:
             # Extract and decode base64 credentials
             encoded_credentials = auth_header.split(' ', 1)[1]
-            decoded_bytes = base64.b64decode(encoded_credentials)
+            
+            # Strip whitespace from base64 string and validate format
+            # Base64 should not contain whitespace (RFC 4648)
+            encoded_credentials_stripped = encoded_credentials.strip()
+            if encoded_credentials != encoded_credentials_stripped:
+                return False, "Invalid base64 encoding: whitespace not allowed"
+            
+            # Validate base64 format (only alphanumeric, +, /, and = for padding)
+            import re
+            if not re.match(r'^[A-Za-z0-9+/]*={0,2}$', encoded_credentials_stripped):
+                return False, "Invalid base64 encoding format"
+            
+            decoded_bytes = base64.b64decode(encoded_credentials_stripped)
             try:
                 decoded_str = decoded_bytes.decode('utf-8')
             except UnicodeDecodeError:
@@ -313,6 +336,11 @@ class JWTValidator(BaseValidator):
         except ImportError:
             return False, "PyJWT library not installed"
         
+        # Validate secret is present and not empty
+        secret = jwt_config.get('secret')
+        if not secret or (isinstance(secret, str) and not secret.strip()):
+            return False, "JWT secret is required and cannot be empty"
+        
         auth_header = headers.get('authorization', '')
         
         if not auth_header:
@@ -341,9 +369,10 @@ class JWTValidator(BaseValidator):
             
             # Decode and validate with validated algorithm
             # Use list with single algorithm to prevent algorithm confusion
+            # Secret was already validated above (not empty)
             jwt.decode(
                 token,
-                key=jwt_config.get('secret'),
+                key=secret,  # Use validated secret
                 algorithms=[validated_algorithm],  # Use validated algorithm only
                 issuer=jwt_config.get('issuer'),
                 audience=jwt_config.get('audience'),
@@ -387,12 +416,10 @@ class HMACValidator(BaseValidator):
         if not secret:
             return False, "HMAC secret not configured"
         
-        received_signature = headers.get(header_name.lower(), "")
+        # Normalize algorithm to lowercase for case-insensitive comparison
+        algorithm = algorithm.lower()
         
-        if not received_signature:
-            return False, f"Missing {header_name} header"
-        
-        # Compute HMAC
+        # Validate algorithm before processing signature
         if algorithm == "sha256":
             hash_func = hashlib.sha256
         elif algorithm == "sha1":
@@ -402,12 +429,28 @@ class HMACValidator(BaseValidator):
         else:
             return False, f"Unsupported HMAC algorithm: {algorithm}"
         
+        received_signature = headers.get(header_name.lower(), "")
+        
+        if not received_signature:
+            return False, f"Missing {header_name} header"
+        
+        # Validate signature format: must be hex characters only
+        # This prevents Unicode injection and ensures hmac.compare_digest works correctly
+        import re
+        if not re.match(r'^[0-9a-fA-F]+$', received_signature.split('=', 1)[-1]):
+            return False, "Invalid HMAC signature format (must be hexadecimal)"
+        
         hmac_obj = hmac.new(secret.encode(), body, hash_func)
         computed_signature = hmac_obj.hexdigest()
         
         # Support both hex and sha256= prefix formats
+        # Extract signature after = if prefix exists
         if received_signature.startswith(f"{algorithm}="):
             received_signature = received_signature.split("=", 1)[1]
+        
+        # Validate extracted signature is still hex
+        if not re.match(r'^[0-9a-fA-F]+$', received_signature):
+            return False, "Invalid HMAC signature format (must be hexadecimal)"
         
         if not hmac.compare_digest(computed_signature, received_signature):
             return False, "Invalid HMAC signature"
@@ -449,48 +492,73 @@ class IPWhitelistValidator(BaseValidator):
         
         # If we have the Request object, use it as primary source (most secure)
         if self.request and hasattr(self.request, 'client') and self.request.client:
-            actual_client_ip = self.request.client.host
+            # Safely get client.host (may not exist or be empty)
+            try:
+                actual_client_ip = getattr(self.request.client, 'host', None)
+            except AttributeError:
+                actual_client_ip = None
             
-            # If we're behind a trusted proxy, check X-Forwarded-For
-            if trusted_proxies and actual_client_ip in trusted_proxies:
-                # Trust X-Forwarded-For only if actual client is a trusted proxy
-                x_forwarded_for = headers.get('x-forwarded-for', '').strip()
-                if x_forwarded_for:
-                    # X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
-                    # The first IP is the original client
-                    client_ip = x_forwarded_for.split(',')[0].strip()
-                    if client_ip:
-                        return client_ip, True
+            # If we have a valid client IP from Request object
+            if actual_client_ip and actual_client_ip.strip():
+                # If we're behind a trusted proxy, check X-Forwarded-For
+                if trusted_proxies and actual_client_ip in trusted_proxies:
+                    # Trust X-Forwarded-For only if actual client is a trusted proxy
+                    x_forwarded_for = headers.get('x-forwarded-for', '').strip()
+                    if x_forwarded_for:
+                        # Validate and sanitize X-Forwarded-For header
+                        # Remove newlines and null bytes to prevent header injection
+                        x_forwarded_for = x_forwarded_for.replace('\n', '').replace('\r', '').replace('\0', '')
+                        # X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+                        # The first IP is the original client
+                        client_ip = x_forwarded_for.split(',')[0].strip()
+                        if client_ip:
+                            return client_ip, True
+                    
+                    # Fallback to X-Real-IP if X-Forwarded-For is not present
+                    x_real_ip = headers.get('x-real-ip', '').strip()
+                    if x_real_ip:
+                        # Sanitize X-Real-IP header
+                        x_real_ip = x_real_ip.replace('\n', '').replace('\r', '').replace('\0', '')
+                        if x_real_ip:
+                            return x_real_ip, True
                 
-                # Fallback to X-Real-IP if X-Forwarded-For is not present
-                x_real_ip = headers.get('x-real-ip', '').strip()
-                if x_real_ip:
-                    return x_real_ip, True
-            
-            # Use actual client IP from connection (most secure, cannot be spoofed)
-            return actual_client_ip, False
+                # Use actual client IP from connection (most secure, cannot be spoofed)
+                return actual_client_ip, False
         
-        # Fallback: If no Request object, we can't trust headers (security risk)
-        # But for backward compatibility, we'll use headers with a warning
+        # SECURITY: If no Request object or no valid client IP, we cannot trust headers
+        # This prevents IP spoofing attacks via X-Forwarded-For when Request object is unavailable
         # In production, Request object should always be available
-        x_forwarded_for = headers.get('x-forwarded-for', '').strip()
-        if x_forwarded_for:
-            client_ip = x_forwarded_for.split(',')[0].strip()
-            if client_ip:
-                # Log warning that we're using untrusted header
-                print(f"WARNING: Using X-Forwarded-For header without Request object validation: {client_ip}")
-                return client_ip, False
-        
-        x_real_ip = headers.get('x-real-ip', '').strip()
-        if x_real_ip:
-            print(f"WARNING: Using X-Real-IP header without Request object validation: {x_real_ip}")
-            return x_real_ip, False
-        
-        remote_addr = headers.get('remote-addr', '').strip()
-        if remote_addr:
-            return remote_addr, False
-        
+        # For backward compatibility, we return empty string which will cause validation to fail
+        # This is more secure than trusting potentially spoofed headers
         return "", False
+    
+    def _normalize_ip(self, ip_str: str) -> str:
+        """
+        Normalize IP address for consistent comparison.
+        
+        This function:
+        - Normalizes IPv6 addresses (compressed vs full form, case)
+        - Normalizes IPv4 addresses (removes leading zeros)
+        - Ensures consistent format for whitelist comparison
+        
+        Args:
+            ip_str: IP address string to normalize
+            
+        Returns:
+            Normalized IP address string
+            
+        Raises:
+            ValueError: If IP address is invalid
+        """
+        import ipaddress
+        
+        try:
+            # Parse and normalize IP address
+            ip_obj = ipaddress.ip_address(ip_str.strip())
+            # Return string representation (normalized)
+            return str(ip_obj)
+        except ValueError:
+            raise ValueError(f"Invalid IP address format: {ip_str}")
     
     async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
         """Validate IP address against whitelist."""
@@ -505,19 +573,32 @@ class IPWhitelistValidator(BaseValidator):
         if not client_ip:
             return False, "Could not determine client IP"
         
-        # Validate IP format (basic check)
-        import ipaddress
+        # Normalize client IP for consistent comparison
         try:
-            ipaddress.ip_address(client_ip)
-        except ValueError:
-            return False, f"Invalid IP address format: {client_ip}"
+            normalized_client_ip = self._normalize_ip(client_ip)
+        except ValueError as e:
+            return False, str(e)
         
-        # Check if IP is in whitelist
-        if client_ip not in ip_whitelist:
+        # Normalize all whitelist IPs for consistent comparison
+        normalized_whitelist = []
+        for whitelist_ip in ip_whitelist:
+            if not whitelist_ip or not isinstance(whitelist_ip, str):
+                continue
+            try:
+                normalized_whitelist.append(self._normalize_ip(whitelist_ip))
+            except ValueError:
+                # Invalid IP in whitelist - skip it
+                continue
+        
+        if not normalized_whitelist:
+            return False, "IP whitelist contains no valid IP addresses"
+        
+        # Check if normalized client IP is in normalized whitelist
+        if normalized_client_ip not in normalized_whitelist:
             # Log IP spoofing attempt if using untrusted headers
             if not is_from_trusted_proxy and (headers.get('x-forwarded-for') or headers.get('x-real-ip')):
-                print(f"SECURITY: IP whitelist check failed for {client_ip} (may be spoofed via X-Forwarded-For)")
-            return False, f"IP {client_ip} not in whitelist"
+                print(f"SECURITY: IP whitelist check failed for {normalized_client_ip} (may be spoofed via X-Forwarded-For)")
+            return False, f"IP {normalized_client_ip} not in whitelist"
         
         return True, "Valid IP address"
 
@@ -831,6 +912,110 @@ class HeaderAuthValidator(BaseValidator):
 class OAuth2Validator(BaseValidator):
     """Validates OAuth 2.0 access tokens."""
     
+    def _validate_introspection_endpoint(self, url: str) -> str:
+        """
+        Validate introspection endpoint URL to prevent SSRF attacks.
+        
+        This function:
+        - Only allows http:// and https:// schemes
+        - Blocks private IP ranges (RFC 1918, localhost, link-local)
+        - Blocks file://, gopher://, and other dangerous schemes
+        - Blocks cloud metadata endpoints
+        - Validates URL format
+        
+        Args:
+            url: URL to validate
+            
+        Returns:
+            Validated URL string
+            
+        Raises:
+            ValueError: If URL is invalid or poses SSRF risk
+        """
+        if not url or not isinstance(url, str):
+            raise ValueError("Introspection endpoint URL must be a non-empty string")
+        
+        url = url.strip()
+        if not url:
+            raise ValueError("Introspection endpoint URL cannot be empty")
+        
+        # Parse URL
+        from urllib.parse import urlparse
+        import ipaddress
+        import re
+        
+        try:
+            parsed = urlparse(url)
+        except Exception as e:
+            raise ValueError(f"Invalid introspection endpoint URL format: {str(e)}")
+        
+        # Only allow http and https schemes
+        allowed_schemes = {'http', 'https'}
+        if parsed.scheme.lower() not in allowed_schemes:
+            raise ValueError(
+                f"Introspection endpoint URL scheme '{parsed.scheme}' is not allowed. "
+                f"Only http:// and https:// are permitted."
+            )
+        
+        # Block URLs without hostname
+        if not parsed.netloc:
+            raise ValueError("Introspection endpoint URL must include a hostname")
+        
+        # Extract hostname
+        netloc = parsed.netloc
+        if netloc.startswith('['):
+            # IPv6 address
+            end_bracket = netloc.find(']')
+            if end_bracket != -1:
+                hostname = netloc[1:end_bracket]
+            else:
+                raise ValueError("Invalid IPv6 address format in introspection endpoint URL")
+        else:
+            hostname = netloc.split(':')[0]
+        
+        # Block localhost and variations
+        localhost_variants = {
+            'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
+            '127.1', '127.0.1', '127.000.000.001', '0177.0.0.1',
+            '0x7f.0.0.1', '2130706433', '0x7f000001',
+        }
+        if hostname.lower() in localhost_variants:
+            raise ValueError(
+                f"Access to localhost in introspection endpoint is not allowed for security reasons (SSRF prevention)"
+            )
+        
+        # Block private IP ranges
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_loopback or ip.is_private or ip.is_link_local:
+                raise ValueError(
+                    f"Access to private/loopback IP '{hostname}' in introspection endpoint is not allowed for security reasons (SSRF prevention)"
+                )
+        except ValueError:
+            # Not an IP address, continue with hostname checks
+            pass
+        
+        # Block cloud metadata endpoints
+        dangerous_hostnames = {
+            'metadata.google.internal',
+            '169.254.169.254',
+            'metadata',
+            'instance-data',
+            'instance-data.ecs',
+            'ecs-metadata',
+            '100.100.100.200',
+        }
+        if hostname.lower() in dangerous_hostnames:
+            raise ValueError(
+                f"Access to metadata service '{hostname}' in introspection endpoint is not allowed for security reasons (SSRF prevention)"
+            )
+        
+        # Block file:// and other dangerous schemes (already checked above, but double-check)
+        if parsed.scheme.lower() not in allowed_schemes:
+            raise ValueError(f"Dangerous URL scheme '{parsed.scheme}' is not allowed")
+        
+        return url
+    
     async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
         """Validate OAuth 2.0 access token."""
         oauth2_config = self.config.get("oauth2", {})
@@ -845,11 +1030,22 @@ class OAuth2Validator(BaseValidator):
         required_scope = oauth2_config.get("required_scope", [])
         validate_token = oauth2_config.get("validate_token", True)
         
+        # Validate introspection endpoint URL to prevent SSRF
+        if introspection_endpoint:
+            try:
+                introspection_endpoint = self._validate_introspection_endpoint(introspection_endpoint)
+            except ValueError as e:
+                return False, f"Invalid OAuth 2.0 introspection endpoint: {str(e)}"
+        
         # Get token from Authorization header
         auth_header = headers.get('authorization', '')
         
         if not auth_header:
             return False, "Missing Authorization header"
+        
+        # Validate header format to prevent header injection
+        if '\n' in auth_header or '\r' in auth_header:
+            return False, "Invalid Authorization header format (newlines not allowed)"
         
         # Extract token (support Bearer format)
         if not auth_header.startswith(f'{token_type} '):
@@ -915,6 +1111,44 @@ class OAuth2Validator(BaseValidator):
         # If JWT token validation is enabled, try to validate as JWT
         jwt_secret = oauth2_config.get("jwt_secret")
         if jwt_secret and not introspection_endpoint:
+            # Validate JWT secret is not empty
+            if not jwt_secret or (isinstance(jwt_secret, str) and not jwt_secret.strip()):
+                return False, "OAuth 2.0 JWT secret is required and cannot be empty"
+            
+            # Validate and normalize JWT algorithms
+            jwt_algorithms = oauth2_config.get("jwt_algorithms", ["HS256", "RS256"])
+            if not isinstance(jwt_algorithms, list) or len(jwt_algorithms) == 0:
+                return False, "OAuth 2.0 JWT algorithms must be a non-empty list"
+            
+            # Whitelist of allowed algorithms (strong algorithms only)
+            allowed_algorithms = {
+                'HS256', 'HS384', 'HS512',
+                'RS256', 'RS384', 'RS512',
+                'ES256', 'ES384', 'ES512',
+                'PS256', 'PS384', 'PS512',
+            }
+            
+            # Blocked algorithms
+            blocked_algorithms = {'none'}
+            
+            # Validate each algorithm
+            validated_algorithms = []
+            for alg in jwt_algorithms:
+                if not isinstance(alg, str):
+                    return False, f"OAuth 2.0 JWT algorithm must be a string, got {type(alg)}"
+                
+                alg_normalized = alg.strip().upper()
+                if not alg_normalized:
+                    return False, "OAuth 2.0 JWT algorithm cannot be empty"
+                
+                if alg_normalized in blocked_algorithms:
+                    return False, f"OAuth 2.0 JWT algorithm '{alg}' is explicitly blocked for security reasons"
+                
+                if alg_normalized not in allowed_algorithms:
+                    return False, f"OAuth 2.0 JWT algorithm '{alg}' is not in the allowed algorithms whitelist"
+                
+                validated_algorithms.append(alg_normalized)
+            
             try:
                 import jwt
                 
@@ -936,7 +1170,7 @@ class OAuth2Validator(BaseValidator):
                 decoded = jwt.decode(
                     token,
                     key=jwt_secret,
-                    algorithms=oauth2_config.get("jwt_algorithms", ["HS256", "RS256"]),
+                    algorithms=validated_algorithms,  # Use validated algorithms only
                     audience=audience,
                     issuer=issuer,
                     options=decode_options

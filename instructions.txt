@@ -1,0 +1,10 @@
+Security testing:
+Take 1 existing feature, research code and code methods used in it, 
+Research internet what attacks these methods could brake or be hacked with
+only reseach fixes for external threats through http
+double check if this is alredy tested in existing tests
+make extensive test to find gaps in this feature
+make tests, if they fail fix them.
+
+
+
