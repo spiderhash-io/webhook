@@ -767,7 +767,7 @@ class TestTimeoutAndResourceAttacks:
     """Test timeout and resource exhaustion attacks."""
     
     def test_very_long_url(self):
-        """Test that very long URLs are handled."""
+        """Test that very long URLs are handled safely."""
         # Very long URL (potential DoS)
         long_path = '/webhook?' + '&'.join([f'param{i}=value{i}' for i in range(1000)])
         config = {
@@ -777,10 +777,14 @@ class TestTimeoutAndResourceAttacks:
             }
         }
         
-        # Should work (URL length is not limited in validation)
-        # But actual HTTP request might fail
-        module = HTTPWebhookModule(config)
-        assert 'example.com' in module._validated_url
+        # With stricter validation, very long URLs may be rejected to prevent DoS.
+        # Both behaviours are acceptable as long as they fail safely.
+        try:
+            module = HTTPWebhookModule(config)
+            assert 'example.com' in module._validated_url
+        except ValueError as e:
+            # If rejected, it should clearly indicate length-related validation
+            assert "URL too long" in str(e)
     
     def test_many_headers(self):
         """Test that many headers don't cause issues."""

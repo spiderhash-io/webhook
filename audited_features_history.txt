@@ -1,0 +1,1 @@
+1. HTTP webhook forwarding (`HTTPWebhookModule`) – audited for SSRF, header injection/smuggling, URL validation, timeout/error handling, and security test coverage; final risk rated Low after fixes and alignment with tests.

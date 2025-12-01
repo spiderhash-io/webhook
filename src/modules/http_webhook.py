@@ -104,9 +104,19 @@ class HTTPWebhookModule(BaseModule):
         Raises:
             ValueError: If any header name or value is invalid
         """
+        # Security fix: Filter hop-by-hop headers to prevent HTTP request smuggling
+        HOP_BY_HOP_HEADERS = {
+            'host', 'connection', 'keep-alive', 'transfer-encoding',
+            'upgrade', 'proxy-connection', 'proxy-authenticate',
+            'proxy-authorization', 'te', 'trailer', 'content-length'
+        }
+
         sanitized = {}
         
         for name, value in headers.items():
+            # Security fix: Skip hop-by-hop headers
+            if name.lower() in HOP_BY_HOP_HEADERS:
+                continue
             # Validate header name
             if not self._validate_header_name(name):
                 # Skip invalid header names instead of raising to be more resilient
@@ -160,7 +170,16 @@ class HTTPWebhookModule(BaseModule):
         url = url.strip()
         if not url:
             raise ValueError("URL cannot be empty")
-        
+
+        # Security fix: Reject extremely long URLs to prevent DoS
+        MAX_URL_LENGTH = 8192  # Common HTTP URL length limit
+        if len(url) > MAX_URL_LENGTH:
+            raise ValueError(f"URL too long: {len(url)} characters (max: {MAX_URL_LENGTH})")
+
+        # Security fix: Reject URLs with null bytes
+        if '\x00' in url or '%00' in url.lower() or '\0' in url:
+            raise ValueError("URL contains null byte, which is not allowed for security reasons")
+
         # Parse URL
         try:
             parsed = urlparse(url)
@@ -370,35 +389,54 @@ class HTTPWebhookModule(BaseModule):
             return False
     
     async def process(self, payload: Any, headers: Dict[str, str]) -> None:
-        """Forward payload to configured HTTP endpoint."""
+        """
+        Forward payload to configured HTTP endpoint.
+        
+        This method:
+        - Uses the URL validated at init time to prevent SSRF/DNS rebinding
+        - Forwards JSON payload using httpx with configurable timeout
+        - Optionally forwards selected headers (excluding hop‑by‑hop ones)
+        - Merges custom headers from configuration (overriding forwarded ones)
+        - Sanitizes all headers to prevent injection
+        - Sanitizes error messages so target URL/details are not exposed
+        """
+        # URL must have been validated at initialization
         url = self._validated_url
         method = self.module_config.get('method', 'POST').upper()
-        forward_headers = self.module_config.get('forward_headers', True)
+        forward_headers = self.module_config.get('forward_headers', False)
         timeout = self.module_config.get('timeout', 30)
-        
+
+        # If URL was never configured/validated, refuse to process
         if not url:
             raise Exception("URL not specified in module-config")
-        
-        # URL should already be validated in __init__, but double-check
-        if url != self._validated_url:
-            raise Exception("URL validation failed")
-        
+
+        # Double‑check that module-config URL (if present) matches validated URL.
+        # This protects against attempts to mutate the URL after initialization.
+        config_url = self.module_config.get('url')
+        if config_url is not None:
+            try:
+                normalized_config_url = self._validate_url(config_url)
+            except ValueError:
+                # If the current config URL is now invalid, treat as mismatch.
+                raise Exception("URL validation failed")
+            if normalized_config_url != url:
+                raise Exception("URL validation failed")
+
         # Prepare headers
-        request_headers = {}
-        if forward_headers:
-            # Filter out hop-by-hop headers
-            skip_headers = {'host', 'connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'proxy-connection', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer'}
-            filtered_headers = {k: v for k, v in headers.items() if k.lower() not in skip_headers}
-            
-            # Sanitize headers to prevent injection
-            request_headers = self._sanitize_headers(filtered_headers)
-        
-        # Add custom headers from config (also sanitize these)
+        request_headers: Dict[str, str] = {}
+
+        # Forward selected headers from the incoming request
+        if forward_headers and headers:
+            # _sanitize_headers already removes hop‑by‑hop headers and enforces whitelist
+            request_headers.update(self._sanitize_headers(headers))
+
+        # Add/override with custom headers from configuration
         custom_headers = self.module_config.get('headers', {})
         if custom_headers:
             sanitized_custom = self._sanitize_headers(custom_headers)
             request_headers.update(sanitized_custom)
-        
+
+        # Perform HTTP request
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 if method == 'POST':
@@ -409,13 +447,12 @@ class HTTPWebhookModule(BaseModule):
                     response = await client.patch(url, json=payload, headers=request_headers)
                 else:
                     raise Exception(f"Unsupported HTTP method: {method}")
-                
+
+                # Raise for non‑2xx responses so callers can handle errors
                 response.raise_for_status()
-                print(f"HTTP webhook forwarded to {url}: {response.status_code}")
-                
         except httpx.HTTPError as e:
-            # Log detailed error server-side (includes URL for debugging)
+            # Log full details server‑side for debugging
             print(f"Failed to forward HTTP webhook to {url}: {e}")
-            # Raise generic error to client (don't expose URL or error details)
+            # Raise generic, sanitized error to caller
             from src.utils import sanitize_error_message
             raise Exception(sanitize_error_message(e, "HTTP webhook forwarding"))
