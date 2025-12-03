@@ -11,6 +11,7 @@ from src.modules.kafka import KafkaModule
 from src.modules.s3 import S3Module
 from src.modules.websocket import WebSocketModule
 from src.modules.clickhouse import ClickHouseModule
+from src.modules.mqtt import MQTTModule
 
 
 class ModuleRegistry:
@@ -27,6 +28,7 @@ class ModuleRegistry:
         'redis_publish': RedisPublishModule,
         'clickhouse': ClickHouseModule,
         'websocket': WebSocketModule,
+        'mqtt': MQTTModule,
     }
     
     @classmethod

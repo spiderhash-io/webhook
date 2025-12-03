@@ -25,6 +25,12 @@ KAFKA_HOST = os.getenv("KAFKA_HOST", "localhost")
 KAFKA_PORT = int(os.getenv("KAFKA_PORT", "19092"))
 KAFKA_BOOTSTRAP_SERVERS = f"{KAFKA_HOST}:{KAFKA_PORT}"
 
+MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_TLS_PORT = int(os.getenv("MQTT_TLS_PORT", "8883"))
+MQTT_USER = os.getenv("MQTT_USER", "")
+MQTT_PASS = os.getenv("MQTT_PASS", "")
+
 # FastAPI server endpoint
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
@@ -37,4 +43,5 @@ TEST_REDIS_PREFIX = "test:integration:"
 TEST_RABBITMQ_QUEUE_PREFIX = "test_integration_"
 TEST_CLICKHOUSE_TABLE_PREFIX = "test_integration_"
 TEST_KAFKA_TOPIC_PREFIX = "test_integration_"
+TEST_MQTT_TOPIC_PREFIX = "test/integration/"
 

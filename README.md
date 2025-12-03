@@ -1,13 +1,13 @@
 # Core Webhook Module
 
-A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, disk, or stdout.
+A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, MQTT, disk, or stdout.
 
 **Status**: Production-ready with comprehensive security features, 274 passing tests, and support for multiple output destinations. All 11 authentication methods implemented!
 
 ## Features
 
 ### Core Functionality
-- **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, or stdout.
+- **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, or stdout.
 - **Plugin Architecture**: Easy to extend with new modules without modifying core code.
 - **Configuration-Driven**: Easy configuration via JSON files (`webhooks.json`, `connections.json`) and environment variables.
 - **Statistics**: Tracks webhook usage statistics (requests per minute, hour, day, etc.) via `/stats`.
@@ -33,7 +33,7 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - `src/modules/`: Output modules (RabbitMQ, Redis, ClickHouse, etc.).
   - `base.py`: Abstract base class for all modules
   - `registry.py`: Module registry for plugin management
-  - `log.py`, `save_to_disk.py`, `rabbitmq_module.py`, `redis_rq.py`, `clickhouse.py`: Individual modules
+  - `log.py`, `save_to_disk.py`, `rabbitmq_module.py`, `redis_rq.py`, `clickhouse.py`, `mqtt.py`: Individual modules
 - `src/utils.py`: Utility functions and in-memory statistics.
 - `src/clickhouse_analytics.py`: ClickHouse analytics service for saving logs and statistics.
 - `src/analytics_processor.py`: Separate analytics processor that reads from ClickHouse and calculates aggregated statistics.
@@ -679,6 +679,70 @@ Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submiss
             "include_headers": true
         },
         "authorization": "Bearer s3_secret"
+    }
+}
+```
+
+#### MQTT Publishing
+```json
+{
+    "mqtt_events": {
+        "data_type": "json",
+        "module": "mqtt",
+        "topic": "webhook/events",
+        "connection": "mqtt_local",
+        "module-config": {
+            "qos": 1,
+            "retained": false,
+            "format": "json",
+            "topic_prefix": "webhook"
+        },
+        "authorization": "Bearer mqtt_secret"
+    }
+}
+```
+
+**MQTT Module Features:**
+- Support for MQTT 3.1.1 and 5.0 protocols
+- TLS/SSL encryption (MQTTS) support
+- QoS levels: 0, 1, 2
+- Retained messages
+- Topic prefix configuration
+- **Shelly Device Compatibility**: Gen1 (multi-topic) and Gen2/Gen3 (JSON format) support
+- **Sonoff/Tasmota Compatibility**: Command (cmnd), status (stat), and telemetry (tele) topic formats
+
+**Shelly Gen2 Format Example:**
+```json
+{
+    "shelly_webhook": {
+        "data_type": "json",
+        "module": "mqtt",
+        "topic": "shellies/device123/status",
+        "connection": "mqtt_shelly",
+        "module-config": {
+            "shelly_gen2_format": true,
+            "device_id": "device123",
+            "qos": 1
+        }
+    }
+}
+```
+
+**Sonoff/Tasmota Format Example:**
+```json
+{
+    "tasmota_webhook": {
+        "data_type": "json",
+        "module": "mqtt",
+        "topic": "cmnd/device_name/POWER",
+        "connection": "mqtt_sonoff",
+        "module-config": {
+            "tasmota_format": true,
+            "tasmota_type": "cmnd",
+            "device_name": "device_name",
+            "command": "POWER",
+            "qos": 1
+        }
     }
 }
 ```

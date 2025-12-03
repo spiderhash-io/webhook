@@ -175,6 +175,28 @@ services:
     volumes:
       - redpanda_data:/var/lib/redpanda/data
 
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto
+    ports:
+      - "1883:1883"  # MQTT port
+      - "8883:8883"  # MQTTS port (TLS)
+      - "9001:9001"  # WebSocket port
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t test -C 1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    command: mosquitto -c /mosquitto/config/mosquitto.conf
+
 
 networks:
   webhook-network:
@@ -185,3 +207,5 @@ volumes:
   redis_test_data:       # Redis data persistence
   rabbitmq_test_data:    # RabbitMQ data persistence
   redpanda_data:         # Redpanda data persistence
+  mosquitto_data:        # Mosquitto data persistence
+  mosquitto_log:         # Mosquitto log persistence

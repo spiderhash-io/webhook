@@ -62,5 +62,61 @@
         "database": "webhook_analytics",
         "user": "{$CLICKHOUSE_USER}",
         "password": "{$CLICKHOUSE_PASSWORD}"
+    },
+    "mqtt_local": {
+        "type": "mqtt",
+        "host": "localhost",
+        "port": 1883,
+        "username": "",
+        "password": "",
+        "client_id": "webhook-module",
+        "keepalive": 60,
+        "mqtt_version": "3.1.1"
+    },
+    "mqtt_prod": {
+        "type": "mqtt",
+        "host": "{$MQTT_HOST}",
+        "port": "{$MQTT_PORT:1883}",
+        "username": "{$MQTT_USERNAME}",
+        "password": "{$MQTT_PASSWORD}",
+        "client_id": "{$MQTT_CLIENT_ID:webhook-module}",
+        "keepalive": 60,
+        "mqtt_version": "3.1.1"
+    },
+    "mqtt_tls": {
+        "type": "mqtt",
+        "host": "{$MQTT_HOST}",
+        "port": "{$MQTT_TLS_PORT:8883}",
+        "username": "{$MQTT_USERNAME}",
+        "password": "{$MQTT_PASSWORD}",
+        "client_id": "webhook-module",
+        "keepalive": 60,
+        "mqtt_version": "3.1.1",
+        "tls": true,
+        "tls_ca_cert_file": "{$MQTT_CA_CERT_FILE:}",
+        "tls_cert_file": "{$MQTT_CERT_FILE:}",
+        "tls_key_file": "{$MQTT_KEY_FILE:}",
+        "tls_insecure": false
+    },
+    "mqtt_shelly": {
+        "type": "mqtt",
+        "host": "{$MQTT_HOST}",
+        "port": "{$MQTT_PORT:1883}",
+        "username": "{$MQTT_USERNAME}",
+        "password": "{$MQTT_PASSWORD}",
+        "client_id": "webhook-shelly",
+        "keepalive": 60,
+        "mqtt_version": "3.1.1",
+        "tls": false
+    },
+    "mqtt_sonoff": {
+        "type": "mqtt",
+        "host": "{$MQTT_HOST}",
+        "port": "{$MQTT_PORT:1883}",
+        "username": "{$MQTT_USERNAME}",
+        "password": "{$MQTT_PASSWORD}",
+        "client_id": "webhook-sonoff",
+        "keepalive": 60,
+        "mqtt_version": "3.1.1"
     }
 }
