@@ -28,10 +28,14 @@ class SaveToDiskModule(BaseModule):
         base_dir = os.path.abspath(base_dir)
         
         # URL decode the path to catch encoded traversal attempts
+        # SECURITY: Decode multiple times to catch double-encoded attacks
         import urllib.parse
         try:
             # Decode URL-encoded characters (e.g., %2F -> /, %2E -> .)
             decoded_path = urllib.parse.unquote(path)
+            # SECURITY: Decode again to catch double-encoded attacks (e.g., %252e -> %2e -> .)
+            if '%' in decoded_path:
+                decoded_path = urllib.parse.unquote(decoded_path)
         except Exception:
             # If decoding fails, use original path
             decoded_path = path
@@ -91,6 +95,42 @@ class SaveToDiskModule(BaseModule):
         # Get base directory from config or use current directory
         base_dir = self.module_config.get('base_dir', os.getcwd())
         path = self.module_config.get('path', '.')
+        
+        # SECURITY: Validate base_dir to prevent path traversal attacks
+        # base_dir should be a valid, absolute path within allowed directories
+        if base_dir is not None:
+            if not isinstance(base_dir, str):
+                raise ValueError("base_dir must be a string")
+            # Validate base_dir itself (prevent traversal via base_dir)
+            try:
+                # Normalize and validate base_dir
+                base_dir_abs = os.path.abspath(base_dir)
+                base_dir_real = os.path.realpath(base_dir_abs)
+                
+                # SECURITY: Reject base_dir with traversal sequences
+                if '..' in base_dir:
+                    raise ValueError("base_dir cannot contain path traversal sequences")
+                
+                # SECURITY: Reject base_dir with null bytes
+                if '\x00' in base_dir:
+                    raise ValueError("base_dir cannot contain null bytes")
+                
+                # SECURITY: Reject system directories to prevent writing to sensitive locations
+                # Block common system directories (case-insensitive check for path components)
+                system_dirs = ['/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64', '/sys', '/proc', '/dev', '/root', '/boot']
+                base_dir_lower = base_dir_real.lower()
+                for sys_dir in system_dirs:
+                    if base_dir_lower == sys_dir or base_dir_lower.startswith(sys_dir + '/'):
+                        raise ValueError(f"base_dir cannot be a system directory: {base_dir_real}")
+                
+                # Use validated base_dir
+                base_dir = base_dir_real
+            except (OSError, ValueError) as e:
+                # Log detailed error server-side
+                print(f"ERROR: Invalid base_dir configuration: {str(e)}")
+                # Raise generic error to client
+                from src.utils import sanitize_error_message
+                raise Exception(sanitize_error_message(e, "base directory validation"))
         
         # Validate and sanitize path
         try:

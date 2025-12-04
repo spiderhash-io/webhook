@@ -43,42 +43,78 @@ class InputValidator:
         return True, "Valid headers"
     
     @staticmethod
-    def validate_json_depth(obj: Any, current_depth: int = 0) -> Tuple[bool, str]:
-        """Validate JSON nesting depth."""
-        if current_depth > InputValidator.MAX_JSON_DEPTH:
-            return False, f"JSON too deeply nested: {current_depth} levels (max: {InputValidator.MAX_JSON_DEPTH})"
+    def validate_json_depth(obj: Any, current_depth: int = 0, visited: set = None) -> Tuple[bool, str]:
+        """
+        Validate JSON nesting depth.
         
-        if isinstance(obj, dict):
-            for value in obj.values():
-                is_valid, msg = InputValidator.validate_json_depth(value, current_depth + 1)
-                if not is_valid:
-                    return is_valid, msg
-        elif isinstance(obj, list):
-            for item in obj:
-                is_valid, msg = InputValidator.validate_json_depth(item, current_depth + 1)
-                if not is_valid:
-                    return is_valid, msg
+        SECURITY: Uses visited set to prevent infinite recursion from circular references.
+        """
+        if visited is None:
+            visited = set()
         
-        return True, "Valid depth"
+        # SECURITY: Check for circular references using object identity
+        obj_id = id(obj)
+        if obj_id in visited:
+            # Circular reference detected - treat as valid (already visited, won't increase depth)
+            return True, "Valid depth"
+        visited.add(obj_id)
+        
+        try:
+            if current_depth > InputValidator.MAX_JSON_DEPTH:
+                return False, f"JSON too deeply nested: {current_depth} levels (max: {InputValidator.MAX_JSON_DEPTH})"
+            
+            if isinstance(obj, dict):
+                for value in obj.values():
+                    is_valid, msg = InputValidator.validate_json_depth(value, current_depth + 1, visited)
+                    if not is_valid:
+                        return is_valid, msg
+            elif isinstance(obj, list):
+                for item in obj:
+                    is_valid, msg = InputValidator.validate_json_depth(item, current_depth + 1, visited)
+                    if not is_valid:
+                        return is_valid, msg
+            
+            return True, "Valid depth"
+        finally:
+            # Remove from visited set when done with this branch (allows same object at different paths)
+            visited.discard(obj_id)
     
     @staticmethod
-    def validate_string_length(obj: Any) -> Tuple[bool, str]:
-        """Validate string lengths in payload."""
-        if isinstance(obj, str):
-            if len(obj) > InputValidator.MAX_STRING_LENGTH:
-                return False, f"String too long: {len(obj)} chars (max: {InputValidator.MAX_STRING_LENGTH})"
-        elif isinstance(obj, dict):
-            for value in obj.values():
-                is_valid, msg = InputValidator.validate_string_length(value)
-                if not is_valid:
-                    return is_valid, msg
-        elif isinstance(obj, list):
-            for item in obj:
-                is_valid, msg = InputValidator.validate_string_length(item)
-                if not is_valid:
-                    return is_valid, msg
+    def validate_string_length(obj: Any, visited: set = None) -> Tuple[bool, str]:
+        """
+        Validate string lengths in payload.
         
-        return True, "Valid string lengths"
+        SECURITY: Uses visited set to prevent infinite recursion from circular references.
+        """
+        if visited is None:
+            visited = set()
+        
+        # SECURITY: Check for circular references using object identity
+        obj_id = id(obj)
+        if obj_id in visited:
+            # Circular reference detected - skip validation (already visited)
+            return True, "Valid string lengths"
+        visited.add(obj_id)
+        
+        try:
+            if isinstance(obj, str):
+                if len(obj) > InputValidator.MAX_STRING_LENGTH:
+                    return False, f"String too long: {len(obj)} chars (max: {InputValidator.MAX_STRING_LENGTH})"
+            elif isinstance(obj, dict):
+                for value in obj.values():
+                    is_valid, msg = InputValidator.validate_string_length(value, visited)
+                    if not is_valid:
+                        return is_valid, msg
+            elif isinstance(obj, list):
+                for item in obj:
+                    is_valid, msg = InputValidator.validate_string_length(item, visited)
+                    if not is_valid:
+                        return is_valid, msg
+            
+            return True, "Valid string lengths"
+        finally:
+            # Remove from visited set when done with this branch
+            visited.discard(obj_id)
     
     @staticmethod
     def sanitize_string(value: str) -> str:

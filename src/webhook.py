@@ -19,18 +19,44 @@ class TaskManager:
     - Task queue monitoring
     - Task timeout protection
     - Automatic cleanup of completed tasks
+    
+    SECURITY: Validates configuration values to prevent DoS attacks via malicious config.
     """
+    
+    # Security limits to prevent DoS attacks
+    MIN_CONCURRENT_TASKS = 1  # Minimum allowed concurrent tasks
+    MAX_CONCURRENT_TASKS_LIMIT = 10000  # Maximum allowed concurrent tasks (prevents DoS)
+    MIN_TASK_TIMEOUT = 0.1  # Minimum allowed timeout (0.1 seconds)
+    MAX_TASK_TIMEOUT = 3600.0  # Maximum allowed timeout (1 hour)
     
     def __init__(self, max_concurrent_tasks: int = 100, task_timeout: float = 300.0):
         """
         Initialize task manager.
         
+        SECURITY: Validates and sanitizes configuration values to prevent DoS attacks.
+        
         Args:
             max_concurrent_tasks: Maximum number of concurrent tasks allowed
             task_timeout: Maximum time (seconds) for a task to complete
         """
+        # SECURITY: Validate and sanitize max_concurrent_tasks
+        if not isinstance(max_concurrent_tasks, int):
+            raise ValueError(f"max_concurrent_tasks must be an integer, got {type(max_concurrent_tasks)}")
+        if max_concurrent_tasks < TaskManager.MIN_CONCURRENT_TASKS:
+            raise ValueError(f"max_concurrent_tasks must be >= {TaskManager.MIN_CONCURRENT_TASKS}, got {max_concurrent_tasks}")
+        if max_concurrent_tasks > TaskManager.MAX_CONCURRENT_TASKS_LIMIT:
+            raise ValueError(f"max_concurrent_tasks exceeds security limit {TaskManager.MAX_CONCURRENT_TASKS_LIMIT}, got {max_concurrent_tasks}")
+        
+        # SECURITY: Validate and sanitize task_timeout
+        if not isinstance(task_timeout, (int, float)):
+            raise ValueError(f"task_timeout must be a number, got {type(task_timeout)}")
+        if task_timeout < TaskManager.MIN_TASK_TIMEOUT:
+            raise ValueError(f"task_timeout must be >= {TaskManager.MIN_TASK_TIMEOUT}, got {task_timeout}")
+        if task_timeout > TaskManager.MAX_TASK_TIMEOUT:
+            raise ValueError(f"task_timeout exceeds security limit {TaskManager.MAX_TASK_TIMEOUT}, got {task_timeout}")
+        
         self.max_concurrent_tasks = max_concurrent_tasks
-        self.task_timeout = task_timeout
+        self.task_timeout = float(task_timeout)
         self.semaphore = asyncio.Semaphore(max_concurrent_tasks)
         self.active_tasks = set()
         self._total_tasks_created = 0
@@ -42,6 +68,8 @@ class TaskManager:
         """
         Create a task with concurrency limiting and timeout protection.
         
+        SECURITY: Validates timeout value and ensures proper cleanup even on errors.
+        
         Args:
             coro: Coroutine to execute
             timeout: Optional timeout override (uses self.task_timeout if None)
@@ -51,15 +79,32 @@ class TaskManager:
             
         Raises:
             Exception: If task queue is full or timeout exceeded
+            ValueError: If timeout value is invalid
         """
+        # SECURITY: Validate timeout value
+        if timeout is not None:
+            if not isinstance(timeout, (int, float)):
+                raise ValueError(f"timeout must be a number, got {type(timeout)}")
+            if timeout < TaskManager.MIN_TASK_TIMEOUT:
+                raise ValueError(f"timeout must be >= {TaskManager.MIN_TASK_TIMEOUT}, got {timeout}")
+            if timeout > TaskManager.MAX_TASK_TIMEOUT:
+                raise ValueError(f"timeout exceeds security limit {TaskManager.MAX_TASK_TIMEOUT}, got {timeout}")
+        
         timeout = timeout or self.task_timeout
         
         # Acquire semaphore (will block if limit reached)
         # This provides natural backpressure - tasks will wait if queue is full
         await self.semaphore.acquire()
         
+        # SECURITY: Create task first, then reference it in wrapper to avoid closure issues
+        # Create a placeholder task that will be replaced
+        task_placeholder = None
+        
         async def task_wrapper():
             """Wrapper to handle cleanup and timeout."""
+            # SECURITY: Use task_placeholder which is set after task creation
+            # This avoids referencing 'task' before it's defined
+            current_task = task_placeholder
             try:
                 # Execute with timeout
                 return await asyncio.wait_for(coro, timeout=timeout)
@@ -71,7 +116,8 @@ class TaskManager:
                 # Release semaphore and remove from active tasks
                 self.semaphore.release()
                 async with self._lock:
-                    self.active_tasks.discard(task)
+                    if current_task:
+                        self.active_tasks.discard(current_task)
                     self._total_tasks_completed += 1
                     # Clean up completed tasks periodically
                     if len(self.active_tasks) % 10 == 0:
@@ -79,6 +125,7 @@ class TaskManager:
         
         # Create task
         task = asyncio.create_task(task_wrapper())
+        task_placeholder = task  # Set reference for wrapper
         
         async with self._lock:
             self.active_tasks.add(task)
@@ -113,10 +160,17 @@ class TaskManager:
 
 # Global task manager instance
 # Can be configured via environment variables
+# SECURITY: Configuration is validated in TaskManager.__init__()
 import os
-_max_concurrent_tasks = int(os.getenv("MAX_CONCURRENT_TASKS", "100"))
-_task_timeout = float(os.getenv("TASK_TIMEOUT", "300.0"))
-task_manager = TaskManager(max_concurrent_tasks=_max_concurrent_tasks, task_timeout=_task_timeout)
+try:
+    _max_concurrent_tasks = int(os.getenv("MAX_CONCURRENT_TASKS", "100"))
+    _task_timeout = float(os.getenv("TASK_TIMEOUT", "300.0"))
+    task_manager = TaskManager(max_concurrent_tasks=_max_concurrent_tasks, task_timeout=_task_timeout)
+except (ValueError, TypeError) as e:
+    # SECURITY: If environment variables are invalid, use safe defaults
+    print(f"WARNING: Invalid task manager configuration from environment: {e}")
+    print("WARNING: Using safe default values")
+    task_manager = TaskManager(max_concurrent_tasks=100, task_timeout=300.0)
 
 
 class WebhookHandler:
