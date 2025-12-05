@@ -41,7 +41,12 @@ class RateLimiter:
                 self.requests[webhook_id].popleft()
             
             # Check if limit exceeded
-            if len(self.requests[webhook_id]) >= max_requests:
+            # SECURITY: If max_requests is 0, block all requests immediately
+            if max_requests == 0:
+                return False, "Rate limit exceeded. No requests allowed"
+            
+            # SECURITY: Check that deque is not empty before accessing [0]
+            if len(self.requests[webhook_id]) >= max_requests and self.requests[webhook_id]:
                 oldest_request = self.requests[webhook_id][0]
                 retry_after = int(oldest_request + window_seconds - now)
                 return False, f"Rate limit exceeded. Retry after {retry_after} seconds"

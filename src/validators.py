@@ -187,9 +187,16 @@ class BasicAuthValidator(BaseValidator):
             if len(auth_header) > 7 and auth_header[6:8] == '  ':
                 return False, "Invalid Basic authentication format"
         
+        # SECURITY: Check that there's content after "Basic "
+        if len(auth_header) <= 6 or (len(auth_header) == 6 and auth_header == "Basic"):
+            return False, "Invalid Basic authentication format: missing credentials"
+        
         try:
             # Extract and decode base64 credentials
-            encoded_credentials = auth_header.split(' ', 1)[1]
+            split_result = auth_header.split(' ', 1)
+            if len(split_result) < 2 or not split_result[1]:
+                return False, "Invalid Basic authentication format: missing credentials"
+            encoded_credentials = split_result[1]
             
             # Strip whitespace from base64 string and validate format
             # Base64 should not contain whitespace (RFC 4648)
@@ -222,7 +229,12 @@ class BasicAuthValidator(BaseValidator):
             expected_username = basic_auth_config.get('username')
             expected_password = basic_auth_config.get('password')
             
+            # SECURITY: Validate config types to prevent type confusion attacks
             if not expected_username or not expected_password:
+                return False, "Basic auth credentials not configured"
+            
+            # SECURITY: Ensure username and password are strings (prevent type confusion)
+            if not isinstance(expected_username, str) or not isinstance(expected_password, str):
                 return False, "Basic auth credentials not configured"
             
             # Validate credentials using constant-time comparison for both username and password
@@ -247,7 +259,11 @@ class BasicAuthValidator(BaseValidator):
         except UnicodeDecodeError:
             return False, "Invalid UTF-8 encoding in credentials"
         except Exception as e:
-            return False, f"Invalid basic auth format: {str(e)}"
+            # SECURITY: Sanitize exception messages to prevent information disclosure
+            # Log detailed error server-side only (if logging is available)
+            # Return generic error to client
+            from src.utils import sanitize_error_message
+            return False, sanitize_error_message(e, "basic authentication")
 
 
 class JWTValidator(BaseValidator):
@@ -663,17 +679,41 @@ class JsonSchemaValidator(BaseValidator):
             payload = json.loads(body)
         except json.JSONDecodeError:
             return False, "Invalid JSON body"
-        
+        except Exception as e:
+            # SECURITY: Catch any other exceptions during JSON parsing and sanitize
+            from src.utils import sanitize_error_message
+            return False, sanitize_error_message(e, "JSON parsing")
+
         try:
-            # Validate against schema
-            validate(instance=payload, schema=schema)
+            # SECURITY: Disable remote reference resolution to prevent SSRF attacks
+            # Use a registry that blocks remote references
+            try:
+                from referencing import Registry
+                from referencing.jsonschema import DRAFT7
+                
+                # Create an empty registry that blocks all remote references (prevents SSRF)
+                registry = Registry()
+                
+                # Validate with registry that blocks remote references
+                validate(instance=payload, schema=schema, registry=registry)
+            except (ImportError, TypeError):
+                # Fallback: If registry parameter not supported, use standard validate
+                # Note: This may allow remote references in older jsonschema versions
+                # But schema comes from config (not user input), so risk is lower
+                validate(instance=payload, schema=schema)
+            
             return True, "Valid JSON schema"
         except jsonschema.exceptions.ValidationError as e:
-            return False, f"JSON schema validation failed: {e.message}"
+            # SECURITY: Sanitize validation error messages
+            # e.message may contain field names, but shouldn't expose full schema structure
+            return False, "JSON schema validation failed"
         except jsonschema.exceptions.SchemaError as e:
-            return False, f"Invalid JSON schema configuration: {e.message}"
+            # SECURITY: Sanitize schema error messages
+            return False, "Invalid JSON schema configuration"
         except Exception as e:
-            return False, f"JSON schema validation error: {str(e)}"
+            # SECURITY: Sanitize generic exception messages to prevent information disclosure
+            from src.utils import sanitize_error_message
+            return False, sanitize_error_message(e, "JSON schema validation")
 
 
 class QueryParameterAuthValidator(BaseValidator):
@@ -799,6 +839,10 @@ class QueryParameterAuthValidator(BaseValidator):
         expected_key = query_auth_config.get("api_key")
         case_sensitive = query_auth_config.get("case_sensitive", False)
         
+        # SECURITY: Validate api_key type to prevent type confusion attacks
+        if not isinstance(expected_key, str):
+            return False, "Query auth API key must be a string"
+        
         # Check if api_key is configured (empty string is not valid)
         if expected_key == "":
             return False, "Query auth API key not configured"
@@ -811,11 +855,12 @@ class QueryParameterAuthValidator(BaseValidator):
         # Get the API key from query parameters
         received_key = query_params.get(parameter_name)
         
-        # Check if parameter is missing
+        # SECURITY: Check if parameter is missing (None) or invalid type
         if received_key is None:
             return False, f"Missing required query parameter: {parameter_name}"
         
-        # Validate and sanitize received parameter value
+        # SECURITY: Validate and sanitize received parameter value
+        # Check type first (before sanitization) to provide clear error message
         if not isinstance(received_key, str):
             return False, f"Invalid query parameter value type for: {parameter_name}"
         
@@ -862,8 +907,16 @@ class HeaderAuthValidator(BaseValidator):
         expected_key = header_auth_config.get("api_key")
         case_sensitive = header_auth_config.get("case_sensitive", False)
         
+        # SECURITY: Validate header_name type to prevent type confusion attacks
+        if not isinstance(header_name, str):
+            return False, "Header auth header_name must be a string"
+        
+        # SECURITY: Validate api_key type to prevent type confusion attacks
+        if not isinstance(expected_key, str):
+            return False, "Header auth API key must be a string"
+        
         # Check if api_key is configured (empty string is not valid)
-        if expected_key == "":
+        if expected_key == "" or not expected_key.strip():
             return False, "Header auth API key not configured"
         
         # Get the API key from headers (case-insensitive header lookup)
@@ -890,8 +943,12 @@ class HeaderAuthValidator(BaseValidator):
         if not header_found:
             return False, f"Missing required header: {header_name}"
         
+        # SECURITY: Validate received_key type to prevent type confusion attacks
+        if not isinstance(received_key, str):
+            return False, f"Invalid API key type in header: {header_name}"
+        
         # Check if header value is empty (header exists but value is empty)
-        if received_key == "":
+        if received_key == "" or not received_key.strip():
             return False, f"Invalid API key in header: {header_name}"
         
         # Validate key with constant-time comparison
@@ -1294,7 +1351,9 @@ class DigestAuthValidator(BaseValidator):
             return True, "Valid digest authentication"
             
         except Exception as e:
-            return False, f"Digest auth validation error: {str(e)}"
+            # SECURITY: Sanitize exception messages to prevent information disclosure
+            from src.utils import sanitize_error_message
+            return False, sanitize_error_message(e, "Digest auth validation")
     
     @staticmethod
     def _parse_digest_header(auth_header: str) -> Dict[str, str]:
@@ -1530,7 +1589,9 @@ class OAuth1Validator(BaseValidator):
             return True, "Valid OAuth 1.0 signature"
             
         except Exception as e:
-            return False, f"OAuth 1.0 validation error: {str(e)}"
+            # SECURITY: Sanitize exception messages to prevent information disclosure
+            from src.utils import sanitize_error_message
+            return False, sanitize_error_message(e, "OAuth 1.0 validation")
     
     @staticmethod
     def _parse_oauth_header(auth_header: str) -> Dict[str, str]:
@@ -1755,8 +1816,12 @@ class RecaptchaValidator(BaseValidator):
         except ImportError:
             return False, "httpx library not installed"
         except httpx.HTTPError as e:
-            return False, f"Failed to verify reCAPTCHA token: {str(e)}"
+            # SECURITY: Sanitize HTTP error messages to prevent information disclosure
+            from src.utils import sanitize_error_message
+            return False, sanitize_error_message(e, "reCAPTCHA verification")
         except json.JSONDecodeError:
             return False, "Invalid response from reCAPTCHA service"
         except Exception as e:
-            return False, f"reCAPTCHA validation error: {str(e)}"
+            # SECURITY: Sanitize generic exception messages to prevent information disclosure
+            from src.utils import sanitize_error_message
+            return False, sanitize_error_message(e, "reCAPTCHA validation")

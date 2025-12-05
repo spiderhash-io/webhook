@@ -225,8 +225,13 @@ class MQTTModule(BaseModule):
             if self.module_config.get('shelly_gen2_format', False):
                 # Shelly Gen2 uses a single topic with full JSON payload
                 shelly_topic = topic
+                device_id = self.module_config.get('device_id', 'webhook')
+                # SECURITY: Validate device_id to prevent injection in JSON payload
+                # Device ID is used in JSON, not in topic, but validate for safety
+                if not isinstance(device_id, str):
+                    device_id = str(device_id)  # Convert to string for JSON serialization
                 shelly_payload = {
-                    "id": self.module_config.get('device_id', 'webhook'),
+                    "id": device_id,
                     "source": "webhook",
                     "params": payload if isinstance(payload, dict) else {"data": payload}
                 }
@@ -237,10 +242,35 @@ class MQTTModule(BaseModule):
                 tasmota_type = self.module_config.get('tasmota_type', 'cmnd')  # cmnd, stat, or tele
                 device_name = self.module_config.get('device_name', 'webhook')
                 
+                # SECURITY: Validate device_name to prevent topic injection
+                if not isinstance(device_name, str):
+                    raise ValueError("Tasmota device_name must be a string")
+                device_name = device_name.strip()
+                if not device_name:
+                    raise ValueError("Tasmota device_name cannot be empty")
+                # Validate device_name format (same as topic validation)
+                if not re.match(r'^[a-zA-Z0-9_\-\./]+$', device_name):
+                    raise ValueError("Invalid Tasmota device_name format")
+                # Reject dangerous patterns
+                if '..' in device_name or '--' in device_name or '+' in device_name or '#' in device_name:
+                    raise ValueError("Tasmota device_name contains dangerous pattern")
+                
                 if tasmota_type == 'cmnd':
                     # Command format: cmnd/device_name/command
                     # For webhooks, we'll use a generic command or the topic
                     command = self.module_config.get('command', 'webhook')
+                    # SECURITY: Validate command to prevent topic injection
+                    if not isinstance(command, str):
+                        raise ValueError("Tasmota command must be a string")
+                    command = command.strip()
+                    if not command:
+                        raise ValueError("Tasmota command cannot be empty")
+                    # Validate command format (same as topic validation)
+                    if not re.match(r'^[a-zA-Z0-9_\-\./]+$', command):
+                        raise ValueError("Invalid Tasmota command format")
+                    # Reject dangerous patterns
+                    if '..' in command or '--' in command or '+' in command or '#' in command:
+                        raise ValueError("Tasmota command contains dangerous pattern")
                     topic = f"cmnd/{device_name}/{command}"
                 elif tasmota_type == 'stat':
                     # Status format: stat/device_name/status
@@ -248,6 +278,13 @@ class MQTTModule(BaseModule):
                 else:  # tele
                     # Telemetry format: tele/device_name/telemetry
                     topic = f"tele/{device_name}/telemetry"
+                
+                # Validate constructed topic (additional safety check)
+                # Note: topic is constructed from validated components, but double-check
+                if not re.match(r'^[a-zA-Z0-9_\-\./]+$', topic):
+                    raise ValueError("Invalid Tasmota topic format")
+                if '..' in topic or '--' in topic or '+' in topic or '#' in topic:
+                    raise ValueError("Tasmota topic contains dangerous pattern")
                 
                 # Tasmota expects JSON payload
                 if not isinstance(payload, dict):
@@ -257,9 +294,32 @@ class MQTTModule(BaseModule):
             # Apply topic prefix if configured (for device organization)
             topic_prefix = self.module_config.get('topic_prefix')
             if topic_prefix:
-                # Validate prefix
+                # SECURITY: Validate prefix format and reject dangerous patterns
+                if not isinstance(topic_prefix, str):
+                    raise ValueError("Topic prefix must be a string")
+                
+                # Remove whitespace
+                topic_prefix = topic_prefix.strip()
+                
+                if not topic_prefix:
+                    raise ValueError("Topic prefix cannot be empty")
+                
+                # Reject dangerous patterns (path traversal, wildcards, etc.)
+                if '..' in topic_prefix:
+                    raise ValueError("Topic prefix contains dangerous pattern: '..' (path traversal not allowed)")
+                if '--' in topic_prefix:
+                    raise ValueError("Topic prefix contains dangerous pattern: '--' (not allowed)")
+                if '+' in topic_prefix or '#' in topic_prefix:
+                    raise ValueError("Topic prefix cannot contain wildcards (+ or #)")
+                if topic_prefix.startswith('$'):
+                    raise ValueError("Topic prefix cannot start with '$' (reserved for system topics)")
+                if '//' in topic_prefix:
+                    raise ValueError("Topic prefix cannot contain consecutive slashes")
+                
+                # Validate format: alphanumeric, underscore, hyphen, dot, and forward slash only
                 if not re.match(r'^[a-zA-Z0-9_\-\./]+$', topic_prefix):
                     raise ValueError("Invalid topic prefix format")
+                
                 # Remove trailing slash if present
                 topic_prefix = topic_prefix.rstrip('/')
                 # Prepend to topic

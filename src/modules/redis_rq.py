@@ -183,12 +183,17 @@ class RedisRQModule(BaseModule):
         if not function_name:
             raise Exception("Function name not specified in module-config")
         
-        # Create queue
-        q = Queue(queue_name, connection=connection)
-        
-        # Enqueue the task
-        # Use validated function name (string) - RQ will import it safely
-        # We've already validated it's safe, so passing as string is acceptable
-        result = q.enqueue(function_name, payload, headers)
-        
-        print(f"Task queued to Redis RQ: {result.id}")
+        try:
+            # Create queue
+            q = Queue(queue_name, connection=connection)
+            
+            # Enqueue the task
+            # Use validated function name (string) - RQ will import it safely
+            # We've already validated it's safe, so passing as string is acceptable
+            result = q.enqueue(function_name, payload, headers)
+            
+            print(f"Task queued to Redis RQ: {result.id}")
+        except Exception as e:
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            from src.utils import sanitize_error_message
+            raise Exception(f"Failed to queue task to Redis RQ: {sanitize_error_message(e, 'Redis RQ operation')}")

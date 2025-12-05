@@ -113,16 +113,30 @@ class KafkaModule(BaseModule):
             key = self.module_config.get('key')
             partition = self.module_config.get('partition')
             
+            # SECURITY: Validate and encode key safely
+            encoded_key = None
+            if key is not None:
+                if not isinstance(key, str):
+                    # Convert non-string keys to string for encoding
+                    key = str(key)
+                encoded_key = key.encode('utf-8')
+            
             # Prepare Kafka headers
             kafka_headers = []
             if self.module_config.get('forward_headers', False):
-                kafka_headers = [(k, v.encode('utf-8')) for k, v in headers.items()]
+                # SECURITY: Validate header values are strings before encoding
+                kafka_headers = []
+                for k, v in headers.items():
+                    if not isinstance(v, str):
+                        # Convert non-string header values to string
+                        v = str(v)
+                    kafka_headers.append((k, v.encode('utf-8')))
             
             # Send message
             await self.producer.send(
                 topic,
                 value=payload,
-                key=key.encode('utf-8') if key else None,
+                key=encoded_key,
                 partition=partition,
                 headers=kafka_headers or None
             )

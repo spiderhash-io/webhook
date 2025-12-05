@@ -186,7 +186,9 @@ class ClickHouseModule(BaseModule):
             webhook_id = self.config.get('_webhook_id', 'unknown')
             
             # Prepare data
-            timestamp = datetime.utcnow()
+            # SECURITY: Use timezone-aware datetime (datetime.utcnow() is deprecated)
+            from datetime import timezone
+            timestamp = datetime.now(timezone.utc)
             payload_str = json.dumps(payload) if isinstance(payload, (dict, list)) else str(payload)
             headers_str = json.dumps(headers) if self.include_headers else '{}'
             

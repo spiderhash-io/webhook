@@ -175,6 +175,11 @@ except (ValueError, TypeError) as e:
 
 class WebhookHandler:
     def __init__(self, webhook_id, configs, connection_config, request: Request):
+        # SECURITY: Validate webhook_id early to prevent injection attacks
+        is_valid, msg = InputValidator.validate_webhook_id(webhook_id)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=msg)
+        
         self.webhook_id = webhook_id
         self.config = configs.get(webhook_id)
         if not self.config:
@@ -218,16 +223,24 @@ class WebhookHandler:
         
         # Run all validators
         for validator in self.validators:
-            # Query parameter auth needs special handling
-            if isinstance(validator, QueryParameterAuthValidator):
-                is_valid, message = QueryParameterAuthValidator.validate_query_params(
-                    query_params, self.config
-                )
-            else:
-                is_valid, message = await validator.validate(headers_dict, body)
-            
-            if not is_valid:
-                return False, message
+            try:
+                # Query parameter auth needs special handling
+                if isinstance(validator, QueryParameterAuthValidator):
+                    is_valid, message = QueryParameterAuthValidator.validate_query_params(
+                        query_params, self.config
+                    )
+                else:
+                    is_valid, message = await validator.validate(headers_dict, body)
+                
+                if not is_valid:
+                    return False, message
+            except Exception as e:
+                # SECURITY: Catch and sanitize validator exceptions to prevent information disclosure
+                # Log detailed error server-side only
+                print(f"ERROR: Validator exception for webhook '{self.webhook_id}': {e}")
+                # Return generic error to client (don't expose internal details)
+                from src.utils import sanitize_error_message
+                return False, sanitize_error_message(e, "webhook validation")
         
         return True, "Valid webhook"
 
@@ -295,19 +308,37 @@ class WebhookHandler:
             raise HTTPException(status_code=415, detail="Unsupported data type")
 
         # Get the module from registry
-        module_name = self.config['module']
+        module_name = self.config.get('module')
+        if not module_name:
+            raise HTTPException(status_code=400, detail="Module configuration error")
+        
+        # SECURITY: Validate module name type (should be string)
+        if not isinstance(module_name, str):
+            raise HTTPException(status_code=400, detail="Module configuration error")
+        
         try:
             module_class = ModuleRegistry.get(module_name)
-        except KeyError:
+        except (KeyError, ValueError) as e:
             # Don't expose module name to prevent information disclosure
             # Log detailed error server-side only
-            print(f"ERROR: Unsupported module '{module_name}' for webhook '{self.webhook_id}'")
+            print(f"ERROR: Unsupported module '{module_name}' for webhook '{self.webhook_id}': {e}")
             raise HTTPException(status_code=501, detail="Module configuration error")
         
         # Instantiate and process
         # Add webhook_id to config for modules that need it (e.g., ClickHouse)
         module_config = {**self.config, '_webhook_id': self.webhook_id}
-        module = module_class(module_config)
+        try:
+            module = module_class(module_config)
+        except Exception as e:
+            # SECURITY: Catch and sanitize module instantiation errors to prevent information disclosure
+            # Log detailed error server-side only
+            print(f"ERROR: Module instantiation failed for webhook '{self.webhook_id}': {e}")
+            # Raise generic error to client (don't expose internal details)
+            from src.utils import sanitize_error_message
+            raise HTTPException(
+                status_code=500,
+                detail=sanitize_error_message(e, "module initialization")
+            )
         
         # Get retry configuration
         retry_config = self.config.get("retry", {})

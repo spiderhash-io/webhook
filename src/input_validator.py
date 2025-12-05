@@ -32,9 +32,27 @@ class InputValidator:
     
     @staticmethod
     def validate_headers(headers: Dict[str, str]) -> Tuple[bool, str]:
-        """Validate headers."""
+        """
+        Validate headers.
+        
+        SECURITY: Checks for header injection attacks (newlines, null bytes) and DoS (count/size).
+        """
         if len(headers) > InputValidator.MAX_HEADER_COUNT:
             return False, f"Too many headers: {len(headers)} (max: {InputValidator.MAX_HEADER_COUNT})"
+        
+        # SECURITY: Check for header injection attacks (newlines, carriage returns, null bytes)
+        dangerous_chars = ['\n', '\r', '\0', '\u2028', '\u2029']  # Include Unicode line/paragraph separators
+        for header_name, header_value in headers.items():
+            # Check header name
+            for char in dangerous_chars:
+                if char in header_name:
+                    return False, f"Invalid header name: contains forbidden character"
+            
+            # Check header value
+            if isinstance(header_value, str):
+                for char in dangerous_chars:
+                    if char in header_value:
+                        return False, f"Invalid header value: contains forbidden character"
         
         total_size = sum(len(k) + len(v) for k, v in headers.items())
         if total_size > InputValidator.MAX_HEADER_SIZE:

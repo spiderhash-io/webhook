@@ -124,15 +124,25 @@ class RedisPublishModule(BaseModule):
         
         # Check for whitelist in config (optional)
         allowed_hosts = self.config.get("redis", {}).get("allowed_hosts", None)
-        if allowed_hosts and isinstance(allowed_hosts, list):
-            # If whitelist is configured, only allow those hosts
-            allowed_hosts_lower = {h.lower().strip() for h in allowed_hosts if h}
-            if host.lower() not in allowed_hosts_lower:
+        if allowed_hosts is not None:
+            # SECURITY: Validate allowed_hosts type
+            if not isinstance(allowed_hosts, list):
+                # Invalid type, treat as no whitelist (validate host normally)
+                pass
+            elif len(allowed_hosts) == 0:
+                # Empty whitelist means no hosts are allowed
                 raise ValueError(
-                    f"Redis host '{host}' is not in the allowed hosts whitelist"
+                    f"Redis host '{host}' is not in the allowed hosts whitelist (whitelist is empty)"
                 )
-            # If whitelisted, skip further validation
-            return host
+            else:
+                # If whitelist is configured, only allow those hosts
+                allowed_hosts_lower = {h.lower().strip() for h in allowed_hosts if h}
+                if host.lower() not in allowed_hosts_lower:
+                    raise ValueError(
+                        f"Redis host '{host}' is not in the allowed hosts whitelist"
+                    )
+                # If whitelisted, skip further validation
+                return host
         
         # Block localhost and variations
         localhost_variants = {
@@ -271,7 +281,9 @@ class RedisPublishModule(BaseModule):
         try:
             client.ping()
         except (redis.ConnectionError, redis.TimeoutError, ConnectionRefusedError, OSError) as e:
-            raise ConnectionError(f"Failed to connect to Redis at {host}:{port}: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            from src.utils import sanitize_error_message
+            raise ConnectionError(f"Failed to connect to Redis at {host}:{port}: {sanitize_error_message(e, 'Redis connection')}")
         
         # Serialize payload and headers as JSON
         message = json.dumps({"payload": payload, "headers": dict(headers)})
@@ -280,4 +292,6 @@ class RedisPublishModule(BaseModule):
             client.publish(channel, message)
             print(f"Published webhook payload to Redis channel '{channel}'")
         except (redis.ConnectionError, redis.TimeoutError, ConnectionRefusedError, OSError) as e:
-            raise ConnectionError(f"Failed to publish to Redis channel '{channel}': {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            from src.utils import sanitize_error_message
+            raise ConnectionError(f"Failed to publish to Redis channel '{channel}': {sanitize_error_message(e, 'Redis publish')}")
