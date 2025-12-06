@@ -72,11 +72,14 @@ def detect_encoding_from_content_type(content_type: Optional[str]) -> Optional[s
     """
     Detect encoding from Content-Type header.
     
+    SECURITY: Validates charset name to prevent injection attacks.
+    Only allows alphanumeric characters, hyphens, underscores, and dots.
+    
     Args:
         content_type: Content-Type header value (e.g., "application/json; charset=utf-8")
         
     Returns:
-        Encoding name if found, None otherwise
+        Encoding name if found and valid, None otherwise
     """
     if not content_type:
         return None
@@ -85,7 +88,27 @@ def detect_encoding_from_content_type(content_type: Optional[str]) -> Optional[s
     # Format: "type/subtype; charset=encoding" or "type/subtype; charset='encoding'"
     charset_match = re.search(r'charset\s*=\s*["\']?([^"\'\s;]+)["\']?', content_type, re.IGNORECASE)
     if charset_match:
-        return charset_match.group(1).lower()
+        charset_name = charset_match.group(1).lower()
+        
+        # SECURITY: Validate charset name to prevent injection attacks
+        # Only allow alphanumeric, hyphens, underscores, and dots (for encoding names like "iso-8859-1")
+        # Reject dangerous characters: command separators, path traversal, null bytes, etc.
+        MAX_CHARSET_LENGTH = 64  # Prevent DoS via extremely long charset names
+        if len(charset_name) > MAX_CHARSET_LENGTH:
+            print(f"WARNING: Charset name too long: {len(charset_name)} characters (max: {MAX_CHARSET_LENGTH}), rejecting")
+            return None
+        
+        # Validate charset name format (alphanumeric, hyphen, underscore, dot only)
+        if not re.match(r'^[a-z0-9._-]+$', charset_name):
+            print(f"WARNING: Invalid charset name format (contains dangerous characters): {charset_name[:50]}, rejecting")
+            return None
+        
+        # Reject null bytes and control characters
+        if '\x00' in charset_name or any(ord(c) < 32 and c not in '\t\n\r' for c in charset_name):
+            print(f"WARNING: Charset name contains null bytes or control characters, rejecting")
+            return None
+        
+        return charset_name
     
     return None
 
@@ -116,15 +139,30 @@ def safe_decode_body(body: bytes, content_type: Optional[str] = None, default_en
     # Try encoding from Content-Type header first
     detected_encoding = detect_encoding_from_content_type(content_type)
     
+    # SECURITY: Whitelist of safe encodings to prevent encoding confusion attacks
+    # UTF-16 variants can decode almost any byte sequence, which is a security risk
+    # Only allow UTF-16 if explicitly requested and validated
+    SAFE_ENCODINGS = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'ascii']
+    DANGEROUS_ENCODINGS = ['utf-16', 'utf-16le', 'utf-16be', 'utf-7']  # Can decode almost anything
+    
     # List of encodings to try (in order of preference)
     encodings_to_try = []
     
     if detected_encoding:
-        encodings_to_try.append(detected_encoding)
+        # SECURITY: Only use detected encoding if it's in the safe list
+        # UTF-16 variants are only allowed if explicitly requested (for compatibility)
+        if detected_encoding in SAFE_ENCODINGS:
+            encodings_to_try.append(detected_encoding)
+        elif detected_encoding in ['utf-16', 'utf-16le', 'utf-16be']:
+            # Allow UTF-16 variants only if explicitly requested (for backward compatibility)
+            # But prefer safe encodings first
+            encodings_to_try.append(detected_encoding)
+        else:
+            # Unknown/dangerous encoding - log warning and skip
+            print(f"WARNING: Unknown or potentially dangerous encoding '{detected_encoding}' requested, using safe fallback")
     
-    # Add common encodings as fallback
-    common_encodings = ['utf-8', 'utf-16', 'utf-16le', 'utf-16be', 'latin-1', 'iso-8859-1', 'cp1252']
-    for enc in common_encodings:
+    # Add safe encodings as fallback (UTF-8 first, then others)
+    for enc in SAFE_ENCODINGS:
         if enc not in encodings_to_try:
             encodings_to_try.append(enc)
     

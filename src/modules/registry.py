@@ -12,6 +12,10 @@ from src.modules.s3 import S3Module
 from src.modules.websocket import WebSocketModule
 from src.modules.clickhouse import ClickHouseModule
 from src.modules.mqtt import MQTTModule
+from src.modules.zeromq import ZeroMQModule
+from src.modules.activemq import ActiveMQModule
+from src.modules.aws_sqs import AWSSQSModule
+from src.modules.gcp_pubsub import GCPPubSubModule
 
 
 class ModuleRegistry:
@@ -29,6 +33,10 @@ class ModuleRegistry:
         'clickhouse': ClickHouseModule,
         'websocket': WebSocketModule,
         'mqtt': MQTTModule,
+        'zeromq': ZeroMQModule,
+        'activemq': ActiveMQModule,
+        'aws_sqs': AWSSQSModule,
+        'gcp_pubsub': GCPPubSubModule,
     }
     
     @classmethod

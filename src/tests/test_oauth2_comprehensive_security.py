@@ -34,6 +34,7 @@ class TestOAuth2SSRF:
         assert is_valid is False or "localhost" in message.lower() or "127.0.0.1" in message.lower() or "not allowed" in message.lower()
     
     @pytest.mark.asyncio
+    @pytest.mark.longrunning
     async def test_introspection_endpoint_private_ip_ssrf(self):
         """Test SSRF via introspection endpoint pointing to private IP."""
         config = {

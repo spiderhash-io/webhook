@@ -110,6 +110,7 @@ class TestClickHouseConnectionSecurity:
     """Test connection security vulnerabilities."""
     
     @pytest.mark.asyncio
+    @pytest.mark.longrunning
     async def test_ssrf_via_host(self):
         """Test SSRF attempts via host configuration."""
         config = {

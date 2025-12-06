@@ -443,6 +443,7 @@ class TestKafkaConnectionSecurity:
                 pass
     
     @pytest.mark.asyncio
+    @pytest.mark.longrunning
     async def test_bootstrap_servers_ssrf_attempt(self):
         """Test SSRF attempts via bootstrap_servers."""
         config = {

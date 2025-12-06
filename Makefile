@@ -19,14 +19,14 @@ PYTHON := $(shell which python3 || which python)
 VENV_PYTHON := $(shell if [ -f venv/bin/python ]; then echo venv/bin/python; else echo $(PYTHON); fi)
 PYTEST := $(VENV_PYTHON) -m pytest
 
-test: ## Run unit tests
-	$(PYTEST) -v -m "not integration"
+test: ## Run unit tests (excludes integration and longrunning)
+	$(PYTEST) -v -m "not integration and not longrunning"
 
-test-integration: ## Run integration tests (requires Docker services and API server)
+test-integration: ## Run integration tests (requires Docker services and API server, excludes longrunning)
 	@echo "Checking Docker services..."
 	@(docker compose -f tests/integration/config/docker-compose.yaml ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || docker-compose -f tests/integration/config/docker-compose.yaml ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || sudo docker compose -f tests/integration/config/docker-compose.yaml ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda") || (echo "ERROR: Docker services not running. Start with: make integration-up" && exit 1)
 	@echo "Running integration tests..."
-	$(PYTEST) tests/integration/ -v -m integration
+	$(PYTEST) tests/integration/ -v -m "integration and not longrunning"
 
 integration-up: ## Start integration test services
 	@echo "Starting integration test services..."
@@ -66,11 +66,14 @@ integration-logs: ## Show integration test service logs
 		sudo docker compose -f docker-compose.yaml logs -f; \
 	fi
 
-test-all: ## Run all tests (unit + integration)
-	$(PYTEST) -v
+test-all: ## Run all tests (unit + integration, excludes longrunning)
+	$(PYTEST) -v -m "not longrunning"
 
-test-cov: ## Run tests with coverage
-	$(PYTEST) --cov=src --cov-report=html --cov-report=term
+test-longrunning: ## Run long-running tests (use with caution, these tests take a long time)
+	$(PYTEST) -v -m longrunning
+
+test-cov: ## Run tests with coverage (excludes longrunning)
+	$(PYTEST) --cov=src --cov-report=html --cov-report=term -m "not longrunning"
 
 format: ## Format code with black
 	$(VENV_PYTHON) -m black src/ tests/
