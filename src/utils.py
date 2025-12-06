@@ -568,6 +568,15 @@ class RedisEndpointStats:
         endpoints = await self.redis.smembers("stats:endpoints")
         
         for endpoint in endpoints:
+            # SECURITY: Validate endpoint names from Redis to prevent key manipulation
+            # Even though increment validates, legacy entries or manual Redis modifications could exist
+            if not endpoint or not isinstance(endpoint, str):
+                continue  # Skip invalid endpoint names
+            if len(endpoint) > 256:  # Same limit as increment
+                continue  # Skip overly long endpoint names
+            if '\x00' in endpoint or '\n' in endpoint or '\r' in endpoint:
+                continue  # Skip endpoint names with dangerous characters
+            
             total = await self.redis.get(f"stats:{endpoint}:total")
             stats_summary[endpoint]['total'] = int(total) if total else 0
             
@@ -650,6 +659,27 @@ class RedisEndpointStats:
         return stats_summary
 
     async def increment_multi_resolution(self, endpoint_name):
+        # SECURITY: Validate endpoint_name to prevent key manipulation and DoS
+        if not endpoint_name or not isinstance(endpoint_name, str):
+            raise ValueError("endpoint_name must be a non-empty string")
+        
+        endpoint_name = endpoint_name.strip()
+        if not endpoint_name:
+            raise ValueError("endpoint_name cannot be empty or whitespace-only")
+        
+        # SECURITY: Limit endpoint name length to prevent DoS via large keys
+        MAX_ENDPOINT_NAME_LENGTH = 256  # Reasonable limit for Redis keys
+        if len(endpoint_name) > MAX_ENDPOINT_NAME_LENGTH:
+            raise ValueError(f"endpoint_name too long: {len(endpoint_name)} characters (max: {MAX_ENDPOINT_NAME_LENGTH})")
+        
+        # SECURITY: Check for null bytes (dangerous in keys)
+        if '\x00' in endpoint_name:
+            raise ValueError("endpoint_name cannot contain null bytes")
+        
+        # SECURITY: Check for newlines/carriage returns (could cause issues)
+        if '\n' in endpoint_name or '\r' in endpoint_name:
+            raise ValueError("endpoint_name cannot contain newlines or carriage returns")
+        
         await self._reconnect_if_needed()
         now = int(time.time())
         

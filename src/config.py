@@ -14,17 +14,38 @@ load_dotenv()
 # Load webhooks.json if it exists (optional for analytics service)
 webhook_config_data = {}
 if os.path.exists("webhooks.json"):
-    with open("webhooks.json", 'r') as webhooks_file:
-        webhook_config_data = json.load(webhooks_file)
-    # Update the webhook config with environment variables
-    webhook_config_data = load_env_vars(webhook_config_data)
+    try:
+        with open("webhooks.json", 'r') as webhooks_file:
+            webhook_config_data = json.load(webhooks_file)
+        # Update the webhook config with environment variables
+        webhook_config_data = load_env_vars(webhook_config_data)
+    except json.JSONDecodeError as e:
+        # SECURITY: Sanitize JSON parsing errors to prevent information disclosure
+        print(f"ERROR: Failed to parse webhooks.json: Invalid JSON format")
+        raise ValueError("Invalid webhooks.json configuration file format")
+    except Exception as e:
+        # SECURITY: Sanitize file loading errors to prevent information disclosure
+        print(f"ERROR: Failed to load webhooks.json: {e}")
+        raise ValueError("Failed to load webhooks.json configuration file")
 
 # Load connections.json (required)
-with open("connections.json", 'r') as connections_file:
-    connection_config = json.load(connections_file)
-
-# Update the configuration with environment variables
-connection_config = load_env_vars(connection_config)
+try:
+    with open("connections.json", 'r') as connections_file:
+        connection_config = json.load(connections_file)
+    # Update the configuration with environment variables
+    connection_config = load_env_vars(connection_config)
+except FileNotFoundError:
+    # SECURITY: Sanitize file not found errors to prevent information disclosure
+    print("ERROR: connections.json file not found")
+    raise ValueError("connections.json configuration file is required but not found")
+except json.JSONDecodeError as e:
+    # SECURITY: Sanitize JSON parsing errors to prevent information disclosure
+    print(f"ERROR: Failed to parse connections.json: Invalid JSON format")
+    raise ValueError("Invalid connections.json configuration file format")
+except Exception as e:
+    # SECURITY: Sanitize file loading errors to prevent information disclosure
+    print(f"ERROR: Failed to load connections.json: {e}")
+    raise ValueError("Failed to load connections.json configuration file")
 
 
 def _validate_connection_host(host: str, connection_type: str) -> str:
@@ -210,9 +231,13 @@ async def inject_connection_details(webhook_config_data, connection_config):
             # Find the corresponding connection details
             connection_details = connection_config.get(connection_name)
             if connection_details:
+                # SECURITY: Validate connection type exists to prevent KeyError
+                connection_type = connection_details.get('type')
+                if not connection_type:
+                    raise ValueError(f"Connection '{connection_name}' is missing required 'type' field")
 
                 # create connection pool redis rq
-                if connection_details['type'] == "redis-rq":
+                if connection_type == "redis-rq":
                     # Validate host and port before creating connection
                     raw_host = connection_details.get("host")
                     raw_port = connection_details.get("port")
@@ -228,7 +253,7 @@ async def inject_connection_details(webhook_config_data, connection_config):
                     )
 
                 # create connection pool rabbitmq
-                if connection_details['type'] == "rabbitmq":
+                if connection_type == "rabbitmq":
                     # Validate host and port before creating connection
                     raw_host = connection_details.get("host")
                     raw_port = connection_details.get("port")

@@ -144,7 +144,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         
         if is_https:
             # HSTS: Force HTTPS for 1 year, include subdomains, preload
-            hsts_max_age = int(os.getenv("HSTS_MAX_AGE", "31536000"))  # Default: 1 year
+            # SECURITY: Validate HSTS_MAX_AGE to prevent crashes from invalid environment variables
+            try:
+                hsts_max_age = int(os.getenv("HSTS_MAX_AGE", "31536000"))  # Default: 1 year
+                # Validate range: 0 to 2 years (63072000 seconds) to prevent DoS
+                if hsts_max_age < 0:
+                    hsts_max_age = 31536000  # Default to 1 year if negative
+                elif hsts_max_age > 63072000:  # Max 2 years
+                    hsts_max_age = 63072000
+            except (ValueError, TypeError):
+                # Invalid value, use default
+                hsts_max_age = 31536000  # Default: 1 year
+            
             hsts_include_subdomains = os.getenv("HSTS_INCLUDE_SUBDOMAINS", "true").lower() == "true"
             hsts_preload = os.getenv("HSTS_PRELOAD", "false").lower() == "true"
             
@@ -266,7 +277,19 @@ async def read_webhook(webhook_id: str,  request: Request):
 
     # Process webhook and get payload/headers for logging
     # HTTPException should be re-raised (not caught), other exceptions are internal errors
-    result = await webhook_handler.process_webhook()
+    try:
+        result = await webhook_handler.process_webhook()
+    except HTTPException as e:
+        # HTTPException is already sanitized, re-raise as-is
+        raise e
+    except Exception as e:
+        # SECURITY: Sanitize process_webhook errors to prevent information disclosure
+        print(f"ERROR: Failed to process webhook '{webhook_id}': {e}")
+        from src.utils import sanitize_error_message
+        raise HTTPException(
+            status_code=500,
+            detail=sanitize_error_message(e, "webhook processing")
+        )
     
     # Handle return value (always returns tuple of 3: payload, headers, task)
     payload, headers, task = result
