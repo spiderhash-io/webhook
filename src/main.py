@@ -14,9 +14,40 @@ from src.utils import RedisEndpointStats
 from src.rate_limiter import rate_limiter
 from src.clickhouse_analytics import ClickHouseAnalytics
 
-app = FastAPI()
+# Check if OpenAPI docs should be disabled
+DISABLE_OPENAPI_DOCS = os.getenv("DISABLE_OPENAPI_DOCS", "false").lower() == "true"
+
+# Initialize FastAPI app
+# Disable docs if requested
+app = FastAPI(
+    docs_url="/docs" if not DISABLE_OPENAPI_DOCS else None,
+    redoc_url="/redoc" if not DISABLE_OPENAPI_DOCS else None,
+    openapi_url="/openapi.json" if not DISABLE_OPENAPI_DOCS else None
+)
 stats = RedisEndpointStats()  # Use Redis for persistent stats
 clickhouse_logger: ClickHouseAnalytics = None  # For logging events only
+
+# Override FastAPI's openapi() method to return custom schema
+if not DISABLE_OPENAPI_DOCS:
+    from functools import wraps
+    
+    original_openapi = app.openapi
+    
+    @wraps(original_openapi)
+    def custom_openapi():
+        """Generate custom OpenAPI schema from webhooks.json."""
+        global webhook_config_data
+        try:
+            from src.openapi_generator import generate_openapi_schema
+            # Generate schema dynamically from current webhook config
+            if webhook_config_data:
+                return generate_openapi_schema(webhook_config_data)
+        except Exception as e:
+            print(f"WARNING: Failed to generate OpenAPI schema: {e}")
+        # Fallback to default if generation fails
+        return original_openapi()
+    
+    app.openapi = custom_openapi
 
 # Configure CORS securely
 # Read allowed origins from environment variable (comma-separated)
@@ -215,6 +246,9 @@ async def startup_event():
     
     webhook_config_data = await inject_connection_details(webhook_config_data, connection_config)
     print(webhook_config_data)
+    
+    # Note: OpenAPI schema is generated lazily in custom_openapi() function
+    # This ensures it's always up-to-date with the current webhook_config_data
 
     # Initialize ClickHouse logger for automatic event logging
     # Look for any clickhouse connection (webhook instances just log events)

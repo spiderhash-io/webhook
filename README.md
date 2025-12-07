@@ -118,7 +118,9 @@ docker run --rm \
   core-webhook-module:small
 ```
 
-Then open `http://localhost:8000/docs` for the interactive API docs.
+Then open `http://localhost:8000/docs` for the interactive API docs (Swagger UI) or `http://localhost:8000/redoc` for ReDoc.
+
+**Note:** OpenAPI documentation is automatically generated from `webhooks.json` configuration. See the [Dynamic OpenAPI Docs](#dynamic-openapi-documentation) section for details.
 
 ### Docker (Multi-Instance with Redis & ClickHouse)
 
@@ -449,6 +451,48 @@ Validate incoming webhook payloads against a JSON schema to ensure data structur
     }
 }
 ```
+
+#### Dynamic OpenAPI Documentation
+Automatically generate OpenAPI 3.0 documentation from `webhooks.json` configuration. The documentation includes detailed information about each webhook endpoint, authentication requirements, payload schemas, rate limits, and security features.
+
+**Access Documentation:**
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+- OpenAPI JSON: `http://localhost:8000/openapi.json`
+
+**Features:**
+- Automatically generates API documentation for all configured webhooks
+- Includes authentication schemes (Bearer, Basic, OAuth2, HMAC, etc.)
+- Extracts request body schemas from `json_schema` if available
+- Documents security features (rate limits, IP whitelist, HMAC, reCAPTCHA, etc.)
+- Includes standard error responses (400, 401, 403, 413, 415, 500)
+- Updates automatically when `webhooks.json` changes (on server restart)
+
+**Disable OpenAPI Docs:**
+Set the `DISABLE_OPENAPI_DOCS` environment variable to `true`:
+```bash
+export DISABLE_OPENAPI_DOCS=true
+# or in docker-compose.yaml:
+environment:
+  - DISABLE_OPENAPI_DOCS=true
+```
+
+When disabled, the `/docs`, `/redoc`, and `/openapi.json` endpoints are not available.
+
+**Example Generated Documentation:**
+The OpenAPI schema automatically includes:
+- Path parameters (webhook_id)
+- Request body schemas (from json_schema or generic schema)
+- Security requirements (authentication methods)
+- Response schemas (success and error responses)
+- Security features descriptions (rate limits, IP whitelist, etc.)
+
+**Configuration:**
+No additional configuration needed. The OpenAPI documentation is generated automatically from your `webhooks.json` file. Each webhook configuration is analyzed to extract:
+- Authentication methods
+- Request body schemas (if `json_schema` is provided)
+- Security features (rate limits, IP whitelist, HMAC, reCAPTCHA, credential cleanup)
+- Data type (JSON or blob)
 
 #### Header-based Authentication
 Authenticate webhooks using API keys passed in custom headers (e.g., `X-API-Key`, `X-Auth-Token`).
@@ -929,6 +973,7 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 - [x] ClickHouse Analytics integration
 - [x] JSON Schema Validation
 - [x] Payload size, depth, and string length validation
+- [x] Dynamic OpenAPI Docs (generate from webhooks.json)
 
 ### Authentication Methods (11/11 Complete ✅)
 - [x] Basic Authentication
@@ -963,11 +1008,9 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 - [x] ZeroMQ Module
 
 ### Future Enhancements
-- [ ] Dynamic OpenAPI Docs (generate from webhooks.json)
 - [ ] Payload Transformation (pre-processing step)
 - [ ] Cloudflare Turnstile Validation
 - [ ] Batch insert support for database modules
-- [ ] Read replica support for database modules
 - [ ] Performance test documentation expansion
 
 ## Test Status
