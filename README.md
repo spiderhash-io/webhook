@@ -2,12 +2,12 @@
 
 A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, MQTT, disk, or stdout.
 
-**Status**: Production-ready with comprehensive security features, 274 passing tests, and support for multiple output destinations. All 11 authentication methods implemented!
+**Status**: Production-ready with comprehensive security features, 1,895 passing tests, and support for multiple output destinations. All 11 authentication methods implemented!
 
 ## Features
 
 ### Core Functionality
-- **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, or stdout.
+- **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, WebSocket, PostgreSQL, MySQL/MariaDB, S3, Kafka, ActiveMQ, AWS S3, GCP Pub/Sub, ZeroMQ, or stdout.
 - **Plugin Architecture**: Easy to extend with new modules without modifying core code.
 - **Configuration-Driven**: Easy configuration via JSON files (`webhooks.json`, `connections.json`) and environment variables.
 - **Statistics**: Tracks webhook usage statistics (requests per minute, hour, day, etc.) via `/stats`.
@@ -33,7 +33,7 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - `src/modules/`: Output modules (RabbitMQ, Redis, ClickHouse, etc.).
   - `base.py`: Abstract base class for all modules
   - `registry.py`: Module registry for plugin management
-  - `log.py`, `save_to_disk.py`, `rabbitmq_module.py`, `redis_rq.py`, `clickhouse.py`, `mqtt.py`: Individual modules
+  - `log.py`, `save_to_disk.py`, `rabbitmq_module.py`, `redis_rq.py`, `clickhouse.py`, `mqtt.py`, `postgres.py`, `mysql.py`, `s3.py`, `kafka.py`, `websocket.py`, `activemq.py`, `aws_sqs.py`, `gcp_pubsub.py`, `zeromq.py`: Individual modules
 - `src/utils.py`: Utility functions and in-memory statistics.
 - `src/clickhouse_analytics.py`: ClickHouse analytics service for saving logs and statistics.
 - `src/analytics_processor.py`: Separate analytics processor that reads from ClickHouse and calculates aggregated statistics.
@@ -769,7 +769,6 @@ Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submiss
 #### ClickHouse Analytics & Logging
 Save webhook logs and statistics to ClickHouse database for analytics and monitoring.
 
-**Webhook Logs Module:**
 ```json
 {
     "clickhouse_webhook": {
@@ -786,209 +785,128 @@ Save webhook logs and statistics to ClickHouse database for analytics and monito
 }
 ```
 
-**Automatic Statistics Saving:**
-To enable automatic statistics saving to ClickHouse, add a `clickhouse_analytics` connection in `connections.json`:
+#### PostgreSQL Database Storage
+Store webhook payloads in PostgreSQL with JSONB, relational, or hybrid storage modes.
+
 ```json
 {
-    "clickhouse_analytics": {
-        "type": "clickhouse",
-        "host": "localhost",
-        "port": 9000,
-        "database": "webhook_analytics",
-        "user": "default",
-        "password": ""
+    "postgres_webhook": {
+        "data_type": "json",
+        "module": "postgresql",
+        "connection": "postgres_local",
+        "module-config": {
+            "table": "webhook_events",
+            "storage_mode": "json",
+            "upsert": true,
+            "upsert_key": "event_id",
+            "include_headers": true
+        },
+        "authorization": "Bearer db_secret"
     }
 }
 ```
 
-The system will automatically:
-- Create `webhook_stats` table for statistics
-- Create `webhook_logs` table for general logging
-- Save statistics every 5 minutes
-- Store metrics: total, minute, 5_minutes, 15_minutes, 30_minutes, hour, day, week, month
+**Storage Modes:**
+- `json`: Store entire payload in JSONB column (default)
+- `relational`: Map payload fields to table columns with schema validation
+- `hybrid`: Store mapped fields in columns + full payload in JSONB
 
-**Architecture Note:**
-- **Webhook Instances**: Only send raw webhook events to ClickHouse (no aggregation)
-- **Analytics Service**: Separate service (`src/analytics_processor.py`) reads from ClickHouse and calculates aggregated statistics
-- **Multiple Instances**: All webhook instances write to the same ClickHouse database, allowing centralized analytics
+#### MySQL/MariaDB Database Storage
+Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage modes.
 
-## TODO List
-
-This list is ordered from easiest/highest impact to more complex features.
-
-### 1. Immediate Fixes & Quick Wins ✅ **COMPLETE (5/5)**
-- [x] **Connect `save_to_disk` module**: The logic exists in `src/utils.py` but is not connected in `src/webhook.py`.
-- [x] **Connect `redis_rq` module**: The module exists in `src/modules/pythonrq.py` but is not connected in `src/webhook.py`.
-- [x] **Refactor to Plugin Architecture**: Implemented a modular, extensible architecture using BaseModule and ModuleRegistry.
-- [x] **Enable HMAC Verification**: Implemented validator system with HMAC, Authorization, and IP whitelist support.
-- [x] **Populate `connections.json`**: Added example configurations for RabbitMQ and Redis.
-
-### 2. Core Feature Implementation ✅ **COMPLETE (4/4)**
-- [x] **Implement Kafka Module**: `src/modules/kafka.py` exists but needs implementation.
-- [x] **Rate Limiting**: Implement rate limiting per webhook ID.
-- [x] **Implement S3 Module**: Add ability to save payloads to AWS S3.
-- [x] **Implement Websockets Module**: Forward webhooks to a websocket connection.
-
-### 3. Advanced Improvements
-- [x] **Persistent Statistics**: Move stats from in-memory (`src/utils.py`) to Redis or a database to survive restarts. ✅
-- [x] **Analytics**: Create option to save statistics and logs to clickhouse db, there will be another UI project that will access it ✅
-- [x] **JSON Schema Validation**: Validate incoming webhook payloads against a defined JSON schema. ✅
-- [x] **Google reCAPTCHA Validation**: Implement backend validation for Google reCAPTCHA tokens (v2 and v3 support). ✅
-- [x] **Retry Mechanism**: Implement retries for failed module executions (e.g., if RabbitMQ is down). ✅
-- [ ] **Dynamic OpenAPI Docs**: Generate OpenAPI documentation automatically based on `webhooks.json` config.
-- [ ] **Payload Transformation**: Add a step to transform payload structure before sending to destination.
-- [ ] **Cloudflare Turnstile Validation**: Implement backend validation for Cloudflare Turnstile tokens.
-
-### 4. Authentication Methods Enhancement
-**Current Status**: 11/11 authentication methods implemented (100% coverage) ✅
-
-**Implemented** ✅:
-- [x] **Basic Auth**: HTTP Basic Authentication with constant-time comparison
-- [x] **Bearer Auth**: Simple Bearer token authentication
-- [x] **Custom Auth**: Custom authorization header formats
-- [x] **JWT**: JSON Web Token validation with issuer/audience/expiration
-- [x] **HMAC**: HMAC signature validation (SHA1, SHA256, SHA512)
-- [x] **Header Auth (HMAC)**: Custom header with HMAC signature
-
-**Missing** ❌:
-- [ ] **Digest Auth**: HTTP Digest Authentication (RFC 7616) - Challenge-response auth, more secure than Basic
-- [ ] **OAuth 1.0**: OAuth 1.0 signature validation - For Twitter and legacy OAuth providers
-- [ ] **OAuth 2.0**: OAuth 2.0 access token validation - Modern standard, token introspection
-- [ ] **Mutual TLS (mTLS)**: Certificate-based authentication requiring both client and server certificates for high-security environments
-- [ ] **AWS Signature Version 4**: AWS-compatible signature authentication for integrating with AWS services (API Gateway, S3, etc.)
-- [ ] **Timestamp/Nonce Replay Protection**: Explicit timestamp and nonce validation for HMAC signatures to prevent replay attacks
-- [ ] **API Key in Request Body**: Support for API key authentication via JSON request body (alternative to header/query param)
-- [x] **Query Parameter Auth**: API key authentication via query parameters (?api_key=xxx) ✅
-- [x] **Generic Header Auth**: Custom header-based API key auth (X-API-Key, X-Auth-Token, etc.) ✅
-- [x] **OAuth 2.0**: OAuth 2.0 access token validation - Token introspection and JWT validation ✅
-- [x] **Digest Auth**: HTTP Digest Authentication (RFC 7616) - Challenge-response auth without password transmission ✅
-- [x] **OAuth 1.0**: OAuth 1.0 signature validation (RFC 5849) - HMAC-SHA1 and PLAINTEXT signatures ✅
-
-**Status**: ✅ All authentication methods implemented!
-
-See [docs/AUTH_METHODS_ANALYSIS.md](docs/AUTH_METHODS_ANALYSIS.md) for detailed analysis.
-
-### 5. Testing & Documentation
-- [x] **Unit Tests**: Comprehensive test suite with 274 tests covering validators, modules, and core functionality. ✅
-- [x] **Integration Tests**: Tests for full webhook flow, authentication, validation, and module processing. ✅
-- [ ] **Performance Tests**: Expand performance testing documentation and benchmarks.
-
-### 6. Database Webhook Storage Modules
-- [ ] **PostgreSQL Module**: Store webhook payloads in PostgreSQL database
-  - Support JSONB storage for flexible schema-less storage
-  - Support relational mapping with explicit field definitions
-  - Auto table creation with schema validation
-  - Connection pooling for performance
-  - Transaction support for atomic operations
-  - Upsert support (INSERT ... ON CONFLICT) for idempotency
-  - Batch insert support for high-throughput scenarios
-  - Error handling with retry mechanism integration
-  - Support for PostgreSQL-specific features (JSONB queries, full-text search)
-
-- [ ] **MariaDB/MySQL Module**: Store webhook payloads in MariaDB/MySQL database
-  - Support JSON column type for flexible storage
-  - Support relational mapping with explicit field definitions
-  - Auto table creation with schema validation
-  - Connection pooling for performance
-  - Transaction support for atomic operations
-  - INSERT ... ON DUPLICATE KEY UPDATE for upsert operations
-  - Batch insert support for high-throughput scenarios
-  - Error handling with retry mechanism integration
-  - Support for MySQL/MariaDB JSON functions
-
-**Storage Format Options**:
-1. **JSON Storage** (Default):
-   - PostgreSQL: Store entire payload in JSONB column
-   - MySQL/MariaDB: Store entire payload in JSON column
-   - Flexible, no schema changes needed
-   - Supports nested structures
-   - Enables JSON querying (PostgreSQL JSONB operators, MySQL JSON functions)
-
-2. **Relational Mapping**:
-   - Map payload fields to table columns
-   - Requires explicit schema definition in webhook config
-   - Better for structured data and SQL queries
-   - Type validation and constraints
-   - Index support for performance
-
-3. **Hybrid Approach**:
-   - Store mapped fields in columns + full payload in JSON column
-   - Best of both worlds: queryable columns + full payload preservation
-
-**Validation Requirements**:
-- **Optional**: Allow unvalidated storage (JSON only, no schema)
-- **Schema Required**: Require explicit field mapping definition
-  - Field name mapping (payload field → column name)
-  - Data type definitions (string, integer, float, boolean, datetime, JSON)
-  - Optional constraints (NOT NULL, UNIQUE, DEFAULT values)
-  - Index definitions for performance
-
-**Configuration Example**:
 ```json
 {
-  "webhook_to_db": {
-    "data_type": "json",
-    "module": "postgresql",  // or "mysql", "mariadb"
-    "connection": "postgres_local",
-    "module-config": {
-      "table": "webhook_events",
-      "storage_mode": "json",  // or "relational", "hybrid"
-      "schema": {
-        "fields": {
-          "event_id": {"type": "string", "column": "event_id", "constraints": ["NOT NULL", "UNIQUE"]},
-          "user_id": {"type": "integer", "column": "user_id", "index": true},
-          "timestamp": {"type": "datetime", "column": "created_at", "default": "CURRENT_TIMESTAMP"},
-          "metadata": {"type": "json", "column": "metadata"}
-        }
-      },
-      "upsert": true,
-      "upsert_key": "event_id",
-      "batch_size": 100,
-      "include_headers": true,
-      "include_timestamp": true
-    },
-    "authorization": "Bearer db_secret"
-  }
+    "mysql_webhook": {
+        "data_type": "json",
+        "module": "mysql",
+        "connection": "mysql_local",
+        "module-config": {
+            "table": "webhook_events",
+            "storage_mode": "json",
+            "upsert": true,
+            "upsert_key": "event_id",
+            "include_headers": true
+        },
+        "authorization": "Bearer db_secret"
+    }
 }
 ```
 
-**Required Features** (Industry Standard):
-- Connection pooling (asyncpg for PostgreSQL, aiomysql for MySQL/MariaDB)
-- Auto table creation with schema validation
-- Upsert/conflict resolution (ON CONFLICT for PostgreSQL, ON DUPLICATE KEY UPDATE for MySQL)
-- Batch insert support for performance
-- Transaction support (optional, configurable)
-- Error handling with retry integration (use existing retry_handler)
-- Connection health checks
-- SSRF prevention (validate database hostnames)
-- SQL injection prevention (parameterized queries only)
-- Connection timeout and retry configuration
-- Support for SSL/TLS connections
-- Support for connection string and individual parameters
+**Storage Modes:**
+- `json`: Store entire payload in JSON column (default)
+- `relational`: Map payload fields to table columns with schema validation
+- `hybrid`: Store mapped fields in columns + full payload in JSON
 
-**Compatibility Considerations**:
-- PostgreSQL 12+ (for JSONB support and modern features)
-- MySQL 5.7+ / MariaDB 10.2+ (for JSON column type support)
-- Use async database drivers (asyncpg, aiomysql) for non-blocking I/O
-- Support both connection string format and individual parameters
-- Handle database-specific SQL syntax differences
-- Support for read replicas (optional, future enhancement)
+## TODO List
+
+### Core Features
+- [x] Plugin Architecture (BaseModule and ModuleRegistry)
+- [x] Rate Limiting per webhook ID
+- [x] Retry Mechanism for failed module executions
+- [x] Persistent Statistics (Redis-based)
+- [x] ClickHouse Analytics integration
+- [x] JSON Schema Validation
+- [x] Payload size, depth, and string length validation
+
+### Authentication Methods (11/11 Complete ✅)
+- [x] Basic Authentication
+- [x] Bearer Token Authorization
+- [x] JWT Authentication
+- [x] HMAC Signature Validation
+- [x] IP Whitelisting
+- [x] Header-based Authentication (X-API-Key, etc.)
+- [x] Query Parameter Authentication
+- [x] HTTP Digest Authentication
+- [x] OAuth 1.0 Authentication
+- [x] OAuth 2.0 Authentication (Token Introspection & JWT)
+- [x] Google reCAPTCHA Validation (v2 & v3)
+
+### Output Modules
+- [x] Log Module (stdout)
+- [x] Save to Disk Module
+- [x] RabbitMQ Module
+- [x] Redis RQ Module
+- [x] Redis Publish Module
+- [x] HTTP Webhook Module
+- [x] Kafka Module
+- [x] MQTT Module
+- [x] WebSocket Module
+- [x] ClickHouse Module
+- [x] PostgreSQL Module
+- [x] MySQL/MariaDB Module
+- [x] ActiveMQ Module
+- [x] S3 Module
+- [x] AWS SQS Module
+- [x] GCP Pub/Sub Module
+- [x] ZeroMQ Module
+
+### Future Enhancements
+- [ ] Dynamic OpenAPI Docs (generate from webhooks.json)
+- [ ] Payload Transformation (pre-processing step)
+- [ ] Cloudflare Turnstile Validation
+- [ ] Batch insert support for database modules
+- [ ] Read replica support for database modules
+- [ ] Performance test documentation expansion
 
 ## Test Status
 
-**Current Test Coverage: 274 tests passing** ✅
+**Current Test Coverage: 1,895 tests passing** ✅
 
 Test suites include:
-- Authentication tests (Basic Auth, JWT, Authorization)
+- Authentication tests (all 11 methods)
 - Validation tests (HMAC, IP Whitelist, reCAPTCHA, JSON Schema)
-- Security edge cases (injection attacks, large payloads, malformed data)
+- Security audit tests (SQL injection, SSRF, XSS, injection attacks)
+- Module tests (all 17 output modules)
+- Database module tests (PostgreSQL, MySQL)
 - Webhook flow tests
 - Rate limiting tests
 - Redis statistics tests
 - Input validation tests
 - CORS tests
+- Integration tests
 
 Run tests with:
 ```bash
-pytest -v
+make test-all    # Run all tests (excludes longrunning)
+pytest -v        # Run all tests with verbose output
 ```

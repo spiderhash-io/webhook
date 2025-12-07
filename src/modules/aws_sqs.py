@@ -29,6 +29,9 @@ class AWSSQSModule(BaseModule):
         # Validate queue URL or name during initialization
         raw_queue = self.module_config.get('queue_url') or self.module_config.get('queue_name')
         if raw_queue is not None:
+            # SECURITY: Validate type before processing
+            if not isinstance(raw_queue, str):
+                raise ValueError("Queue URL or name must be a string")
             self._validated_queue = self._validate_queue(raw_queue)
             self.is_queue_url = 'queue_url' in self.module_config
         else:

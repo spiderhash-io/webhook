@@ -118,5 +118,70 @@
         "client_id": "webhook-sonoff",
         "keepalive": 60,
         "mqtt_version": "3.1.1"
+    },
+    "postgres_local": {
+        "type": "postgresql",
+        "host": "localhost",
+        "port": 5432,
+        "database": "webhook_db",
+        "user": "postgres",
+        "password": "",
+        "pool_min_size": 2,
+        "pool_max_size": 10,
+        "ssl": false
+    },
+    "postgres_prod": {
+        "type": "postgresql",
+        "host": "{$POSTGRES_HOST}",
+        "port": "{$POSTGRES_PORT:5432}",
+        "database": "{$POSTGRES_DATABASE:webhook_db}",
+        "user": "{$POSTGRES_USER:postgres}",
+        "password": "{$POSTGRES_PASSWORD}",
+        "pool_min_size": 2,
+        "pool_max_size": 10,
+        "ssl": true,
+        "ssl_ca_cert": "{$POSTGRES_SSL_CA_CERT:}",
+        "ssl_cert": "{$POSTGRES_SSL_CERT:}",
+        "ssl_key": "{$POSTGRES_SSL_KEY:}"
+    },
+    "postgres_connection_string": {
+        "type": "postgresql",
+        "connection_string": "{$POSTGRES_CONNECTION_STRING:postgresql://user:pass@host:5432/db}"
+    },
+    "mysql_local": {
+        "type": "mysql",
+        "host": "localhost",
+        "port": 3306,
+        "database": "webhook_db",
+        "user": "root",
+        "password": "",
+        "pool_min_size": 2,
+        "pool_max_size": 10,
+        "ssl": false
+    },
+    "mysql_prod": {
+        "type": "mysql",
+        "host": "{$MYSQL_HOST}",
+        "port": "{$MYSQL_PORT:3306}",
+        "database": "{$MYSQL_DATABASE:webhook_db}",
+        "user": "{$MYSQL_USER:root}",
+        "password": "{$MYSQL_PASSWORD}",
+        "pool_min_size": 2,
+        "pool_max_size": 10,
+        "ssl": true,
+        "ssl_ca_cert": "{$MYSQL_SSL_CA_CERT:}",
+        "ssl_cert": "{$MYSQL_SSL_CERT:}",
+        "ssl_key": "{$MYSQL_SSL_KEY:}"
+    },
+    "mariadb_local": {
+        "type": "mysql",
+        "host": "localhost",
+        "port": 3306,
+        "database": "webhook_db",
+        "user": "root",
+        "password": "",
+        "pool_min_size": 2,
+        "pool_max_size": 10,
+        "ssl": false
     }
 }

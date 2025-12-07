@@ -16,6 +16,8 @@ from src.modules.zeromq import ZeroMQModule
 from src.modules.activemq import ActiveMQModule
 from src.modules.aws_sqs import AWSSQSModule
 from src.modules.gcp_pubsub import GCPPubSubModule
+from src.modules.postgres import PostgreSQLModule
+from src.modules.mysql import MySQLModule
 
 
 class ModuleRegistry:
@@ -37,6 +39,10 @@ class ModuleRegistry:
         'activemq': ActiveMQModule,
         'aws_sqs': AWSSQSModule,
         'gcp_pubsub': GCPPubSubModule,
+        'postgresql': PostgreSQLModule,
+        'postgres': PostgreSQLModule,  # Alias for convenience
+        'mysql': MySQLModule,
+        'mariadb': MySQLModule,  # Alias for MariaDB
     }
     
     @classmethod

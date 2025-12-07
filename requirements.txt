@@ -35,6 +35,8 @@ PyJWT>=2.8.0
 
 # Database
 clickhouse-driver>=0.2.6
+asyncpg>=0.29.0
+aiomysql>=0.2.0
 
 # Validation
 jsonschema>=4.19.0
