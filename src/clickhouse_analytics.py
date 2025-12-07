@@ -274,6 +274,9 @@ class ClickHouseAnalytics:
         """
         Save a webhook log entry to ClickHouse.
         
+        Credentials are automatically cleaned from payload and headers before logging
+        to prevent credential exposure in analytics data.
+        
         Args:
             webhook_id: The webhook identifier
             payload: The webhook payload
@@ -286,11 +289,26 @@ class ClickHouseAnalytics:
                 return
         
         try:
+            # Clean credentials from payload and headers before logging
+            # Use default cleanup (mask mode) to ensure credentials are never logged
+            from src.utils import CredentialCleaner
+            import copy
+            
+            cleaner = CredentialCleaner(mode='mask')  # Always mask for logging
+            
+            # Clean payload (deep copy to avoid modifying original)
+            cleaned_payload = payload
+            if isinstance(payload, (dict, list)):
+                cleaned_payload = cleaner.clean_credentials(copy.deepcopy(payload))
+            
+            # Clean headers
+            cleaned_headers = cleaner.clean_headers(headers)
+            
             record_id = str(uuid.uuid4())
             timestamp = datetime.utcnow()
             
-            payload_str = json.dumps(payload) if isinstance(payload, (dict, list)) else str(payload)
-            headers_str = json.dumps(headers)
+            payload_str = json.dumps(cleaned_payload) if isinstance(cleaned_payload, (dict, list)) else str(cleaned_payload)
+            headers_str = json.dumps(cleaned_headers)
             
             await self.queue.put(('log', (record_id, webhook_id, timestamp, payload_str, headers_str)))
             

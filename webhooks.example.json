@@ -76,7 +76,12 @@
         "module-config": {
             "path": "webhooks/stripe"
         },
-        "authorization": "whsec_stripe_secret"
+        "authorization": "whsec_stripe_secret",
+        "credential_cleanup": {
+            "enabled": true,
+            "mode": "mask",
+            "fields": ["password", "api_key", "secret"]
+        }
     },
     "payment_processor": {
         "data_type": "json",
@@ -92,7 +97,11 @@
             "queue_name": "analytics",
             "function": "process_analytics_data"
         },
-        "connection": "redis_local"
+        "connection": "redis_local",
+        "credential_cleanup": {
+            "enabled": true,
+            "mode": "remove"
+        }
     },
     "forward_to_service": {
         "data_type": "json",

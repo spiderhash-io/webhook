@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 import asyncio
 import logging
-from typing import Any, Tuple, Optional, Tuple, Optional
+from typing import Any, Tuple, Optional, Dict, List, Union
 
 
 def sanitize_error_message(error: Any, context: str = None) -> str:
@@ -766,6 +766,186 @@ class RedisEndpointStats:
     async def _cleanup_old_buckets(self, endpoint_name, now):
         # Redis handles expiration automatically
         pass
+
+
+class CredentialCleaner:
+    """
+    Utility class for cleaning credentials from data structures.
+    
+    Removes or masks sensitive credential fields from payloads, headers, and
+    other data structures before logging or storing to prevent credential exposure.
+    """
+    
+    # Default credential field names (case-insensitive matching)
+    DEFAULT_CREDENTIAL_FIELDS = [
+        'password', 'passwd', 'pwd', 'secret', 'token', 'api_key', 'apikey',
+        'access_token', 'refresh_token', 'authorization', 'auth', 'credential',
+        'credentials', 'private_key', 'privatekey', 'api_secret', 'client_secret',
+        'bearer', 'x-api-key', 'x-auth-token', 'x-api-key', 'x-access-token',
+        'session_id', 'sessionid', 'session_token', 'csrf_token', 'csrf',
+        'oauth_token', 'oauth_secret', 'consumer_secret', 'token_secret'
+    ]
+    
+    # Default mask value
+    MASK_VALUE = "***REDACTED***"
+    
+    def __init__(self, custom_fields: Optional[List[str]] = None, mode: str = 'mask'):
+        """
+        Initialize credential cleaner.
+        
+        Args:
+            custom_fields: Additional field names to treat as credentials
+            mode: 'mask' to replace with mask value, 'remove' to delete field
+        """
+        self.mode = mode.lower()
+        if self.mode not in ('mask', 'remove'):
+            raise ValueError(f"Mode must be 'mask' or 'remove', got '{mode}'")
+        
+        # Combine default and custom fields
+        all_fields = set(field.lower() for field in self.DEFAULT_CREDENTIAL_FIELDS)
+        if custom_fields:
+            all_fields.update(field.lower() for field in custom_fields)
+        
+        self.credential_fields = list(all_fields)
+    
+    def _is_credential_field(self, field_name: str) -> bool:
+        """
+        Check if a field name matches credential patterns.
+        
+        Args:
+            field_name: The field name to check
+            
+        Returns:
+            True if field should be treated as credential
+        """
+        if not field_name or not isinstance(field_name, str):
+            return False
+        
+        field_lower = field_name.lower().strip()
+        
+        # Direct match
+        if field_lower in self.credential_fields:
+            return True
+        
+        # Pattern matching for common credential patterns
+        credential_patterns = [
+            r'.*password.*',
+            r'.*secret.*',
+            r'.*token.*',
+            r'.*key.*',
+            r'.*credential.*',
+            r'.*auth.*',
+            r'x-.*-key',
+            r'x-.*-token',
+            r'x-.*-secret',
+        ]
+        
+        for pattern in credential_patterns:
+            if re.match(pattern, field_lower):
+                return True
+        
+        return False
+    
+    def _clean_dict_recursive(self, data: Any, path: str = '') -> Any:
+        """
+        Recursively clean credentials from dictionary or list structures.
+        
+        Args:
+            data: The data structure to clean (dict, list, or primitive)
+            path: Current path in the structure (for debugging)
+            
+        Returns:
+            Cleaned data structure
+        """
+        if isinstance(data, dict):
+            cleaned = {}
+            for key, value in data.items():
+                if self._is_credential_field(key):
+                    if self.mode == 'mask':
+                        cleaned[key] = self.MASK_VALUE
+                    # else: remove mode - don't add to cleaned dict
+                else:
+                    # Recursively clean nested structures
+                    cleaned[key] = self._clean_dict_recursive(value, f"{path}.{key}" if path else key)
+            return cleaned
+        elif isinstance(data, list):
+            # Clean each item in the list
+            return [self._clean_dict_recursive(item, f"{path}[{i}]" if path else f"[{i}]") for i, item in enumerate(data)]
+        else:
+            # Primitive value - return as-is
+            return data
+    
+    def clean_credentials(self, data: Union[Dict, List, str, Any]) -> Union[Dict, List, Any]:
+        """
+        Clean credentials from data structure.
+        
+        Args:
+            data: Data structure to clean (dict, list, or primitive)
+            
+        Returns:
+            Cleaned data structure with credentials masked or removed
+        """
+        if data is None:
+            return None
+        
+        # Handle dictionaries (headers, payload objects)
+        if isinstance(data, dict):
+            return self._clean_dict_recursive(data)
+        
+        # Handle lists (arrays in JSON)
+        if isinstance(data, list):
+            return self._clean_dict_recursive(data)
+        
+        # For primitive types, return as-is (no cleaning needed)
+        return data
+    
+    def clean_headers(self, headers: Dict[str, str]) -> Dict[str, str]:
+        """
+        Clean credentials from HTTP headers.
+        
+        Args:
+            headers: Dictionary of HTTP headers
+            
+        Returns:
+            Dictionary with credential headers masked or removed
+        """
+        if not headers or not isinstance(headers, dict):
+            return headers or {}
+        
+        cleaned = {}
+        for key, value in headers.items():
+            if self._is_credential_field(key):
+                if self.mode == 'mask':
+                    cleaned[key] = self.MASK_VALUE
+                # else: remove mode - don't add to cleaned dict
+            else:
+                cleaned[key] = value
+        
+        return cleaned
+    
+    def clean_query_params(self, query_params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Clean credentials from query parameters.
+        
+        Args:
+            query_params: Dictionary of query parameters
+            
+        Returns:
+            Dictionary with credential parameters masked or removed
+        """
+        if not query_params or not isinstance(query_params, dict):
+            return query_params or {}
+        
+        cleaned = {}
+        for key, value in query_params.items():
+            if self._is_credential_field(key):
+                if self.mode == 'mask':
+                    cleaned[key] = self.MASK_VALUE
+                # else: remove mode - don't add to cleaned dict
+            else:
+                cleaned[key] = value
+        
+        return cleaned
 
 
 # SECRET_KEY = "your-secret-key"  # Replace with your secret key

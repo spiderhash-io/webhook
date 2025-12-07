@@ -11,6 +11,15 @@
         "data_type": "json",
         "module": "log"
     },
+    "test_credential_cleanup": {
+        "data_type": "json",
+        "module": "log",
+        "credential_cleanup": {
+            "enabled": true,
+            "mode": "mask",
+            "fields": ["password", "api_key", "secret"]
+        }
+    },
     "redis_test": {
         "data_type": "json",
         "module": "redis_publish",

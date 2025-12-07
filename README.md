@@ -25,6 +25,7 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - **Multi-Layer Validation**: Combine multiple validators (Authorization + HMAC + IP whitelist + reCAPTCHA).
 - **Payload Validation**: Validates JSON payloads with size, depth, and string length checks.
 - **JSON Schema Validation**: Validate incoming payloads against defined JSON schemas.
+- **Credential Cleanup**: Automatically masks or removes credentials from payloads and headers before logging or storing to prevent credential exposure.
 
 ## Project Structure
 - `src/main.py`: Entry point, FastAPI app, and route definitions.
@@ -337,6 +338,87 @@ The application includes CORS middleware enabled by default, allowing webhooks t
             "max_requests": 100,
             "window_seconds": 60
         }
+    }
+}
+```
+
+#### Credential Cleanup
+Automatically clean credentials from webhook payloads and headers before logging or storing to prevent credential exposure. This feature is enabled by default (opt-out) and supports both masking and removal modes.
+
+```json
+{
+    "secure_webhook": {
+        "data_type": "json",
+        "module": "postgresql",
+        "credential_cleanup": {
+            "enabled": true,
+            "mode": "mask",
+            "fields": ["password", "api_key", "custom_secret"]
+        }
+    }
+}
+```
+
+**Configuration Options:**
+- `enabled`: Enable credential cleanup (default: `true` - opt-out behavior)
+- `mode`: Cleanup mode - `"mask"` replaces with `***REDACTED***` or `"remove"` deletes the field (default: `"mask"`)
+- `fields`: Optional list of additional custom field names to treat as credentials (default fields are always included)
+
+**Default Credential Fields:**
+The following field names are automatically detected as credentials (case-insensitive):
+- `password`, `passwd`, `pwd`
+- `secret`, `api_secret`, `client_secret`
+- `token`, `api_key`, `apikey`, `access_token`, `refresh_token`
+- `authorization`, `auth`, `credential`, `credentials`
+- `private_key`, `privatekey`
+- `bearer`, `x-api-key`, `x-auth-token`, `x-access-token`
+- `session_id`, `sessionid`, `session_token`
+- `csrf_token`, `csrf`
+- `oauth_token`, `oauth_secret`, `consumer_secret`, `token_secret`
+
+**Usage:**
+- Credentials are automatically cleaned from payloads and headers before data is passed to modules
+- Credentials are also cleaned from ClickHouse analytics logs (always enabled for logging)
+- Original data is preserved for validation; only cleaned copies are stored/logged
+- Supports nested JSON structures and arrays
+- Pattern matching detects credential-like field names even if not in the default list
+
+**Security Features:**
+- Prevents credential exposure in logs, databases, and storage modules
+- Deep cleaning of nested JSON structures
+- Case-insensitive field name matching
+- Pattern-based detection for credential-like fields
+- Automatic cleanup in ClickHouse analytics (always enabled)
+
+**Example:**
+```json
+// Input payload:
+{
+    "username": "user123",
+    "password": "secret123",
+    "api_key": "key456",
+    "user": {
+        "email": "user@example.com",
+        "token": "token789"
+    }
+}
+
+// Output (mask mode):
+{
+    "username": "user123",
+    "password": "***REDACTED***",
+    "api_key": "***REDACTED***",
+    "user": {
+        "email": "user@example.com",
+        "token": "***REDACTED***"
+    }
+}
+
+// Output (remove mode):
+{
+    "username": "user123",
+    "user": {
+        "email": "user@example.com"
     }
 }
 ```

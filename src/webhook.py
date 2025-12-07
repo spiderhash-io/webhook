@@ -324,6 +324,39 @@ class WebhookHandler:
             print(f"ERROR: Unsupported module '{module_name}' for webhook '{self.webhook_id}': {e}")
             raise HTTPException(status_code=501, detail="Module configuration error")
         
+        # Credential cleanup: Clean credentials from payload and headers before storing/logging
+        # Original data is preserved for validation, only cleaned copy is passed to modules
+        cleanup_config = self.config.get("credential_cleanup", {})
+        cleanup_enabled = cleanup_config.get("enabled", True)  # Default: enabled (opt-out)
+        
+        cleaned_payload = payload
+        cleaned_headers = dict(self.headers.items())
+        
+        if cleanup_enabled:
+            from src.utils import CredentialCleaner
+            
+            # Get cleanup mode (mask or remove)
+            cleanup_mode = cleanup_config.get("mode", "mask")
+            custom_fields = cleanup_config.get("fields", [])
+            
+            try:
+                cleaner = CredentialCleaner(custom_fields=custom_fields, mode=cleanup_mode)
+                
+                # Clean payload (deep copy to avoid modifying original)
+                if isinstance(payload, (dict, list)):
+                    import copy
+                    cleaned_payload = cleaner.clean_credentials(copy.deepcopy(payload))
+                else:
+                    cleaned_payload = payload  # For blob data, no cleaning needed
+                
+                # Clean headers
+                cleaned_headers = cleaner.clean_headers(cleaned_headers)
+            except Exception as e:
+                # If cleanup fails, log but don't crash - use original data
+                print(f"WARNING: Credential cleanup failed for webhook '{self.webhook_id}': {e}")
+                cleaned_payload = payload
+                cleaned_headers = dict(self.headers.items())
+        
         # Instantiate and process
         # Add webhook_id to config for modules that need it (e.g., ClickHouse)
         module_config = {**self.config, '_webhook_id': self.webhook_id}
@@ -345,12 +378,12 @@ class WebhookHandler:
         
         # If retry is enabled, execute with retry handler
         if retry_config.get("enabled", False):
-            # Execute module with retry logic
+            # Execute module with retry logic (use cleaned data)
             async def execute_module():
                 return await retry_handler.execute_with_retry(
                     module.process,
-                    payload,
-                    dict(self.headers.items()),
+                    cleaned_payload,
+                    cleaned_headers,
                     retry_config=retry_config
                 )
             
@@ -363,12 +396,13 @@ class WebhookHandler:
                 # Return None for task to indicate it wasn't created
                 return payload, dict(self.headers.items()), None
             
-            # Return payload, headers, and task for status checking
+            # Return original payload and headers for logging (before cleanup)
             return payload, dict(self.headers.items()), task
         else:
             # No retry configured, execute normally using task manager (fire-and-forget)
+            # Use cleaned data for module processing
             async def execute_module():
-                await module.process(payload, dict(self.headers.items()))
+                await module.process(cleaned_payload, cleaned_headers)
             
             try:
                 # Create task with task manager (fire-and-forget, no tracking needed)
@@ -377,4 +411,5 @@ class WebhookHandler:
                 # If task queue is full, log and continue (task will be lost, but webhook is accepted)
                 print(f"WARNING: Could not create task for webhook '{self.webhook_id}': {e}")
             
+            # Return original payload and headers for logging (before cleanup)
             return payload, dict(self.headers.items()), None
