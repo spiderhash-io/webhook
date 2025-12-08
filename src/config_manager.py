@@ -467,5 +467,10 @@ class ConfigManager:
             return
         
         # Get or create pool (registry handles versioning and migration)
-        await self.pool_registry.get_pool(connection_name, connection_config, factory)
+        # Handle pool creation errors gracefully - reload shouldn't fail if connection is temporarily unavailable
+        try:
+            await self.pool_registry.get_pool(connection_name, connection_config, factory)
+        except Exception as e:
+            # Log error but don't fail reload - pool will be created when actually needed
+            print(f"Warning: Failed to create pool for connection '{connection_name}': {e}")
 

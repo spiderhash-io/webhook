@@ -85,10 +85,14 @@ class TestLiveReloadIntegration:
         with open(temp_connection_config, 'w') as f:
             json.dump(new_config, f)
         
-        await config_manager.reload_connections()
+        # Reload and verify it succeeded
+        reload_result = await config_manager.reload_connections()
+        assert reload_result.success, f"Connection reload failed: {reload_result.error}"
         
         # Get pool with new config
         connection_config2 = config_manager.get_connection_config("conn1")
+        # Ensure connection config exists
+        assert connection_config2 is not None, "Connection config 'conn1' should exist after reload"
         pool2 = await pool_registry.get_pool("conn1", connection_config2, mock_pool_factory)
         
         # Should be different pools

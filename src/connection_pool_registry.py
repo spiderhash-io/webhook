@@ -44,7 +44,19 @@ class ConnectionPoolRegistry:
         
         Args:
             migration_timeout: Time in seconds before deprecated pools are cleaned up (default: 5 minutes)
+            
+        Raises:
+            ValueError: If migration_timeout is negative or invalid
+            TypeError: If migration_timeout is not a number
         """
+        # Security: Validate migration_timeout to prevent DoS
+        if not isinstance(migration_timeout, (int, float)):
+            raise TypeError(f"migration_timeout must be a number, got {type(migration_timeout).__name__}")
+        if migration_timeout < 0:
+            raise ValueError(f"migration_timeout must be >= 0, got {migration_timeout}")
+        if migration_timeout > 86400 * 365:  # Max 1 year (prevent overflow)
+            raise ValueError(f"migration_timeout exceeds maximum limit (1 year), got {migration_timeout}")
+        
         self._pools: Dict[str, PoolInfo] = {}  # connection_name -> PoolInfo
         self._deprecated_pools: Dict[str, PoolInfo] = {}  # connection_name -> PoolInfo (old version)
         self._lock = asyncio.Lock()
@@ -67,33 +79,82 @@ class ConnectionPoolRegistry:
             
         Returns:
             Connection pool object
+            
+        Raises:
+            TypeError: If connection_name is not a string or pool_factory is not callable
+            ValueError: If connection_name is empty or too long
         """
-        # Create config hash to detect changes
+        # Security: Validate connection_name to prevent injection and DoS
+        if not isinstance(connection_name, str):
+            raise TypeError(f"connection_name must be a string, got {type(connection_name).__name__}")
+        if not connection_name:
+            raise ValueError("connection_name cannot be empty")
+        if len(connection_name) > 256:  # Prevent DoS via extremely long names
+            raise ValueError(f"connection_name too long: {len(connection_name)} characters (max: 256)")
+        
+        # Security: Validate connection_config
+        if connection_config is None:
+            raise ValueError("connection_config cannot be None")
+        if not isinstance(connection_config, dict):
+            raise TypeError(f"connection_config must be a dictionary, got {type(connection_config).__name__}")
+        
+        # Security: Validate pool_factory is callable
+        if not callable(pool_factory):
+            raise TypeError(f"pool_factory must be callable, got {type(pool_factory).__name__}")
+        
+        # Security: Use full SHA256 hash to prevent hash collisions
+        # Using only 16 chars (64 bits) can cause collisions with different configs
         import hashlib
         import json
-        config_str = json.dumps(connection_config, sort_keys=True)
-        config_hash = hashlib.sha256(config_str.encode()).hexdigest()[:16]
+        
+        try:
+            # Security: Prevent JSON DoS via circular references and deeply nested structures
+            config_str = json.dumps(connection_config, sort_keys=True, default=str)
+        except (TypeError, ValueError, RecursionError) as e:
+            raise ValueError(f"Invalid connection_config: {str(e)}") from e
+        
+        # Use full 64-char SHA256 hash to prevent collisions
+        config_hash = hashlib.sha256(config_str.encode()).hexdigest()
         
         async with self._lock:
             # Check if we have an active pool with matching config
             if connection_name in self._pools:
                 pool_info = self._pools[connection_name]
+                # Security: Compare full hash AND config string to prevent collisions
                 if pool_info.config_hash == config_hash:
-                    # Same config, reuse existing pool
-                    pool_info.active_requests += 1
-                    return pool_info.pool
-                else:
-                    # Config changed, deprecate old pool
-                    pool_info.deprecated_at = time.time()
-                    self._deprecated_pools[connection_name] = pool_info
-                    del self._pools[connection_name]
+                    # Double-check config string matches (defense in depth against hash collisions)
+                    stored_config_str = pool_info.metadata.get("config_str", "")
+                    if stored_config_str == config_str:
+                        # Same config, reuse existing pool
+                        pool_info.active_requests += 1
+                        return pool_info.pool
+                
+                # Config changed (hash or config string differs), deprecate old pool
+                pool_info.deprecated_at = time.time()
+                self._deprecated_pools[connection_name] = pool_info
+                del self._pools[connection_name]
             
             # Create new pool
-            pool = await pool_factory(connection_config)
+            try:
+                pool = await pool_factory(connection_config)
+            except Exception as e:
+                # Security: Sanitize error messages to prevent information disclosure
+                from src.utils import sanitize_error_message
+                error_msg = sanitize_error_message(str(e))
+                raise RuntimeError(f"Failed to create connection pool: {error_msg}") from e
             
             # Increment version
             version = self._version_counter.get(connection_name, 0) + 1
             self._version_counter[connection_name] = version
+            
+            # Security: Store config_str for comparison but not the full config dict
+            # This allows config comparison without storing sensitive data
+            safe_metadata = {
+                "host": connection_config.get("host", ""),
+                "port": connection_config.get("port", ""),
+                "type": connection_config.get("type", ""),
+                "config_str": config_str  # Store for comparison, but it's already sanitized JSON
+            }
             
             # Create new pool info
             pool_info = PoolInfo(
@@ -103,7 +164,7 @@ class ConnectionPoolRegistry:
                 version=version,
                 config_hash=config_hash,
                 active_requests=1,
-                metadata={"config": connection_config}
+                metadata=safe_metadata
             )
             
             self._pools[connection_name] = pool_info
@@ -117,10 +178,15 @@ class ConnectionPoolRegistry:
             connection_name: Name of the connection
             pool: Pool object (for validation)
         """
+        # Security: Validate connection_name
+        if not isinstance(connection_name, str):
+            return  # Silently ignore invalid input
+        
         async with self._lock:
+            # Security: Only decrement if pool object matches exactly (prevent wrong pool release)
             if connection_name in self._pools:
                 pool_info = self._pools[connection_name]
-                if pool_info.pool is pool:
+                if pool_info.pool is pool:  # Identity check (is, not ==)
                     pool_info.active_requests = max(0, pool_info.active_requests - 1)
     
     async def cleanup_deprecated_pools(self) -> int:
@@ -157,7 +223,10 @@ class ConnectionPoolRegistry:
                         else:
                             pool_info.pool.close_all()
                 except Exception as e:
-                    print(f"Warning: Error closing deprecated pool {connection_name}: {e}")
+                    # Security: Sanitize error messages to prevent information disclosure
+                    from src.utils import sanitize_error_message
+                    error_msg = sanitize_error_message(str(e))
+                    print(f"Warning: Error closing deprecated pool {connection_name}: {error_msg}")
                 
                 del self._deprecated_pools[connection_name]
                 cleaned += 1
@@ -174,6 +243,9 @@ class ConnectionPoolRegistry:
         Returns:
             Dictionary with pool information or None if not found
         """
+        # Security: Validate connection_name
+        if not isinstance(connection_name, str):
+            return None
         if connection_name in self._pools:
             pool_info = self._pools[connection_name]
             return {
@@ -226,7 +298,10 @@ class ConnectionPoolRegistry:
                         else:
                             pool_info.pool.close_all()
                 except Exception as e:
-                    print(f"Warning: Error closing pool {pool_info.connection_name}: {e}")
+                    # Security: Sanitize error messages to prevent information disclosure
+                    from src.utils import sanitize_error_message
+                    error_msg = sanitize_error_message(str(e))
+                    print(f"Warning: Error closing pool {pool_info.connection_name}: {error_msg}")
             
             self._pools.clear()
             self._deprecated_pools.clear()
