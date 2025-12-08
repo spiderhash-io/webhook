@@ -2,9 +2,9 @@
 
 ## Executive Summary
 
-**Core Webhook Module** is a production-ready, enterprise-grade webhook receiver and processor built with FastAPI. It provides a secure, scalable, and flexible platform for receiving, validating, and routing webhook payloads to multiple destinations. With comprehensive security features, 11 authentication methods, 11 integration modules, and over 1,600 passing security tests, it's designed for mission-critical webhook processing in modern distributed systems.
+**Core Webhook Module** is a production-ready, enterprise-grade webhook receiver and processor built with FastAPI. It provides a secure, scalable, and flexible platform for receiving, validating, and routing webhook payloads to multiple destinations. With comprehensive security features, 11 authentication methods, 17 integration modules, and over 1,895 passing security tests, it's designed for mission-critical webhook processing in modern distributed systems.
 
-**Status**: Production-ready with comprehensive security features, 1,600+ passing tests, and support for multiple output destinations.
+**Status**: Production-ready with comprehensive security features, 1,895+ passing tests, 37 security audits, and support for 17 output destinations.
 
 ---
 
@@ -17,11 +17,11 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 ### Key Value Propositions
 
 1. **Enterprise Security**: 11 authentication methods, comprehensive validation, and security-hardened by design
-2. **Flexible Routing**: 11 integration modules supporting message queues, databases, cloud storage, and real-time protocols
-3. **Production Ready**: 1,600+ tests, security audits, and battle-tested architecture
-4. **Easy Configuration**: JSON-based configuration with environment variable support
+2. **Flexible Routing**: 17 integration modules supporting message queues, databases, cloud storage, and real-time protocols
+3. **Production Ready**: 1,895+ tests, 37 security audits, and battle-tested architecture
+4. **Easy Configuration**: JSON-based configuration with environment variable support and live reload
 5. **Scalable Architecture**: Supports multiple instances with centralized analytics
-6. **Developer Friendly**: Plugin architecture, comprehensive documentation, and easy extensibility
+6. **Developer Friendly**: Plugin architecture, dynamic OpenAPI docs, comprehensive documentation, and easy extensibility
 
 ---
 
@@ -51,6 +51,10 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 - **Default Values**: Fallback values for missing environment variables
 - **Nested Configuration**: Support for complex nested configurations
 - **Connection Management**: Centralized connection configuration
+- **Live Config Reload**: Hot reload of configuration files without restart
+- **File Watching**: Automatic detection and reload of configuration changes
+- **Connection Pool Migration**: Graceful migration of connection pools during reload
+- **Thread-Safe Updates**: Safe concurrent access during configuration updates
 
 ### 4. Statistics & Analytics
 
@@ -83,6 +87,25 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 - **Resource Management**: Semaphore-based concurrency control
 - **Task Metrics**: Track task execution and completion
 - **Memory Safety**: Protection against resource exhaustion
+
+### 8. Dynamic OpenAPI Documentation
+
+- **Auto-Generated Docs**: Automatically generates OpenAPI 3.0 documentation from `webhooks.json`
+- **Webhook-Specific Docs**: Detailed documentation for each configured webhook endpoint
+- **Authentication Schemes**: Documents all authentication methods per webhook
+- **Request/Response Schemas**: Extracts schemas from JSON schema validation configs
+- **Security Features**: Documents rate limits, IP whitelists, HMAC, reCAPTCHA, etc.
+- **Interactive Testing**: Swagger UI and ReDoc interfaces for testing
+- **Auto-Updates**: Documentation updates when configuration changes
+
+### 9. Credential Cleanup
+
+- **Automatic Masking**: Masks sensitive credentials in logs and payloads
+- **Configurable Fields**: Define which fields to mask or remove
+- **Multiple Modes**: Support for masking (redaction) or removal modes
+- **Nested Payloads**: Handles credentials in nested JSON structures
+- **Header Sanitization**: Removes credentials from headers before logging
+- **Security Compliance**: Prevents credential exposure in logs and storage
 
 ---
 
@@ -175,6 +198,7 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 - **Path Traversal Prevention**: Secure file path handling
 - **SQL Injection Prevention**: Parameterized queries for database modules
 - **Command Injection Prevention**: Input validation and sanitization
+- **Credential Cleanup**: Automatic masking/removal of sensitive data from logs and payloads
 
 ### Security Headers
 
@@ -197,15 +221,16 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 
 ### Security Audits
 
-- **Comprehensive Security Testing**: 1,600+ security tests covering all attack vectors
+- **Comprehensive Security Testing**: 1,895+ security tests covering all attack vectors
 - **OWASP Top 10 Coverage**: Protection against common web vulnerabilities
-- **Regular Security Audits**: 29 features audited with detailed reports
+- **Regular Security Audits**: 37 features audited with detailed reports
 - **Vulnerability Fixes**: All identified vulnerabilities fixed and tested
 - **Security Documentation**: Detailed security audit reports for all features
+- **Continuous Security**: Ongoing security reviews and improvements
 
 ---
 
-## Integration Modules (11 Total)
+## Integration Modules (17 Total)
 
 ### 1. **Log Module**
 - Print webhook payloads to stdout
@@ -280,6 +305,60 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 - Tasmota/Shelly device compatibility
 - Retained messages
 
+### 12. **PostgreSQL Module**
+- Store webhook payloads in PostgreSQL database
+- Multiple storage modes: JSON, relational, or hybrid
+- JSON mode: Store entire payload in JSONB column
+- Relational mode: Map payload fields to table columns with schema validation
+- Hybrid mode: Store mapped fields in columns + full payload in JSONB
+- Automatic table creation
+- Upsert support with configurable keys
+- SQL injection prevention with parameterized queries
+- Table and column name validation
+
+### 13. **MySQL/MariaDB Module**
+- Store webhook payloads in MySQL/MariaDB database
+- Multiple storage modes: JSON, relational, or hybrid
+- JSON mode: Store entire payload in JSON column
+- Relational mode: Map payload fields to table columns with schema validation
+- Hybrid mode: Store mapped fields in columns + full payload in JSON
+- Automatic table creation
+- Upsert support with configurable keys
+- SQL injection prevention with parameterized queries
+- Table and column name validation
+
+### 14. **AWS SQS Module**
+- Publish webhook payloads to Amazon SQS queues
+- Queue URL or queue name support
+- Message attributes support
+- SSRF prevention for queue URLs
+- Queue name validation
+- IAM support
+- Region configuration
+
+### 15. **GCP Pub/Sub Module**
+- Publish webhook payloads to Google Cloud Pub/Sub topics
+- Topic name validation
+- Project ID validation
+- Message attributes support
+- Automatic topic creation support
+- IAM support
+
+### 16. **ZeroMQ Module**
+- Publish webhook payloads to ZeroMQ sockets
+- Support for PUB, PUSH socket types
+- TCP, IPC, and inproc transport protocols
+- Endpoint validation and SSRF prevention
+- Message serialization
+
+### 17. **ActiveMQ Module**
+- Publish webhook payloads to Apache ActiveMQ
+- Queue and topic support
+- STOMP protocol support
+- Destination name validation
+- Connection pooling
+- Message header support
+
 ---
 
 ## Architecture
@@ -288,8 +367,8 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 
 - **Framework**: FastAPI (Python 3.12+)
 - **Async Runtime**: asyncio
-- **Message Queues**: RabbitMQ, Redis RQ, Apache Kafka
-- **Databases**: ClickHouse, Redis
+- **Message Queues**: RabbitMQ, Redis RQ, Apache Kafka, AWS SQS, GCP Pub/Sub, ActiveMQ, ZeroMQ
+- **Databases**: ClickHouse, PostgreSQL, MySQL/MariaDB, Redis
 - **Cloud Storage**: AWS S3
 - **Real-time**: WebSocket, MQTT
 - **Testing**: pytest, pytest-asyncio
@@ -333,7 +412,7 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 │  │  ┌─────────────────────────────────────────────────┐   │  │
 │  │  │         Module Registry                         │   │  │
 │  │  │  ┌───────────────────────────────────────────┐ │   │  │
-│  │  │  │  Integration Modules (11 modules)         │ │   │  │
+│  │  │  │  Integration Modules (17 modules)         │ │   │  │
 │  │  │  └───────────────────────────────────────────┘ │   │  │
 │  │  └─────────────────────────────────────────────────┘   │  │
 │  └───────────────────────────────────────────────────────┘  │
@@ -348,10 +427,11 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 4. **Input Validation**: Validate payload size, depth, format
 5. **Authentication**: Run configured validators (11 methods)
 6. **Rate Limiting**: Check rate limits per webhook
-7. **Module Processing**: Route to configured module
-8. **Retry Logic**: Retry on failure with exponential backoff
-9. **Statistics**: Update usage statistics
-10. **Logging**: Log to ClickHouse (if configured)
+7. **Credential Cleanup**: Mask/remove sensitive data from logs
+8. **Module Processing**: Route to configured module (17 available)
+9. **Retry Logic**: Retry on failure with exponential backoff
+10. **Statistics**: Update usage statistics
+11. **Logging**: Log to ClickHouse (if configured)
 
 ---
 
@@ -380,6 +460,8 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 - **Error Logging**: Detailed error logging
 - **Request Logging**: Full request/response logging
 - **Metrics**: Task execution metrics
+- **OpenAPI Documentation**: Interactive API documentation
+- **Dynamic Docs**: Auto-generated documentation from configuration
 
 ### Extensibility
 
@@ -388,6 +470,8 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 - **Configuration-Driven**: No code changes for new webhooks
 - **Environment Variables**: Flexible configuration
 - **Module Registry**: Dynamic module registration
+- **Live Config Reload**: Update configuration without restart
+- **Hot Module Loading**: Add modules dynamically
 
 ### Security
 
@@ -503,6 +587,33 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
     "database": "webhook_analytics",
     "user": "{$CLICKHOUSE_USER}",
     "password": "{$CLICKHOUSE_PASSWORD}"
+  },
+  "postgres_local": {
+    "type": "postgresql",
+    "host": "{$POSTGRES_HOST:localhost}",
+    "port": "{$POSTGRES_PORT:5432}",
+    "database": "webhook_db",
+    "user": "{$POSTGRES_USER}",
+    "password": "{$POSTGRES_PASSWORD}"
+  },
+  "mysql_local": {
+    "type": "mysql",
+    "host": "{$MYSQL_HOST:localhost}",
+    "port": "{$MYSQL_PORT:3306}",
+    "database": "webhook_db",
+    "user": "{$MYSQL_USER}",
+    "password": "{$MYSQL_PASSWORD}"
+  },
+  "aws_sqs_prod": {
+    "type": "aws_sqs",
+    "region": "{$AWS_REGION:us-east-1}",
+    "aws_access_key_id": "{$AWS_ACCESS_KEY_ID}",
+    "aws_secret_access_key": "{$AWS_SECRET_ACCESS_KEY}"
+  },
+  "gcp_pubsub_prod": {
+    "type": "gcp_pubsub",
+    "project_id": "{$GCP_PROJECT_ID}",
+    "credentials_path": "{$GCP_CREDENTIALS_PATH:}"
   }
 }
 ```
@@ -515,6 +626,68 @@ Core Webhook Module is a centralized webhook processing service that acts as a s
 - **HSTS_MAX_AGE**: HSTS max-age in seconds
 - **CSP_POLICY**: Custom Content-Security-Policy
 - **FORCE_HTTPS**: Force HTTPS detection
+- **DISABLE_OPENAPI_DOCS**: Set to `true` to disable OpenAPI documentation endpoints
+- **CONFIG_FILE_WATCHING_ENABLED**: Enable automatic config file watching (default: false)
+- **CONFIG_RELOAD_DEBOUNCE_SECONDS**: Debounce delay for config reloads (default: 3)
+
+### Database Storage Modes
+
+PostgreSQL and MySQL modules support three storage modes:
+
+#### JSON Mode (Default)
+Store entire payload in a JSON/JSONB column:
+```json
+{
+  "webhook_id": {
+    "module": "postgresql",
+    "connection": "postgres_local",
+    "module-config": {
+      "table": "webhook_events",
+      "storage_mode": "json"
+    }
+  }
+}
+```
+
+#### Relational Mode
+Map payload fields to table columns with schema validation:
+```json
+{
+  "webhook_id": {
+    "module": "postgresql",
+    "connection": "postgres_local",
+    "module-config": {
+      "table": "webhook_events",
+      "storage_mode": "relational",
+      "schema": {
+        "event_id": "integer",
+        "event_type": "varchar(100)",
+        "timestamp": "timestamp",
+        "data": "jsonb"
+      }
+    }
+  }
+}
+```
+
+#### Hybrid Mode
+Store mapped fields in columns + full payload in JSON/JSONB:
+```json
+{
+  "webhook_id": {
+    "module": "postgresql",
+    "connection": "postgres_local",
+    "module-config": {
+      "table": "webhook_events",
+      "storage_mode": "hybrid",
+      "schema": {
+        "event_id": "integer",
+        "event_type": "varchar(100)"
+      }
+    }
+  }
+}
+```
 
 ---
 
@@ -549,18 +722,19 @@ docker-compose up -d
 
 ### Test Coverage
 
-- **1,600+ Tests**: Comprehensive test suite
-- **Security Tests**: 1,600+ security-focused tests
+- **1,895+ Tests**: Comprehensive test suite
+- **Security Tests**: 1,895+ security-focused tests
 - **Integration Tests**: Full webhook flow tests
 - **Unit Tests**: Module and validator tests
 - **Performance Tests**: Load and stress testing
 
 ### Security Audits
 
-- **29 Features Audited**: Comprehensive security audits
+- **37 Features Audited**: Comprehensive security audits covering all modules and validators
 - **OWASP Top 10**: Protection against common vulnerabilities
-- **Vulnerability Fixes**: All identified issues fixed
+- **Vulnerability Fixes**: All identified issues fixed and tested
 - **Security Reports**: Detailed audit reports for all features
+- **Continuous Security**: Regular security reviews and improvements
 
 ### Code Quality
 
@@ -587,21 +761,26 @@ docker-compose up -d
 
 - ✅ Plugin-based architecture
 - ✅ 11 authentication methods
-- ✅ 11 integration modules
-- ✅ Retry mechanism
-- ✅ Rate limiting
-- ✅ Statistics and analytics
-- ✅ Security audits
-- ✅ Comprehensive testing
+- ✅ 17 integration modules (Log, Save to Disk, RabbitMQ, Redis RQ, Redis Pub/Sub, HTTP Webhook, Kafka, S3, ClickHouse, WebSocket, MQTT, PostgreSQL, MySQL/MariaDB, AWS SQS, GCP Pub/Sub, ZeroMQ, ActiveMQ)
+- ✅ Retry mechanism with exponential backoff
+- ✅ Rate limiting with sliding window
+- ✅ Statistics and analytics (Redis + ClickHouse)
+- ✅ Dynamic OpenAPI documentation
+- ✅ Live configuration reload
+- ✅ Credential cleanup and masking
+- ✅ 37 security audits
+- ✅ 1,895+ comprehensive tests
+- ✅ PostgreSQL and MySQL modules with multiple storage modes
+- ✅ Connection pool management
+- ✅ Task management with concurrency control
 
 ### Future Enhancements
 
-- 🔄 Dynamic OpenAPI documentation
 - 🔄 Payload transformation
 - 🔄 Cloudflare Turnstile validation
-- 🔄 PostgreSQL/MySQL modules
 - 🔄 GraphQL support
-- 🔄 Webhook chaining
+- 🔄 Webhook chaining (multiple destinations)
+- 🔄 Advanced analytics dashboard
 
 ---
 
@@ -629,5 +808,5 @@ docker-compose up -d
 
 ## Conclusion
 
-Core Webhook Module is a comprehensive, production-ready solution for webhook processing with enterprise-grade security, flexible routing, and extensive integration capabilities. With 11 authentication methods, 11 integration modules, and over 1,600 security tests, it provides a robust foundation for mission-critical webhook processing in modern distributed systems.
+Core Webhook Module is a comprehensive, production-ready solution for webhook processing with enterprise-grade security, flexible routing, and extensive integration capabilities. With 11 authentication methods, 17 integration modules, dynamic OpenAPI documentation, live configuration reload, and over 1,895 security tests covering 37 audited features, it provides a robust foundation for mission-critical webhook processing in modern distributed systems.
 

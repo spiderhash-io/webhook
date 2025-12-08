@@ -41,7 +41,17 @@ class PostgreSQLModule(BaseModule):
         self.table_name = self._validate_table_name(raw_table_name)
         self.storage_mode = self.module_config.get('storage_mode', 'json')  # json, relational, hybrid
         self.upsert = self.module_config.get('upsert', False)
-        self.upsert_key = self.module_config.get('upsert_key', 'id')
+        raw_upsert_key = self.module_config.get('upsert_key', 'id')
+        # Security: Validate upsert_key to prevent injection
+        # upsert_key is used in JSON path operations, so it should be a simple string
+        if not isinstance(raw_upsert_key, str):
+            raise ValueError(f"upsert_key must be a string, got {type(raw_upsert_key).__name__}")
+        if not raw_upsert_key or len(raw_upsert_key) > 256:  # Reasonable limit
+            raise ValueError(f"upsert_key must be non-empty and <= 256 characters")
+        # Reject dangerous characters that could be used in JSON path injection
+        if any(char in raw_upsert_key for char in ['"', "'", ';', '--', '/*', '*/', '\n', '\r', '\x00']):
+            raise ValueError("upsert_key contains dangerous characters")
+        self.upsert_key = raw_upsert_key
         self.include_headers = self.module_config.get('include_headers', True)
         self.include_timestamp = self.module_config.get('include_timestamp', True)
         self.schema = self.module_config.get('schema', {})
@@ -222,21 +232,31 @@ class PostgreSQLModule(BaseModule):
         connection_string = self.connection_details.get('connection_string')
         
         if connection_string:
-            # Validate connection string doesn't contain dangerous patterns
+            # Security: Validate connection string type
             if not isinstance(connection_string, str):
                 raise ValueError("Connection string must be a string")
             
-            # Basic validation - don't expose connection string in errors
-            try:
-                # Parse connection string to extract hostname for SSRF check
-                # Format: postgresql://user:pass@host:port/db
-                if connection_string.startswith('postgresql://') or connection_string.startswith('postgres://'):
+            # Security: Validate connection string doesn't contain dangerous patterns
+            # Parse connection string to extract hostname for SSRF check
+            # Format: postgresql://user:pass@host:port/db
+            if connection_string.startswith('postgresql://') or connection_string.startswith('postgres://'):
+                try:
                     parts = connection_string.split('@')
                     if len(parts) > 1:
                         host_part = parts[1].split('/')[0].split(':')[0]
                         if not self._validate_hostname(host_part):
                             raise ValueError("Invalid or unsafe hostname in connection string")
-            except Exception as e:
+                    else:
+                        # No @ in connection string, invalid format
+                        raise ValueError("Invalid connection string format")
+                except ValueError:
+                    # Re-raise ValueError as-is (preserve SSRF error message)
+                    raise
+                except Exception as e:
+                    # Other parsing errors - generic message
+                    raise ValueError("Invalid connection string format") from e
+            else:
+                # Not a postgresql:// URL, might be invalid
                 raise ValueError("Invalid connection string format")
         else:
             # Build connection string from individual parameters
@@ -285,6 +305,9 @@ class PostgreSQLModule(BaseModule):
             
             # Ensure table exists
             await self._ensure_table()
+        except ValueError as e:
+            # Security: Re-raise validation errors as-is (not sensitive, should be shown)
+            raise
         except Exception as e:
             # Log detailed error server-side
             print(f"Failed to connect to PostgreSQL: {e}")
@@ -333,6 +356,14 @@ class PostgreSQLModule(BaseModule):
                 ]
                 
                 for field_name, field_config in self.schema['fields'].items():
+                    # Security: Validate field_name
+                    if not isinstance(field_name, str):
+                        raise ValueError(f"Field name must be a string, got {type(field_name).__name__}")
+                    if not field_name or len(field_name) > 256:
+                        raise ValueError(f"Field name must be non-empty and <= 256 characters")
+                    if any(char in field_name for char in ['\x00', '\n', '\r']):
+                        raise ValueError("Field name contains dangerous characters")
+                    
                     column_name = self._validate_column_name(field_config.get('column', field_name))
                     column_type = self._get_pg_type(field_config.get('type', 'string'))
                     constraints = field_config.get('constraints', [])
@@ -366,6 +397,14 @@ class PostgreSQLModule(BaseModule):
                 
                 if self.schema and 'fields' in self.schema:
                     for field_name, field_config in self.schema['fields'].items():
+                        # Security: Validate field_name
+                        if not isinstance(field_name, str):
+                            raise ValueError(f"Field name must be a string, got {type(field_name).__name__}")
+                        if not field_name or len(field_name) > 256:
+                            raise ValueError(f"Field name must be non-empty and <= 256 characters")
+                        if any(char in field_name for char in ['\x00', '\n', '\r']):
+                            raise ValueError("Field name contains dangerous characters")
+                        
                         column_name = self._validate_column_name(field_config.get('column', field_name))
                         column_type = self._get_pg_type(field_config.get('type', 'string'))
                         constraints = field_config.get('constraints', [])
@@ -390,10 +429,18 @@ class PostgreSQLModule(BaseModule):
             # Create indexes if specified
             if self.schema and 'indexes' in self.schema:
                 for index_name, index_config in self.schema['indexes'].items():
+                    # Security: Validate index name to prevent injection
+                    validated_index_name = self._validate_table_name(index_name)  # Use same validation as table names
                     index_columns = index_config.get('columns', [])
                     if index_columns:
-                        quoted_columns = ', '.join([self._quote_identifier(col) for col in index_columns])
-                        quoted_index_name = self._quote_identifier(index_name)
+                        # Security: Validate each column name
+                        validated_columns = []
+                        for col in index_columns:
+                            validated_col = self._validate_column_name(col)
+                            validated_columns.append(self._quote_identifier(validated_col))
+                        
+                        quoted_columns = ', '.join(validated_columns)
+                        quoted_index_name = self._quote_identifier(validated_index_name)
                         index_query = f"""
                         CREATE INDEX IF NOT EXISTS {quoted_index_name} 
                         ON {quoted_table_name} ({quoted_columns})
@@ -402,6 +449,9 @@ class PostgreSQLModule(BaseModule):
                             await conn.execute(index_query)
             
             self._table_created = True
+        except ValueError as e:
+            # Security: Re-raise validation errors (table/column/index name validation)
+            raise
         except Exception as e:
             print(f"Failed to create PostgreSQL table: {e}")
             # Don't raise - table might already exist, but log the error
