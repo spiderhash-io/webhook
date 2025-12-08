@@ -34,8 +34,8 @@ class MySQLModule(BaseModule):
     ```
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], pool_registry=None):
+        super().__init__(config, pool_registry)
         self.pool: Optional[aiomysql.Pool] = None
         raw_table_name = self.module_config.get('table', 'webhook_events')
         self.table_name = self._validate_table_name(raw_table_name)
@@ -215,7 +215,27 @@ class MySQLModule(BaseModule):
         return type_mapping.get(field_type.lower(), 'TEXT')
     
     async def setup(self) -> None:
-        """Initialize MySQL connection pool."""
+        """Initialize MySQL/MariaDB connection pool."""
+        # Try to get pool from pool_registry first
+        connection_name = self.config.get('connection')
+        if self.pool_registry and connection_name and self.connection_details:
+            from src.connection_pool_registry import create_mysql_pool
+            try:
+                self.pool = await self.pool_registry.get_pool(
+                    connection_name,
+                    self.connection_details,
+                    create_mysql_pool
+                )
+                # Test connection
+                async with self.pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute('SELECT 1')
+                        await cur.fetchone()
+                return  # Successfully got pool from registry
+            except Exception as e:
+                print(f"Warning: Failed to get pool from registry, falling back to direct creation: {e}")
+        
+        # Fallback: create pool directly (for backward compatibility)
         if not self.connection_details:
             raise Exception("MySQL connection details not found")
         

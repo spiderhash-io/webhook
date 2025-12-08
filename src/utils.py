@@ -861,7 +861,12 @@ class CredentialCleaner:
             cleaned = {}
             for key, value in data.items():
                 if self._is_credential_field(key):
-                    if self.mode == 'mask':
+                    # Only mask if value is a primitive (not a container)
+                    # Containers should be processed recursively to clean their contents
+                    if isinstance(value, (dict, list)):
+                        # Process container recursively to clean its contents
+                        cleaned[key] = self._clean_dict_recursive(value, f"{path}.{key}" if path else key)
+                    elif self.mode == 'mask':
                         cleaned[key] = self.MASK_VALUE
                     # else: remove mode - don't add to cleaned dict
                 else:

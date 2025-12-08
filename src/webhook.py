@@ -174,7 +174,7 @@ except (ValueError, TypeError) as e:
 
 
 class WebhookHandler:
-    def __init__(self, webhook_id, configs, connection_config, request: Request):
+    def __init__(self, webhook_id, configs, connection_config, request: Request, pool_registry=None):
         # SECURITY: Validate webhook_id early to prevent injection attacks
         is_valid, msg = InputValidator.validate_webhook_id(webhook_id)
         if not is_valid:
@@ -186,6 +186,7 @@ class WebhookHandler:
             raise HTTPException(status_code=404, detail="Webhook ID not found")
         self.connection_config = connection_config
         self.request = request
+        self.pool_registry = pool_registry
         self.headers = self.request.headers
         self._cached_body = None  # Cache request body after first read
         
@@ -361,7 +362,7 @@ class WebhookHandler:
         # Add webhook_id to config for modules that need it (e.g., ClickHouse)
         module_config = {**self.config, '_webhook_id': self.webhook_id}
         try:
-            module = module_class(module_config)
+            module = module_class(module_config, pool_registry=self.pool_registry)
         except Exception as e:
             # SECURITY: Catch and sanitize module instantiation errors to prevent information disclosure
             # Log detailed error server-side only

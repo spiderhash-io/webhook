@@ -297,9 +297,15 @@ class ClickHouseAnalytics:
             cleaner = CredentialCleaner(mode='mask')  # Always mask for logging
             
             # Clean payload (deep copy to avoid modifying original)
-            cleaned_payload = payload
-            if isinstance(payload, (dict, list)):
-                cleaned_payload = cleaner.clean_credentials(copy.deepcopy(payload))
+            # Handle recursion errors for extremely deeply nested structures
+            try:
+                if isinstance(payload, (dict, list)):
+                    cleaned_payload = cleaner.clean_credentials(copy.deepcopy(payload))
+                else:
+                    cleaned_payload = payload  # For blob data, no cleaning needed
+            except RecursionError:
+                # For extremely deeply nested payloads, use a truncated version
+                cleaned_payload = {"error": "Payload too deeply nested to clean", "type": type(payload).__name__}
             
             # Clean headers
             cleaned_headers = cleaner.clean_headers(headers)
@@ -307,7 +313,14 @@ class ClickHouseAnalytics:
             record_id = str(uuid.uuid4())
             timestamp = datetime.utcnow()
             
-            payload_str = json.dumps(cleaned_payload) if isinstance(cleaned_payload, (dict, list)) else str(cleaned_payload)
+            # Serialize to JSON strings
+            # Handle recursion errors during JSON serialization
+            try:
+                payload_str = json.dumps(cleaned_payload) if isinstance(cleaned_payload, (dict, list)) else str(cleaned_payload)
+            except (RecursionError, ValueError) as json_error:
+                # If JSON serialization fails due to recursion, use a simplified version
+                payload_str = '{"error": "Payload too deeply nested to serialize"}'
+            
             headers_str = json.dumps(cleaned_headers)
             
             await self.queue.put(('log', (record_id, webhook_id, timestamp, payload_str, headers_str)))

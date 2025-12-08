@@ -34,8 +34,8 @@ class PostgreSQLModule(BaseModule):
     ```
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], pool_registry=None):
+        super().__init__(config, pool_registry)
         self.pool: Optional[asyncpg.Pool] = None
         raw_table_name = self.module_config.get('table', 'webhook_events')
         self.table_name = self._validate_table_name(raw_table_name)

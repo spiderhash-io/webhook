@@ -561,8 +561,9 @@ class TestTaskManagerIntegrationSecurity:
         """Test that task timeouts are handled securely."""
         # Create a module that hangs
         class HangingModule:
-            def __init__(self, config):
+            def __init__(self, config, pool_registry=None):
                 self.config = config
+                self.pool_registry = pool_registry
             
             async def process(self, payload, headers):
                 await asyncio.sleep(1000)  # Hang forever

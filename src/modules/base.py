@@ -5,16 +5,18 @@ from typing import Any, Dict
 class BaseModule(ABC):
     """Base class for all webhook processing modules."""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], pool_registry=None):
         """
         Initialize the module with configuration.
         
         Args:
             config: The webhook configuration including connection details
+            pool_registry: Optional ConnectionPoolRegistry for getting connection pools
         """
         self.config = config
         self.connection_details = config.get('connection_details', {})
         self.module_config = config.get('module-config', {})
+        self.pool_registry = pool_registry
     
     @abstractmethod
     async def process(self, payload: Any, headers: Dict[str, str]) -> None:

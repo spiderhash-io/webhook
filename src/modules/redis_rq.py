@@ -43,8 +43,8 @@ class RedisRQModule(BaseModule):
         r'^__.*__$',  # Magic methods (__builtins__, __import__, etc.)
     ]
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], pool_registry=None):
+        super().__init__(config, pool_registry)
         # Validate function name during initialization to fail early
         raw_function_name = self.module_config.get('function')
         if raw_function_name:
@@ -170,7 +170,22 @@ class RedisRQModule(BaseModule):
     
     async def process(self, payload: Any, headers: Dict[str, str]) -> None:
         """Queue payload processing using Redis RQ."""
-        connection = self.connection_details.get('conn')
+        # Get connection from pool_registry or fallback to connection_details
+        connection = None
+        connection_name = self.config.get('connection')
+        if self.pool_registry and connection_name:
+            connection_config = self.connection_details
+            if connection_config:
+                from src.connection_pool_registry import create_redis_pool
+                connection = await self.pool_registry.get_pool(
+                    connection_name,
+                    connection_config,
+                    create_redis_pool
+                )
+        
+        # Fallback to connection_details if pool_registry not available
+        if not connection:
+            connection = self.connection_details.get('conn')
         
         if not connection:
             raise Exception("Redis connection is not defined")

@@ -8,8 +8,8 @@ from src.modules.base import BaseModule
 class RabbitMQModule(BaseModule):
     """Module for publishing webhook payloads to RabbitMQ."""
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], pool_registry=None):
+        super().__init__(config, pool_registry)
         # Validate queue name during initialization to fail early
         raw_queue_name = self.config.get('queue_name')
         if raw_queue_name is not None:
@@ -84,11 +84,27 @@ class RabbitMQModule(BaseModule):
         """Publish payload to RabbitMQ queue."""
         headers_dict = dict(headers.items())
         
-        connection_pool = self.connection_details.get("connection_pool")
         queue_name = self._validated_queue_name
         
         if not queue_name:
             raise ValueError("Queue name is required and must be validated")
+        
+        # Get connection pool from pool_registry or fallback to connection_details
+        connection_pool = None
+        connection_name = self.config.get('connection')
+        if self.pool_registry and connection_name:
+            connection_config = self.connection_details
+            if connection_config:
+                from src.connection_pool_registry import create_rabbitmq_pool
+                connection_pool = await self.pool_registry.get_pool(
+                    connection_name,
+                    connection_config,
+                    create_rabbitmq_pool
+                )
+        
+        # Fallback to connection_details if pool_registry not available
+        if not connection_pool:
+            connection_pool = self.connection_details.get("connection_pool")
         
         if not connection_pool:
             raise Exception("Connection pool is not defined")

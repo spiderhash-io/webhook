@@ -7,12 +7,15 @@ from starlette.responses import Response
 import asyncio
 import os
 from datetime import datetime
+from typing import Optional
 
 from src.webhook import WebhookHandler
 from src.config import inject_connection_details, webhook_config_data, connection_config
 from src.utils import RedisEndpointStats
 from src.rate_limiter import rate_limiter
 from src.clickhouse_analytics import ClickHouseAnalytics
+from src.config_manager import ConfigManager
+from src.config_watcher import ConfigFileWatcher
 
 # Check if OpenAPI docs should be disabled
 DISABLE_OPENAPI_DOCS = os.getenv("DISABLE_OPENAPI_DOCS", "false").lower() == "true"
@@ -26,6 +29,8 @@ app = FastAPI(
 )
 stats = RedisEndpointStats()  # Use Redis for persistent stats
 clickhouse_logger: ClickHouseAnalytics = None  # For logging events only
+config_manager: Optional[ConfigManager] = None  # Config manager for live reload
+config_watcher: Optional[ConfigFileWatcher] = None  # File watcher for auto-reload
 
 # Override FastAPI's openapi() method to return custom schema
 if not DISABLE_OPENAPI_DOCS:
@@ -36,12 +41,29 @@ if not DISABLE_OPENAPI_DOCS:
     @wraps(original_openapi)
     def custom_openapi():
         """Generate custom OpenAPI schema from webhooks.json."""
-        global webhook_config_data
+        global config_manager, webhook_config_data
         try:
             from src.openapi_generator import generate_openapi_schema
             # Generate schema dynamically from current webhook config
-            if webhook_config_data:
-                return generate_openapi_schema(webhook_config_data)
+            # Use ConfigManager if available, otherwise fallback
+            if config_manager:
+                # Build webhook config dict from ConfigManager
+                # We need to access internal _webhook_config - for now use a workaround
+                # In production, ConfigManager should have a get_all_webhook_configs() method
+                # For now, we'll use the internal attribute (not ideal but works)
+                try:
+                    webhook_configs = config_manager._webhook_config
+                    if webhook_configs:
+                        return generate_openapi_schema(webhook_configs)
+                except AttributeError:
+                    # Fallback if _webhook_config not accessible
+                    pass
+                config_to_use = webhook_config_data
+            else:
+                config_to_use = webhook_config_data
+            
+            if config_to_use:
+                return generate_openapi_schema(config_to_use)
         except Exception as e:
             print(f"WARNING: Failed to generate OpenAPI schema: {e}")
         # Fallback to default if generation fails
@@ -242,21 +264,41 @@ async def cleanup_task():
 
 @app.on_event("startup")
 async def startup_event():
-    global webhook_config_data, clickhouse_logger
+    global webhook_config_data, clickhouse_logger, config_manager, config_watcher
     
-    webhook_config_data = await inject_connection_details(webhook_config_data, connection_config)
-    print(webhook_config_data)
+    # Initialize ConfigManager for live reload
+    config_manager = ConfigManager()
+    try:
+        init_result = await config_manager.initialize()
+        if init_result.success:
+            print(f"ConfigManager initialized: {init_result.details}")
+        else:
+            print(f"ConfigManager initialization warning: {init_result.error}")
+    except Exception as e:
+        print(f"Failed to initialize ConfigManager: {e}")
+        # Fallback to old config loading
+        webhook_config_data = await inject_connection_details(webhook_config_data, connection_config)
+    else:
+        # Use ConfigManager for config access
+        # Build webhook_config_data from ConfigManager for backward compatibility
+        webhook_config_data = {}
+        # Note: ConfigManager will be used directly in webhook handler
     
-    # Note: OpenAPI schema is generated lazily in custom_openapi() function
-    # This ensures it's always up-to-date with the current webhook_config_data
-
     # Initialize ClickHouse logger for automatic event logging
     # Look for any clickhouse connection (webhook instances just log events)
+    conn_config = config_manager.get_connection_config if config_manager else connection_config
     clickhouse_config = None
-    for conn_name, conn_config in connection_config.items():
-        if conn_config.get('type') == 'clickhouse':
-            clickhouse_config = conn_config
-            break
+    if config_manager:
+        for conn_name in conn_config.keys() if hasattr(conn_config, 'keys') else []:
+            conn = config_manager.get_connection_config(conn_name)
+            if conn and conn.get('type') == 'clickhouse':
+                clickhouse_config = conn
+                break
+    else:
+        for conn_name, conn in connection_config.items():
+            if conn.get('type') == 'clickhouse':
+                clickhouse_config = conn
+                break
     
     if clickhouse_config:
         try:
@@ -268,6 +310,17 @@ async def startup_event():
             print("Continuing without ClickHouse logging...")
     else:
         print("No ClickHouse connection found - webhook events will not be logged to ClickHouse")
+    
+    # Start file watcher if enabled
+    file_watching_enabled = os.getenv("CONFIG_FILE_WATCHING_ENABLED", "false").lower() == "true"
+    if file_watching_enabled and config_manager:
+        try:
+            debounce_seconds = float(os.getenv("CONFIG_RELOAD_DEBOUNCE_SECONDS", "3.0"))
+            config_watcher = ConfigFileWatcher(config_manager, debounce_seconds=debounce_seconds)
+            config_watcher.start()
+            print("Config file watcher started - automatic reload enabled")
+        except Exception as e:
+            print(f"Failed to start config file watcher: {e}")
 
     asyncio.create_task(cleanup_task())
 
@@ -275,7 +328,11 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
-    global clickhouse_logger
+    global clickhouse_logger, config_watcher, config_manager
+    if config_watcher:
+        config_watcher.stop()
+    if config_manager:
+        await config_manager.pool_registry.close_all_pools()
     if clickhouse_logger:
         await clickhouse_logger.disconnect()
     # Close Redis connection
@@ -284,13 +341,31 @@ async def shutdown_event():
 
 @app.post("/webhook/{webhook_id}")
 async def read_webhook(webhook_id: str,  request: Request):
+    global config_manager
+    
+    # Get configs from ConfigManager if available, otherwise use fallback
+    if config_manager:
+        webhook_configs = {}
+        # Build webhook configs dict from ConfigManager
+        # For now, we'll get the specific webhook config
+        webhook_config = config_manager.get_webhook_config(webhook_id)
+        if webhook_config:
+            webhook_configs[webhook_id] = webhook_config
+        conn_configs = {}  # Connection configs accessed via pool_registry
+        pool_registry = config_manager.pool_registry
+    else:
+        # Fallback to old config system
+        webhook_configs = webhook_config_data
+        conn_configs = connection_config
+        pool_registry = None
 
     try:
         webhook_handler = WebhookHandler(
             webhook_id,
-            webhook_config_data,
-            connection_config,
+            webhook_configs,
+            conn_configs,
             request,
+            pool_registry=pool_registry
         )
     except HTTPException as e:
         # HTTPException is already sanitized, re-raise as-is
@@ -478,5 +553,131 @@ async def stats_endpoint(request: Request):
     
     return stats_data
 
+
+@app.post("/admin/reload-config")
+async def reload_config_endpoint(request: Request):
+    """
+    Admin endpoint to manually trigger configuration reload.
+    
+    Supports reloading webhooks, connections, or both.
+    """
+    global config_manager
+    
+    if not config_manager:
+        raise HTTPException(status_code=503, detail="ConfigManager not initialized")
+    
+    # Check authentication if configured
+    admin_token = os.getenv("CONFIG_RELOAD_ADMIN_TOKEN", "").strip()
+    if admin_token:
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        # Extract token
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        else:
+            token = auth_header.strip()
+        
+        # Constant-time comparison
+        import hmac
+        if not hmac.compare_digest(token.encode('utf-8'), admin_token.encode('utf-8')):
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+    
+    # Parse request body
+    try:
+        body = await request.json()
+        reload_webhooks = body.get("reload_webhooks", True)
+        reload_connections = body.get("reload_connections", True)
+        validate_only = body.get("validate_only", False)
+    except Exception:
+        # Default: reload both
+        reload_webhooks = True
+        reload_connections = True
+        validate_only = False
+    
+    # Perform reload
+    if validate_only:
+        # Validation only (not implemented in current version)
+        return JSONResponse(content={
+            "status": "validation_not_implemented",
+            "message": "Validate-only mode not yet implemented"
+        })
+    
+    if reload_webhooks and reload_connections:
+        result = await config_manager.reload_all()
+    elif reload_webhooks:
+        result = await config_manager.reload_webhooks()
+    elif reload_connections:
+        result = await config_manager.reload_connections()
+    else:
+        return JSONResponse(content={
+            "status": "error",
+            "error": "No reload operation specified"
+        })
+    
+    if result.success:
+        return JSONResponse(content={
+            "status": "success",
+            "reloaded": {
+                "webhooks": reload_webhooks,
+                "connections": reload_connections
+            },
+            "details": result.details,
+            "timestamp": result.timestamp
+        })
+    else:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "error": result.error,
+                "details": result.details,
+                "timestamp": result.timestamp
+            }
+        )
+
+
+@app.get("/admin/config-status")
+async def config_status_endpoint(request: Request):
+    """
+    Admin endpoint to get current configuration status.
+    
+    Returns information about:
+    - Last reload time
+    - Reload in progress status
+    - Webhook and connection counts
+    - Connection pool information
+    """
+    global config_manager
+    
+    if not config_manager:
+        raise HTTPException(status_code=503, detail="ConfigManager not initialized")
+    
+    # Check authentication if configured
+    admin_token = os.getenv("CONFIG_RELOAD_ADMIN_TOKEN", "").strip()
+    if admin_token:
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        # Extract token
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        else:
+            token = auth_header.strip()
+        
+        # Constant-time comparison
+        import hmac
+        if not hmac.compare_digest(token.encode('utf-8'), admin_token.encode('utf-8')):
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+    
+    status = config_manager.get_status()
+    
+    # Add file watching status
+    global config_watcher
+    status["file_watching_enabled"] = config_watcher is not None and config_watcher.is_watching()
+    
+    return JSONResponse(content=status)
 
 

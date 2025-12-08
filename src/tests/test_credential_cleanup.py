@@ -286,7 +286,8 @@ class TestCredentialCleanupIntegration:
             from src.modules.log import LogModule
             mock_get.return_value = LogModule
             
-            handler = WebhookHandler('test_webhook', request, config)
+            configs = {'test_webhook': config}
+            handler = WebhookHandler('test_webhook', configs, {}, request, pool_registry=None)
             handler._cached_body = b'{"username": "user", "password": "secret"}'
             
             # Mock task manager
@@ -329,7 +330,8 @@ class TestCredentialCleanupIntegration:
             from src.modules.log import LogModule
             mock_get.return_value = LogModule
             
-            handler = WebhookHandler('test_webhook', request, config)
+            configs = {'test_webhook': config}
+            handler = WebhookHandler('test_webhook', configs, {}, request, pool_registry=None)
             handler._cached_body = b'{"username": "user", "password": "secret"}'
             
             # Mock task manager
