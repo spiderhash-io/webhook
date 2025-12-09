@@ -4,6 +4,7 @@ ZeroMQ module for publishing webhook payloads to ZeroMQ sockets.
 import json
 import re
 import asyncio
+import ipaddress
 from typing import Any, Dict, Optional
 from src.modules.base import BaseModule
 from src.utils import sanitize_error_message
@@ -54,6 +55,12 @@ class ZeroMQModule(BaseModule):
         if not endpoint or not isinstance(endpoint, str):
             raise ValueError("Endpoint must be a non-empty string")
         
+        # SECURITY: Reject null bytes and control characters FIRST (before stripping)
+        # Block all control characters except tab (which might be needed for some protocols)
+        # Newlines and carriage returns are dangerous and should be blocked
+        if '\x00' in endpoint or any(ord(c) < 32 and c != '\t' for c in endpoint):
+            raise ValueError("Endpoint contains forbidden control characters")
+        
         endpoint = endpoint.strip()
         
         if not endpoint:
@@ -91,11 +98,42 @@ class ZeroMQModule(BaseModule):
                 if not host or host.strip() == '':
                     raise ValueError("TCP endpoint must include host")
                 
-                # Block private IPs and localhost for security (unless explicitly allowed)
-                # This is a security measure - in production, use whitelist
+                # SECURITY: Comprehensive SSRF prevention
+                # Block localhost variants
                 blocked_hosts = ['127.0.0.1', 'localhost', '0.0.0.0', '::1']
                 if host.lower() in blocked_hosts:
                     raise ValueError(f"Endpoint host '{host}' is blocked for security (use explicit IP or hostname)")
+                
+                # Block private IP ranges (RFC 1918)
+                try:
+                    ip = ipaddress.ip_address(host)
+                    # Check in order: loopback, link-local, multicast, reserved, then private
+                    # (link-local and some others may also be private, so check specific types first)
+                    if ip.is_loopback:
+                        raise ValueError(f"Endpoint host '{host}' is blocked for security (loopback address)")
+                    if ip.is_link_local:
+                        raise ValueError(f"Endpoint host '{host}' is blocked for security (link-local address)")
+                    if ip.is_multicast:
+                        raise ValueError(f"Endpoint host '{host}' is blocked for security (multicast address)")
+                    if ip.is_reserved:
+                        raise ValueError(f"Endpoint host '{host}' is blocked for security (reserved address)")
+                    if ip.is_private:
+                        raise ValueError(f"Endpoint host '{host}' is blocked for security (private IP range)")
+                except ValueError as e:
+                    # Check if this is our security exception (has "blocked for security" message)
+                    if "blocked for security" in str(e):
+                        # Re-raise our security exceptions
+                        raise
+                    # Otherwise, it's an invalid IP address format - check if it's a hostname
+                    # Block cloud metadata service hostnames
+                    metadata_hostnames = [
+                        '169.254.169.254',  # AWS, GCP, Azure metadata
+                        'metadata.google.internal',
+                        'metadata.azure.com',
+                        '169.254.169.254.nip.io',
+                    ]
+                    if host.lower() in [h.lower() for h in metadata_hostnames]:
+                        raise ValueError(f"Endpoint host '{host}' is blocked for security (metadata service)")
                 
                 # Validate port
                 try:
@@ -109,10 +147,6 @@ class ZeroMQModule(BaseModule):
                 if isinstance(e, ValueError):
                     raise
                 raise ValueError(f"Invalid TCP endpoint format: {endpoint}")
-        
-        # Reject null bytes and control characters
-        if '\x00' in endpoint or any(ord(c) < 32 and c not in '\t\n\r' for c in endpoint):
-            raise ValueError("Endpoint contains forbidden control characters")
         
         return endpoint
     

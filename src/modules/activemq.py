@@ -3,6 +3,7 @@ Apache ActiveMQ module for publishing webhook payloads to ActiveMQ queues/topics
 """
 import json
 import re
+import ipaddress
 from typing import Any, Dict, Optional
 from src.modules.base import BaseModule
 from src.utils import sanitize_error_message
@@ -83,9 +84,11 @@ class ActiveMQModule(BaseModule):
             if destination_lower.startswith(prefix.lower()):
                 raise ValueError(f"Destination cannot start with reserved prefix: '{prefix}'")
         
-        # Reject control characters
-        if any(char in destination for char in ['\r', '\n', '\0', '\t']):
-            raise ValueError("Destination contains forbidden control characters")
+        # Reject control characters (check before format validation for clearer error)
+        control_chars = ['\r', '\n', '\0', '\t']
+        for char in control_chars:
+            if char in destination:
+                raise ValueError("Destination contains forbidden control characters")
         
         return destination
     
@@ -104,10 +107,67 @@ class ActiveMQModule(BaseModule):
             if not host or not isinstance(host, str):
                 raise ValueError("Host must be a non-empty string")
             
-            # Block private IPs and localhost (unless explicitly allowed)
-            blocked_hosts = ['127.0.0.1', 'localhost', '0.0.0.0', '::1']
-            if host.lower() in blocked_hosts:
+            host = host.strip()
+            if not host:
+                raise ValueError("Host cannot be empty")
+            
+            # Block localhost variants
+            localhost_variants = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']
+            if host.lower() in localhost_variants:
                 raise ValueError(f"Host '{host}' is blocked for security")
+            
+            # Block cloud metadata endpoints
+            dangerous_hostnames = {
+                'metadata.google.internal',
+                '169.254.169.254',
+                'metadata',
+                'instance-data',
+                'instance-data.ecs',
+                'ecs-metadata',
+                '100.100.100.200',
+            }
+            if host.lower() in dangerous_hostnames:
+                raise ValueError(f"Host '{host}' is blocked for security (metadata service)")
+            
+            # Try to parse as IP address and block private ranges
+            try:
+                # Handle IPv6 addresses in brackets
+                host_for_parsing = host
+                if host.startswith('[') and host.endswith(']'):
+                    host_for_parsing = host[1:-1]
+                
+                ip = ipaddress.ip_address(host_for_parsing)
+                
+                # Block link-local addresses (169.254.0.0/16) - often used for metadata
+                if ip.is_link_local:
+                    raise ValueError(f"Host '{host}' is blocked for security (link-local address)")
+                
+                # Block loopback
+                if ip.is_loopback:
+                    raise ValueError(f"Host '{host}' is blocked for security (loopback address)")
+                
+                # Block multicast
+                if ip.is_multicast:
+                    raise ValueError(f"Host '{host}' is blocked for security (multicast address)")
+                
+                # Block reserved addresses
+                if ip.is_reserved:
+                    raise ValueError(f"Host '{host}' is blocked for security (reserved address)")
+                
+                # Block private IPs (RFC 1918)
+                if ip.is_private:
+                    raise ValueError(
+                        f"Host '{host}' is blocked for security (private IP). "
+                        f"Private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) are blocked to prevent SSRF attacks."
+                    )
+                
+            except ValueError as e:
+                # If ValueError is raised by ipaddress, it might be a hostname
+                # Check if it's our security error
+                if "blocked for security" in str(e):
+                    raise
+                # Otherwise, it's not an IP address, continue with hostname validation
+                pass
             
             # Validate port
             if not isinstance(port, int) or port < 1 or port > 65535:

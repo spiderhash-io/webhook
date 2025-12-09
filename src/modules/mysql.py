@@ -41,10 +41,19 @@ class MySQLModule(BaseModule):
         self.table_name = self._validate_table_name(raw_table_name)
         self.storage_mode = self.module_config.get('storage_mode', 'json')  # json, relational, hybrid
         self.upsert = self.module_config.get('upsert', False)
-        self.upsert_key = self.module_config.get('upsert_key', 'id')
+        raw_upsert_key = self.module_config.get('upsert_key', 'id')
+        # SECURITY: Validate upsert_key if upsert is enabled and key is provided
+        if self.upsert and raw_upsert_key:
+            self.upsert_key = self._validate_upsert_key(raw_upsert_key)
+        else:
+            self.upsert_key = raw_upsert_key
         self.include_headers = self.module_config.get('include_headers', True)
         self.include_timestamp = self.module_config.get('include_timestamp', True)
-        self.schema = self.module_config.get('schema', {})
+        raw_schema = self.module_config.get('schema', {})
+        # SECURITY: Validate schema is a dict to prevent type confusion
+        if not isinstance(raw_schema, dict):
+            raise ValueError("Schema must be a dictionary")
+        self.schema = raw_schema
         self._table_created = False
     
     def _validate_table_name(self, table_name: str) -> str:
@@ -132,6 +141,111 @@ class MySQLModule(BaseModule):
             )
         
         return column_name
+    
+    def _validate_upsert_key(self, upsert_key: str) -> str:
+        """
+        Validate and sanitize upsert key to prevent JSON path injection.
+        
+        Args:
+            upsert_key: The upsert key from configuration
+            
+        Returns:
+            Validated and sanitized upsert key
+            
+        Raises:
+            ValueError: If upsert key is invalid or contains dangerous characters
+        """
+        if not upsert_key or not isinstance(upsert_key, str):
+            raise ValueError("Upsert key must be a non-empty string")
+        
+        upsert_key = upsert_key.strip()
+        
+        if not upsert_key:
+            raise ValueError("Upsert key cannot be empty")
+        
+        # Maximum length to prevent DoS
+        if len(upsert_key) > 64:
+            raise ValueError(f"Upsert key too long: {len(upsert_key)} characters (max: 64)")
+        
+        # Validate format: alphanumeric and underscore only
+        # JSON path expressions like $.field are constructed, so we only allow safe field names
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', upsert_key):
+            raise ValueError(
+                f"Invalid upsert key format: '{upsert_key}'. "
+                f"Must start with letter or underscore and contain only alphanumeric characters and underscores."
+            )
+        
+        # Reject SQL keywords and dangerous patterns
+        sql_keywords = [
+            'select', 'insert', 'update', 'delete', 'drop', 'create', 'alter',
+            'truncate', 'exec', 'execute', 'union', 'script', '--', ';', '/*', '*/',
+            'table', 'database', 'schema', 'user', 'role', 'grant', 'revoke',
+            'show', 'describe', 'explain', 'use', 'set'
+        ]
+        upsert_key_lower = upsert_key.lower()
+        for keyword in sql_keywords:
+            if upsert_key_lower == keyword:
+                raise ValueError(f"Upsert key cannot be SQL keyword: '{keyword}'")
+        
+        # Reject dangerous patterns that could be used in JSON path injection
+        dangerous_patterns = ['..', '--', ';', '/*', '*/', '$', '[', ']', '*', '?', ':', '/', '\\']
+        for pattern in dangerous_patterns:
+            if pattern in upsert_key:
+                raise ValueError(f"Upsert key contains dangerous pattern: '{pattern}'")
+        
+        return upsert_key
+    
+    def _validate_index_name(self, index_name: str) -> str:
+        """
+        Validate and sanitize MySQL index name to prevent SQL injection.
+        
+        Args:
+            index_name: The index name from configuration
+            
+        Returns:
+            Validated and sanitized index name
+            
+        Raises:
+            ValueError: If index name is invalid or contains dangerous characters
+        """
+        if not index_name or not isinstance(index_name, str):
+            raise ValueError("Index name must be a non-empty string")
+        
+        index_name = index_name.strip()
+        
+        if not index_name:
+            raise ValueError("Index name cannot be empty")
+        
+        # Maximum length to prevent DoS (MySQL identifier limit is 64 bytes)
+        if len(index_name) > 64:
+            raise ValueError(f"Index name too long: {len(index_name)} characters (max: 64)")
+        
+        # Validate format: alphanumeric and underscore only
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', index_name):
+            raise ValueError(
+                f"Invalid index name format: '{index_name}'. "
+                f"Must start with letter or underscore and contain only alphanumeric characters and underscores."
+            )
+        
+        # Reject SQL keywords
+        sql_keywords = [
+            'select', 'insert', 'update', 'delete', 'drop', 'create', 'alter',
+            'truncate', 'exec', 'execute', 'union', 'script', '--', ';', '/*', '*/',
+            'table', 'database', 'schema', 'user', 'role', 'grant', 'revoke',
+            'show', 'describe', 'explain', 'use', 'set', 'index'
+        ]
+        index_name_lower = index_name.lower()
+        for keyword in sql_keywords:
+            if index_name_lower == keyword:
+                raise ValueError(f"Index name cannot be SQL keyword: '{keyword}'")
+        
+        # Reject dangerous patterns
+        dangerous_patterns = ['..', '--', ';', '/*', '*/', 'xp_', 'sp_', 'mysql.']
+        for pattern in dangerous_patterns:
+            if pattern in index_name_lower:
+                raise ValueError(f"Index name contains dangerous pattern: '{pattern}'")
+        
+        return index_name
     
     def _validate_hostname(self, hostname: str) -> bool:
         """
@@ -380,10 +494,12 @@ class MySQLModule(BaseModule):
             # Create indexes if specified
             if self.schema and 'indexes' in self.schema:
                 for index_name, index_config in self.schema['indexes'].items():
+                    # SECURITY: Validate index name to prevent SQL injection
+                    validated_index_name = self._validate_index_name(index_name)
                     index_columns = index_config.get('columns', [])
                     if index_columns:
                         quoted_columns = ', '.join([self._quote_identifier(col) for col in index_columns])
-                        quoted_index_name = self._quote_identifier(index_name)
+                        quoted_index_name = self._quote_identifier(validated_index_name)
                         index_query = f"""
                         CREATE INDEX IF NOT EXISTS {quoted_index_name} 
                         ON {quoted_table_name} ({quoted_columns})
