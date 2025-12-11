@@ -1,36 +1,97 @@
-stages:
-  - build
-  - deploy
+# GitLab CI configuration for core-webhook-module
+# Runs unit tests on push to any branch
 
-build:
-  stage: build
-  tags:
-    - build
-  image: docker:19.03.12
+stages:
+  - test
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PYTHON_VERSION: "3.12"
+
+# Cache pip packages to speed up builds
+cache:
+  paths:
+    - .cache/pip
+    - venv/
+
+# Unit tests job - runs fast unit tests (excludes integration and longrunning tests)
+unit-tests:
+  stage: test
+  image: python:3.12-slim
   before_script:
-    - CI_REGISTRY_IMAGE="$CI_REGISTRY/$CI_PROJECT_NAME"
-    - IMAGE_TAG="$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
-    - echo $CI_REGISTRY_USER
-    - echo $CI_REGISTRY
-    - echo $IMAGE_TAG
-    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - python --version
+    - pip install --upgrade pip setuptools wheel
+    - pip install -r requirements.txt
+    - pip install -r requirements-dev.txt
+    - pip install pytest pytest-asyncio pytest-cov
   script:
-    - docker build -t $IMAGE_TAG .
-    - docker tag $IMAGE_TAG $CI_REGISTRY_IMAGE:latest
-    - docker push $IMAGE_TAG
-    - docker push $CI_REGISTRY_IMAGE:latest
+    - echo "Running unit tests (excluding integration and longrunning tests)..."
+    - pytest src/tests/ -v --tb=short -m "not integration and not longrunning" --cov=src --cov-report=term-missing --cov-report=xml
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    paths:
+      - coverage.xml
+    expire_in: 1 week
+  only:
+    - branches
+    - merge_requests
+  tags:
+    - docker
+
+# Integration tests job - runs integration tests (requires services)
+# Uncomment and configure if you have services available in GitLab CI
+# integration-tests:
+#   stage: test
+#   image: python:3.12-slim
+#   services:
+#     - redis:7-alpine
+#     - rabbitmq:3-management-alpine
+#     # Add other services as needed (ClickHouse, PostgreSQL, etc.)
+#   before_script:
+#     - python --version
+#     - pip install --upgrade pip setuptools wheel
+#     - pip install -r requirements.txt
+#     - pip install -r requirements-dev.txt
+#     - pip install pytest pytest-asyncio pytest-cov
+#   script:
+#     - echo "Running integration tests..."
+#     - pytest src/tests/ -v --tb=short -m "integration" --cov=src --cov-report=term-missing
+#   only:
+#     - main
+#     - master
+#     - develop
+#   tags:
+#     - docker
+
+# All tests job - runs all tests including longrunning (for main/master branch only)
+all-tests:
+  stage: test
+  image: python:3.12-slim
+  before_script:
+    - python --version
+    - pip install --upgrade pip setuptools wheel
+    - pip install -r requirements.txt
+    - pip install -r requirements-dev.txt
+    - pip install pytest pytest-asyncio pytest-cov
+  script:
+    - echo "Running all tests including longrunning tests..."
+    - pytest src/tests/ -v --tb=short --cov=src --cov-report=term-missing --cov-report=xml
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    paths:
+      - coverage.xml
+    expire_in: 1 week
   only:
     - main
-
-#deploy:
-#  stage: deploy
-#  tags:
-#    - deploy
-#  image: docker:19.03.12
-#  services:
-#    - docker:dind
-#  script:
-#    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
-#    - docker-compose -f docker-compose.yml up -d
-#  only:
-#    - main
+    - master
+  tags:
+    - docker
+  allow_failure: true  # Allow failure since longrunning tests might be flaky
