@@ -8,6 +8,7 @@ test_url = f"http://{ host }"
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_app_response():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url=test_url) as ac:

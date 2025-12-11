@@ -9,6 +9,7 @@ base_url = f"http://{host}"
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_stats_requires_token_when_configured(monkeypatch):
     """Ensure STATS_AUTH_TOKEN is enforced when configured."""
     # Configure token auth and disable IP whitelist to isolate behavior
@@ -41,6 +42,7 @@ async def test_stats_requires_token_when_configured(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_stats_ip_whitelist_enforced(monkeypatch):
     """Ensure STATS_ALLOWED_IPS restricts access based on client IP."""
     # Remove token auth so we only exercise IP whitelist behavior
@@ -63,6 +65,7 @@ async def test_stats_ip_whitelist_enforced(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_stats_rate_limit_enforced(monkeypatch):
     """Ensure STATS_RATE_LIMIT applies per-client rate limiting."""
     # Disable auth and IP whitelist so we only test rate limiting
