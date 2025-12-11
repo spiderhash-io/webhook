@@ -5,6 +5,134 @@ Generates OpenAPI 3.0 documentation dynamically from webhooks.json configuration
 """
 from typing import Dict, List, Any, Optional
 import json
+import re
+import html
+import ipaddress
+from urllib.parse import urlparse
+
+
+def _validate_webhook_id(webhook_id: Any) -> Optional[str]:
+    """
+    Validate and sanitize webhook_id to prevent injection attacks and DoS.
+    
+    Args:
+        webhook_id: The webhook identifier to validate
+        
+    Returns:
+        Validated webhook_id string or None if invalid
+        
+    Raises:
+        ValueError: If webhook_id is invalid or contains dangerous characters
+    """
+    if not webhook_id or not isinstance(webhook_id, str):
+        return None
+    
+    webhook_id = webhook_id.strip()
+    
+    if not webhook_id:
+        return None
+    
+    # Maximum length to prevent DoS (256 chars is reasonable for identifiers)
+    MAX_WEBHOOK_ID_LENGTH = 256
+    if len(webhook_id) > MAX_WEBHOOK_ID_LENGTH:
+        return None
+    
+    # Reject null bytes and control characters (including tab, formfeed, etc.)
+    # Control characters are 0x00-0x1F and 0x7F
+    if '\x00' in webhook_id:
+        return None
+    
+    # Check for control characters (excluding space 0x20)
+    for char in webhook_id:
+        if ord(char) < 32 or ord(char) == 127:
+            return None
+    
+    # Reject dangerous characters that could be used in path injection
+    dangerous_chars = [';', '|', '&', '$', '`', '\\', '/', '(', ')', '<', '>', '?', '*', '!', '{', '}', '[', ']']
+    for char in dangerous_chars:
+        if char in webhook_id:
+            return None
+    
+    # Reject path traversal patterns
+    if '..' in webhook_id or webhook_id.startswith('/') or webhook_id.startswith('\\'):
+        return None
+    
+    return webhook_id
+
+
+def _sanitize_for_description(text: str) -> str:
+    """
+    Sanitize text for use in OpenAPI descriptions to prevent XSS.
+    
+    Args:
+        text: Text to sanitize
+        
+    Returns:
+        HTML-escaped text safe for OpenAPI descriptions
+    """
+    if not isinstance(text, str):
+        return str(text)
+    
+    # HTML escape to prevent XSS
+    sanitized = html.escape(text)
+    
+    # Replace control characters with safe representations
+    sanitized = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', '', sanitized)
+    
+    return sanitized
+
+
+def _validate_oauth2_endpoint(endpoint: str) -> bool:
+    """
+    Validate OAuth2 introspection endpoint to prevent SSRF information disclosure.
+    
+    Args:
+        endpoint: OAuth2 introspection endpoint URL
+        
+    Returns:
+        True if endpoint is safe to expose, False otherwise
+    """
+    if not endpoint or not isinstance(endpoint, str):
+        return False
+    
+    try:
+        parsed = urlparse(endpoint)
+        host = parsed.hostname
+        
+        if not host:
+            return False
+        
+        # Block private IP ranges (RFC 1918)
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+                return False
+        except ValueError:
+            # Not an IP address, check hostname
+            # Block localhost variants
+            if host.lower() in ['localhost', '127.0.0.1', '0.0.0.0', '::1']:
+                return False
+            
+            # Block cloud metadata service hostnames
+            metadata_hostnames = [
+                '169.254.169.254',  # AWS, GCP, Azure metadata
+                'metadata.google.internal',
+                'metadata.azure.com',
+                'instance-data',
+                'instance-data.ecs',
+                'ecs-metadata',
+                '100.100.100.200',  # Azure IMDS
+            ]
+            if host.lower() in metadata_hostnames:
+                return False
+        
+        # Only allow http and https schemes
+        if parsed.scheme.lower() not in ['http', 'https']:
+            return False
+        
+        return True
+    except Exception:
+        return False
 
 
 def generate_openapi_schema(webhook_config_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -44,9 +172,15 @@ def generate_openapi_schema(webhook_config_data: Dict[str, Any]) -> Dict[str, An
     security_schemes = {}
     
     for webhook_id, config in webhook_config_data.items():
-        path_item = generate_webhook_path(webhook_id, config)
+        # SECURITY: Validate webhook_id to prevent injection attacks
+        validated_webhook_id = _validate_webhook_id(webhook_id)
+        if not validated_webhook_id:
+            # Skip invalid webhook_ids
+            continue
+        
+        path_item = generate_webhook_path(validated_webhook_id, config)
         if path_item:
-            paths[f"/webhook/{webhook_id}"] = path_item
+            paths[f"/webhook/{validated_webhook_id}"] = path_item
             
             # Extract and add security schemes
             schemes = extract_auth_schemes(config)
@@ -76,36 +210,50 @@ def generate_webhook_path(webhook_id: str, config: Dict[str, Any]) -> Optional[D
     
     data_type = config.get("data_type", "json")
     
+    # SECURITY: Sanitize webhook_id and module for descriptions to prevent XSS
+    sanitized_webhook_id = _sanitize_for_description(webhook_id)
+    
     # Build description
     description_parts = []
-    description_parts.append(f"Webhook endpoint: {webhook_id}")
+    description_parts.append(f"Webhook endpoint: {sanitized_webhook_id}")
     
     module = config.get("module", "unknown")
-    description_parts.append(f"Module: {module}")
+    sanitized_module = _sanitize_for_description(str(module))
+    description_parts.append(f"Module: {sanitized_module}")
     
     # Add security features to description
     security_info = extract_security_info(config)
     if security_info:
         description_parts.append("\n**Security Features:**")
         for feature, value in security_info.items():
-            description_parts.append(f"- {feature}: {value}")
+            # SECURITY: Sanitize security info values to prevent XSS
+            sanitized_feature = _sanitize_for_description(feature)
+            sanitized_value = _sanitize_for_description(str(value))
+            description_parts.append(f"- {sanitized_feature}: {sanitized_value}")
+    
+    # SECURITY: Sanitize webhook_id in operationId (alphanumeric + underscore only)
+    # Remove any remaining dangerous characters
+    safe_operation_id = re.sub(r'[^a-zA-Z0-9_]', '_', webhook_id)
+    if not safe_operation_id or not safe_operation_id[0].isalpha():
+        safe_operation_id = f"webhook_{safe_operation_id}" if safe_operation_id else "webhook_unknown"
+    operation_id = f"post_webhook_{safe_operation_id}"
     
     # Build path item
     path_item = {
         "post": {
             "tags": ["webhooks"],
-            "summary": f"Send webhook to {webhook_id}",
+            "summary": f"Send webhook to {sanitized_webhook_id}",
             "description": "\n".join(description_parts),
-            "operationId": f"post_webhook_{webhook_id}",
+            "operationId": operation_id,
             "parameters": [
                 {
                     "name": "webhook_id",
                     "in": "path",
                     "required": True,
-                    "description": f"Webhook identifier: {webhook_id}",
+                    "description": f"Webhook identifier: {sanitized_webhook_id}",
                     "schema": {
                         "type": "string",
-                        "example": webhook_id
+                        "example": sanitized_webhook_id
                     }
                 }
             ],
@@ -163,15 +311,34 @@ def extract_auth_schemes(config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         
         # Determine flow type (most webhooks use client credentials)
         if oauth2_config.get("introspection_endpoint"):
-            flows["clientCredentials"] = {
-                "tokenUrl": oauth2_config.get("introspection_endpoint", ""),
-                "scopes": {}
-            }
-            # Add required scopes if specified
-            required_scopes = oauth2_config.get("required_scope", [])
-            if isinstance(required_scopes, list):
-                for scope in required_scopes:
-                    flows["clientCredentials"]["scopes"][scope] = f"Required scope: {scope}"
+            introspection_endpoint = oauth2_config.get("introspection_endpoint", "")
+            
+            # SECURITY: Validate OAuth2 endpoint to prevent SSRF information disclosure
+            # Only expose endpoints that are safe (not private IPs, localhost, etc.)
+            if _validate_oauth2_endpoint(introspection_endpoint):
+                flows["clientCredentials"] = {
+                    "tokenUrl": introspection_endpoint,
+                    "scopes": {}
+                }
+                # Add required scopes if specified
+                required_scopes = oauth2_config.get("required_scope", [])
+                if isinstance(required_scopes, list):
+                    for scope in required_scopes:
+                        # SECURITY: Sanitize scope names
+                        sanitized_scope = _sanitize_for_description(str(scope))
+                        flows["clientCredentials"]["scopes"][sanitized_scope] = f"Required scope: {sanitized_scope}"
+            else:
+                # Internal/private endpoint - don't expose in schema
+                # Still add OAuth2 scheme but without tokenUrl
+                flows["clientCredentials"] = {
+                    "scopes": {}
+                }
+                # Add required scopes if specified
+                required_scopes = oauth2_config.get("required_scope", [])
+                if isinstance(required_scopes, list):
+                    for scope in required_scopes:
+                        sanitized_scope = _sanitize_for_description(str(scope))
+                        flows["clientCredentials"]["scopes"][sanitized_scope] = f"Required scope: {sanitized_scope}"
         
         schemes["oauth2"] = {
             "type": "oauth2",
@@ -190,33 +357,39 @@ def extract_auth_schemes(config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     if config.get("hmac"):
         hmac_config = config.get("hmac", {})
         header_name = hmac_config.get("header", "X-HMAC-Signature")
+        # SECURITY: Sanitize header name for description
+        sanitized_header_name = _sanitize_for_description(str(header_name))
         schemes["hmacAuth"] = {
             "type": "apiKey",
             "in": "header",
-            "name": header_name,
-            "description": f"HMAC signature authentication (header: {header_name})"
+            "name": header_name,  # Keep original for actual header name
+            "description": f"HMAC signature authentication (header: {sanitized_header_name})"
         }
     
     # Header-based auth
     if config.get("header_auth"):
         header_auth_config = config.get("header_auth", {})
         header_name = header_auth_config.get("header_name", "X-API-Key")
+        # SECURITY: Sanitize header name for description
+        sanitized_header_name = _sanitize_for_description(str(header_name))
         schemes["headerAuth"] = {
             "type": "apiKey",
             "in": "header",
-            "name": header_name,
-            "description": f"API key in header: {header_name}"
+            "name": header_name,  # Keep original for actual header name
+            "description": f"API key in header: {sanitized_header_name}"
         }
     
     # Query parameter auth
     if config.get("query_auth"):
         query_auth_config = config.get("query_auth", {})
         param_name = query_auth_config.get("parameter_name", "api_key")
+        # SECURITY: Sanitize parameter name for description
+        sanitized_param_name = _sanitize_for_description(str(param_name))
         schemes["queryAuth"] = {
             "type": "apiKey",
             "in": "query",
-            "name": param_name,
-            "description": f"API key in query parameter: {param_name}"
+            "name": param_name,  # Keep original for actual parameter name
+            "description": f"API key in query parameter: {sanitized_param_name}"
         }
     
     # Digest Auth
@@ -341,8 +514,38 @@ def extract_request_schema(config: Dict[str, Any]) -> Dict[str, Any]:
     if "json_schema" in config:
         json_schema = config.get("json_schema")
         if isinstance(json_schema, dict):
-            # JSON Schema is compatible with OpenAPI Schema
-            return json_schema
+            # SECURITY: Validate JSON schema structure to prevent injection
+            # Basic validation - check for circular references
+            try:
+                # Try to serialize to check for circular references
+                # Use a custom function to limit depth
+                def _check_schema_depth(obj, depth=0, visited=None):
+                    if visited is None:
+                        visited = set()
+                    if depth > 20:  # Limit depth to prevent DoS
+                        raise RecursionError("Schema too deeply nested")
+                    obj_id = id(obj)
+                    if obj_id in visited:
+                        raise ValueError("Circular reference detected")
+                    if isinstance(obj, dict):
+                        visited.add(obj_id)
+                        for value in obj.values():
+                            _check_schema_depth(value, depth + 1, visited)
+                        visited.discard(obj_id)
+                    elif isinstance(obj, list):
+                        visited.add(obj_id)
+                        for item in obj:
+                            _check_schema_depth(item, depth + 1, visited)
+                        visited.discard(obj_id)
+                
+                _check_schema_depth(json_schema)
+                # Also try to serialize to ensure it's valid JSON
+                json.dumps(json_schema)
+                # JSON Schema is compatible with OpenAPI Schema
+                return json_schema
+            except (ValueError, RecursionError, TypeError):
+                # Invalid schema (circular reference or too deep) - use generic schema
+                pass
     
     # Otherwise, generate a generic schema based on data_type
     data_type = config.get("data_type", "json")
@@ -394,7 +597,10 @@ def extract_security_info(config: Dict[str, Any]) -> Dict[str, str]:
         hmac_config = config.get("hmac", {})
         algorithm = hmac_config.get("algorithm", "sha256")
         header = hmac_config.get("header", "X-HMAC-Signature")
-        info["HMAC Verification"] = f"{algorithm.upper()} signature in {header} header"
+        # SECURITY: Sanitize values to prevent XSS
+        sanitized_algorithm = _sanitize_for_description(str(algorithm).upper())
+        sanitized_header = _sanitize_for_description(str(header))
+        info["HMAC Verification"] = f"{sanitized_algorithm} signature in {sanitized_header} header"
     
     # reCAPTCHA
     if config.get("recaptcha"):

@@ -190,22 +190,48 @@ class WebhookHandler:
         self.headers = self.request.headers
         self._cached_body = None  # Cache request body after first read
         
+        # SECURITY: Validate config type before validator instantiation to prevent type confusion
+        if not isinstance(self.config, dict):
+            raise HTTPException(
+                status_code=500,
+                detail="Invalid webhook configuration: configuration must be a dictionary"
+            )
+        
         # Initialize validators
-        self.validators = [
-            RateLimitValidator(self.config, webhook_id),  # Check rate limit first
-            RecaptchaValidator(self.config),  # Google reCAPTCHA validation
-            BasicAuthValidator(self.config),  # Basic auth
-            DigestAuthValidator(self.config),  # Digest auth
-            JWTValidator(self.config),  # JWT auth
-            OAuth1Validator(self.config),  # OAuth 1.0 signature validation
-            OAuth2Validator(self.config),  # OAuth 2.0 token validation
-            AuthorizationValidator(self.config),  # Bearer token (simple)
-            HMACValidator(self.config),  # HMAC signature
-            IPWhitelistValidator(self.config, request=self.request),  # IP whitelist (pass request for secure IP detection)
-            JsonSchemaValidator(self.config),  # JSON Schema validation
-            QueryParameterAuthValidator(self.config),  # Query parameter auth
-            HeaderAuthValidator(self.config),  # Header-based API key auth
-        ]
+        # SECURITY: Validator instantiation is wrapped in try-except to handle instantiation errors
+        try:
+            self.validators = [
+                RateLimitValidator(self.config, webhook_id),  # Check rate limit first
+                RecaptchaValidator(self.config),  # Google reCAPTCHA validation
+                BasicAuthValidator(self.config),  # Basic auth
+                DigestAuthValidator(self.config),  # Digest auth
+                JWTValidator(self.config),  # JWT auth
+                OAuth1Validator(self.config),  # OAuth 1.0 signature validation
+                OAuth2Validator(self.config),  # OAuth 2.0 token validation
+                AuthorizationValidator(self.config),  # Bearer token (simple)
+                HMACValidator(self.config),  # HMAC signature
+                IPWhitelistValidator(self.config, request=self.request),  # IP whitelist (pass request for secure IP detection)
+                JsonSchemaValidator(self.config),  # JSON Schema validation
+                QueryParameterAuthValidator(self.config),  # Query parameter auth
+                HeaderAuthValidator(self.config),  # Header-based API key auth
+            ]
+        except TypeError as e:
+            # SECURITY: Handle type errors during validator instantiation
+            # This can occur if config is not a dict (caught by BaseValidator)
+            print(f"ERROR: Failed to instantiate validators for webhook '{webhook_id}': {e}")
+            from src.utils import sanitize_error_message
+            raise HTTPException(
+                status_code=500,
+                detail=sanitize_error_message(e, "validator instantiation")
+            )
+        except Exception as e:
+            # SECURITY: Handle other exceptions during validator instantiation
+            print(f"ERROR: Failed to instantiate validators for webhook '{webhook_id}': {e}")
+            from src.utils import sanitize_error_message
+            raise HTTPException(
+                status_code=500,
+                detail=sanitize_error_message(e, "validator instantiation")
+            )
 
     async def validate_webhook(self):
         """Validate webhook using all configured validators."""
@@ -233,6 +259,21 @@ class WebhookHandler:
                 else:
                     is_valid, message = await validator.validate(headers_dict, body)
                 
+                # SECURITY: Validate validator return types to prevent type confusion attacks
+                # Ensure is_valid is a boolean (or truthy/falsy value that can be evaluated)
+                if not isinstance(is_valid, bool):
+                    # Convert to boolean using truthiness, but log warning
+                    print(f"WARNING: Validator {type(validator).__name__} returned non-boolean is_valid: {type(is_valid).__name__}")
+                    is_valid = bool(is_valid)
+                
+                # Ensure message is a string
+                if not isinstance(message, str):
+                    # Convert to string safely
+                    if message is None:
+                        message = "Validation failed"
+                    else:
+                        message = str(message)
+                
                 if not is_valid:
                     return False, message
             except Exception as e:
@@ -240,6 +281,12 @@ class WebhookHandler:
                 # Log detailed error server-side only
                 print(f"ERROR: Validator exception for webhook '{self.webhook_id}': {e}")
                 # Return generic error to client (don't expose internal details)
+                from src.utils import sanitize_error_message
+                return False, sanitize_error_message(e, "webhook validation")
+            except BaseException as e:
+                # SECURITY: Catch BaseException (SystemExit, KeyboardInterrupt) to prevent application crash
+                # These should not normally occur, but we handle them defensively
+                print(f"ERROR: Validator raised BaseException for webhook '{self.webhook_id}': {type(e).__name__}")
                 from src.utils import sanitize_error_message
                 return False, sanitize_error_message(e, "webhook validation")
         
@@ -272,7 +319,15 @@ class WebhookHandler:
             raise HTTPException(status_code=413, detail=msg)
         
         # Read the incoming data based on its type
-        if self.config['data_type'] == 'json':
+        # SECURITY: Validate data_type exists and is a string to prevent KeyError and type confusion
+        data_type = self.config.get('data_type')
+        if not data_type:
+            raise HTTPException(status_code=400, detail="Missing data_type configuration")
+        
+        if not isinstance(data_type, str):
+            raise HTTPException(status_code=400, detail="Invalid data_type configuration: must be a string")
+        
+        if data_type == 'json':
             try:
                 # Safely decode body with encoding detection and fallback
                 from src.utils import safe_decode_body
@@ -302,7 +357,7 @@ class WebhookHandler:
             if not is_valid:
                 raise HTTPException(status_code=400, detail=msg)
             
-        elif self.config['data_type'] == 'blob':
+        elif data_type == 'blob':
             payload = body
             # Additional blob handling...
         else:

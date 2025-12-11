@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
-from src.utils import load_env_vars
+from src.utils import load_env_vars, sanitize_error_message
 from src.config import _validate_connection_host, _validate_connection_port
 from src.modules.registry import ModuleRegistry
 from src.connection_pool_registry import (
@@ -101,9 +101,11 @@ class ConfigManager:
                 }
             )
         except Exception as e:
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "ConfigManager.initialize")
             return ReloadResult(
                 success=False,
-                error=f"Initialization failed: {str(e)}"
+                error=f"Initialization failed: {sanitized_error}"
             )
     
     async def reload_webhooks(self) -> ReloadResult:
@@ -167,16 +169,20 @@ class ConfigManager:
         except json.JSONDecodeError as e:
             async with self._lock:
                 self._reload_in_progress = False
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "ConfigManager.reload_webhooks")
             return ReloadResult(
                 success=False,
-                error=f"Invalid JSON in webhooks.json: {str(e)}"
+                error=f"Invalid JSON in webhooks.json: {sanitized_error}"
             )
         except Exception as e:
             async with self._lock:
                 self._reload_in_progress = False
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "ConfigManager.reload_webhooks")
             return ReloadResult(
                 success=False,
-                error=f"Failed to reload webhooks: {str(e)}"
+                error=f"Failed to reload webhooks: {sanitized_error}"
             )
     
     async def reload_connections(self) -> ReloadResult:
@@ -244,16 +250,20 @@ class ConfigManager:
         except json.JSONDecodeError as e:
             async with self._lock:
                 self._reload_in_progress = False
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "ConfigManager.reload_connections")
             return ReloadResult(
                 success=False,
-                error=f"Invalid JSON in connections.json: {str(e)}"
+                error=f"Invalid JSON in connections.json: {sanitized_error}"
             )
         except Exception as e:
             async with self._lock:
                 self._reload_in_progress = False
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "ConfigManager.reload_connections")
             return ReloadResult(
                 success=False,
-                error=f"Failed to reload connections: {str(e)}"
+                error=f"Failed to reload connections: {sanitized_error}"
             )
     
     async def reload_all(self) -> ReloadResult:
@@ -386,7 +396,9 @@ class ConfigManager:
             except KeyError:
                 return f"Webhook '{webhook_id}' uses unknown module '{module_name}'"
             except Exception as e:
-                return f"Webhook '{webhook_id}' module validation error: {str(e)}"
+                # SECURITY: Sanitize error message to prevent information disclosure
+                sanitized_error = sanitize_error_message(e, f"ConfigManager._validate_webhook_config")
+                return f"Webhook '{webhook_id}' module validation error: {sanitized_error}"
             
             # Validate connection reference if present
             connection_name = webhook_config.get('connection')

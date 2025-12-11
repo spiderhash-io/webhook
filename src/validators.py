@@ -18,7 +18,13 @@ class BaseValidator(ABC):
         
         Args:
             config: The webhook configuration
+            
+        Raises:
+            TypeError: If config is not a dictionary
         """
+        # SECURITY: Validate config type to prevent type confusion attacks
+        if not isinstance(config, dict):
+            raise TypeError(f"Config must be a dictionary, got {type(config).__name__}")
         self.config = config
     
     @abstractmethod
@@ -114,10 +120,25 @@ class AuthorizationValidator(BaseValidator):
         """Validate authorization header using constant-time comparison."""
         expected_auth = self.config.get("authorization", "")
         
+        # SECURITY: Handle non-string authorization config (type confusion)
+        if not isinstance(expected_auth, str):
+            # Non-string config means no authorization required
+            return True, "No authorization required"
+        
+        # SECURITY: Normalize and check if authorization is empty/whitespace-only
+        expected_auth = expected_auth.strip()
         if not expected_auth:
             return True, "No authorization required"
         
+        # SECURITY: Handle None header values (type confusion attack)
         authorization_header = headers.get('authorization', '')
+        if authorization_header is None:
+            # None header value means missing header
+            return False, "Unauthorized"
+        
+        # SECURITY: Ensure header value is a string (type confusion attack)
+        if not isinstance(authorization_header, str):
+            return False, "Unauthorized"
         
         # Validate header format to prevent header injection
         is_valid_format, format_error = self._validate_header_format(authorization_header)
@@ -126,7 +147,6 @@ class AuthorizationValidator(BaseValidator):
         
         # Normalize header value (strip whitespace)
         authorization_header = authorization_header.strip()
-        expected_auth = expected_auth.strip()
         
         # Check if expected auth is a Bearer token
         if expected_auth.startswith("Bearer "):

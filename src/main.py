@@ -11,7 +11,7 @@ from typing import Optional
 
 from src.webhook import WebhookHandler
 from src.config import inject_connection_details, webhook_config_data, connection_config
-from src.utils import RedisEndpointStats
+from src.utils import RedisEndpointStats, sanitize_error_message
 from src.rate_limiter import rate_limiter
 from src.clickhouse_analytics import ClickHouseAnalytics
 from src.config_manager import ConfigManager
@@ -65,7 +65,9 @@ if not DISABLE_OPENAPI_DOCS:
             if config_to_use:
                 return generate_openapi_schema(config_to_use)
         except Exception as e:
-            print(f"WARNING: Failed to generate OpenAPI schema: {e}")
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "custom_openapi")
+            print(f"WARNING: Failed to generate OpenAPI schema: {sanitized_error}")
         # Fallback to default if generation fails
         return original_openapi()
     
@@ -275,7 +277,9 @@ async def startup_event():
         else:
             print(f"ConfigManager initialization warning: {init_result.error}")
     except Exception as e:
-        print(f"Failed to initialize ConfigManager: {e}")
+        # SECURITY: Sanitize error message to prevent information disclosure
+        sanitized_error = sanitize_error_message(e, "startup_event.ConfigManager")
+        print(f"Failed to initialize ConfigManager: {sanitized_error}")
         # Fallback to old config loading
         webhook_config_data = await inject_connection_details(webhook_config_data, connection_config)
     else:
@@ -306,7 +310,9 @@ async def startup_event():
             await clickhouse_logger.connect()
             print("ClickHouse event logger initialized - all webhook events will be logged")
         except Exception as e:
-            print(f"Failed to initialize ClickHouse logger: {e}")
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "startup_event.ClickHouse")
+            print(f"Failed to initialize ClickHouse logger: {sanitized_error}")
             print("Continuing without ClickHouse logging...")
     else:
         print("No ClickHouse connection found - webhook events will not be logged to ClickHouse")
@@ -315,12 +321,29 @@ async def startup_event():
     file_watching_enabled = os.getenv("CONFIG_FILE_WATCHING_ENABLED", "false").lower() == "true"
     if file_watching_enabled and config_manager:
         try:
-            debounce_seconds = float(os.getenv("CONFIG_RELOAD_DEBOUNCE_SECONDS", "3.0"))
+            # SECURITY: Validate debounce_seconds to prevent DoS via invalid values
+            debounce_str = os.getenv("CONFIG_RELOAD_DEBOUNCE_SECONDS", "3.0")
+            try:
+                debounce_seconds = float(debounce_str)
+                # Validate range: 0.1 to 3600 seconds (0.1s to 1 hour)
+                if debounce_seconds < 0.1:
+                    debounce_seconds = 3.0  # Default to 3.0 if too small
+                    print(f"WARNING: CONFIG_RELOAD_DEBOUNCE_SECONDS too small, using default 3.0")
+                elif debounce_seconds > 3600:
+                    debounce_seconds = 3600  # Cap at 1 hour
+                    print(f"WARNING: CONFIG_RELOAD_DEBOUNCE_SECONDS too large, capped at 3600")
+            except (ValueError, TypeError):
+                # Invalid value, use default
+                debounce_seconds = 3.0
+                print(f"WARNING: Invalid CONFIG_RELOAD_DEBOUNCE_SECONDS value '{debounce_str}', using default 3.0")
+            
             config_watcher = ConfigFileWatcher(config_manager, debounce_seconds=debounce_seconds)
             config_watcher.start()
             print("Config file watcher started - automatic reload enabled")
         except Exception as e:
-            print(f"Failed to start config file watcher: {e}")
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "startup_event.ConfigFileWatcher")
+            print(f"Failed to start config file watcher: {sanitized_error}")
 
     asyncio.create_task(cleanup_task())
 
@@ -329,14 +352,35 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown."""
     global clickhouse_logger, config_watcher, config_manager
+    
+    # SECURITY: Handle errors gracefully during shutdown to prevent information disclosure
     if config_watcher:
-        config_watcher.stop()
+        try:
+            config_watcher.stop()
+        except Exception as e:
+            sanitized_error = sanitize_error_message(e, "shutdown_event.ConfigFileWatcher")
+            print(f"Error stopping config file watcher: {sanitized_error}")
+    
     if config_manager:
-        await config_manager.pool_registry.close_all_pools()
+        try:
+            await config_manager.pool_registry.close_all_pools()
+        except Exception as e:
+            sanitized_error = sanitize_error_message(e, "shutdown_event.ConnectionPools")
+            print(f"Error closing connection pools: {sanitized_error}")
+    
     if clickhouse_logger:
-        await clickhouse_logger.disconnect()
+        try:
+            await clickhouse_logger.disconnect()
+        except Exception as e:
+            sanitized_error = sanitize_error_message(e, "shutdown_event.ClickHouse")
+            print(f"Error disconnecting ClickHouse logger: {sanitized_error}")
+    
     # Close Redis connection
-    await stats.close()
+    try:
+        await stats.close()
+    except Exception as e:
+        sanitized_error = sanitize_error_message(e, "shutdown_event.RedisStats")
+        print(f"Error closing Redis stats: {sanitized_error}")
 
 
 @app.post("/webhook/{webhook_id}")

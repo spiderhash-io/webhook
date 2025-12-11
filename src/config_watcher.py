@@ -10,6 +10,7 @@ import threading
 from typing import Optional
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileModifiedEvent
+from src.utils import sanitize_error_message
 
 
 class ConfigFileHandler(FileSystemEventHandler):
@@ -42,9 +43,14 @@ class ConfigFileHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         
-        # Only handle webhooks.json and connections.json
+        # SECURITY: Use exact filename matching to prevent bypass attacks
+        # Simple string matching ('webhooks.json' in file_path) can be bypassed
+        # with filenames like 'malicious_webhooks.json' or 'webhooks.json.backup'
         file_path = event.src_path
-        if 'webhooks.json' in file_path or 'connections.json' in file_path:
+        filename = os.path.basename(file_path)
+        
+        # Only handle exact filenames: webhooks.json and connections.json
+        if filename == 'webhooks.json' or filename == 'connections.json':
             self._debounce_reload(file_path)
     
     def _debounce_reload(self, file_path: str):
@@ -117,20 +123,26 @@ class ConfigFileHandler(FileSystemEventHandler):
             file_path: Path to the modified file
         """
         try:
-            if 'webhooks.json' in file_path:
+            # SECURITY: Use exact filename matching to prevent bypass attacks
+            filename = os.path.basename(file_path)
+            if filename == 'webhooks.json':
                 result = await self.config_manager.reload_webhooks()
                 if result.success:
                     print(f"Webhook config reloaded successfully: {result.details}")
                 else:
+                    # SECURITY: Error message is already sanitized by ConfigManager
                     print(f"Webhook config reload failed: {result.error}")
-            elif 'connections.json' in file_path:
+            elif filename == 'connections.json':
                 result = await self.config_manager.reload_connections()
                 if result.success:
                     print(f"Connection config reloaded successfully: {result.details}")
                 else:
+                    # SECURITY: Error message is already sanitized by ConfigManager
                     print(f"Connection config reload failed: {result.error}")
         except Exception as e:
-            print(f"Error during config reload: {e}")
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "ConfigFileWatcher._async_reload")
+            print(f"Error during config reload: {sanitized_error}")
 
 
 class ConfigFileWatcher:

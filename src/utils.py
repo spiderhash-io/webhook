@@ -319,7 +319,7 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
     return value
 
 
-def load_env_vars(data):
+def load_env_vars(data, visited=None, depth=0):
     """
     Load environment variables from configuration data.
     
@@ -335,12 +335,36 @@ def load_env_vars(data):
     
     Security: All environment variable values are sanitized to prevent injection attacks.
     
+    SECURITY: Implements depth limit and visited set tracking to prevent:
+    - Deep recursion DoS attacks (stack overflow)
+    - Circular reference infinite loops
+    
     Args:
         data: Configuration data (dict, list, or primitive)
+        visited: Set of object IDs already visited (for circular reference detection)
+        depth: Current recursion depth (for depth limit enforcement)
         
     Returns:
         Data with environment variables replaced and sanitized
     """
+    # SECURITY: Limit recursion depth to prevent stack overflow DoS attacks
+    MAX_RECURSION_DEPTH = 100
+    if depth > MAX_RECURSION_DEPTH:
+        # Return data as-is if depth limit exceeded (fail-safe)
+        return data
+    
+    # SECURITY: Track visited objects to prevent infinite loops from circular references
+    if visited is None:
+        visited = set()
+    
+    # For mutable objects (dict, list), track by id to detect circular references
+    if isinstance(data, (dict, list)):
+        data_id = id(data)
+        if data_id in visited:
+            # Circular reference detected - return data as-is to prevent infinite loop
+            return data
+        visited.add(data_id)
+    
     # Pattern 1: Exact match {$VAR} or {$VAR:default} (default can be empty)
     exact_pattern = re.compile(r'^\{\$(\w+)(?::(.*))?\}$')
     # Pattern 2: Embedded variables in strings {$VAR} or {$VAR:default}
@@ -391,19 +415,28 @@ def load_env_vars(data):
             new_value = embedded_pattern.sub(replace_embedded, value)
             return new_value
 
-    if isinstance(data, dict):
-        for key, value in data.items():
-            if isinstance(value, str):
-                data[key] = process_string(value, key)
-            else:
-                # Recursive call for nested dictionaries or lists
-                load_env_vars(value)
-    elif isinstance(data, list):
-        for i, item in enumerate(data):
-            if isinstance(item, str):
-                data[i] = process_string(item, f"list[{i}]")
-            else:
-                load_env_vars(item)
+    try:
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, str):
+                    data[key] = process_string(value, key)
+                else:
+                    # Recursive call for nested dictionaries or lists
+                    load_env_vars(value, visited, depth + 1)
+        elif isinstance(data, list):
+            for i, item in enumerate(data):
+                if isinstance(item, str):
+                    data[i] = process_string(item, f"list[{i}]")
+                else:
+                    load_env_vars(item, visited, depth + 1)
+        elif isinstance(data, str):
+            # SECURITY: Handle string values directly (not in dict/list)
+            return process_string(data)
+        # For other types (int, bool, None, etc.), return as-is
+    finally:
+        # Clean up visited set when done with this branch
+        if isinstance(data, (dict, list)):
+            visited.discard(id(data))
 
     return data
 
@@ -796,15 +829,31 @@ class CredentialCleaner:
         Args:
             custom_fields: Additional field names to treat as credentials
             mode: 'mask' to replace with mask value, 'remove' to delete field
+            
+        Raises:
+            ValueError: If mode is invalid
+            TypeError: If custom_fields is not a list or None
         """
+        # SECURITY: Validate mode type and value to prevent injection attacks
+        if mode is None:
+            raise ValueError("Mode must be 'mask' or 'remove', got None")
+        if not isinstance(mode, str):
+            raise ValueError(f"Mode must be a string, got {type(mode).__name__}")
+        
         self.mode = mode.lower()
         if self.mode not in ('mask', 'remove'):
             raise ValueError(f"Mode must be 'mask' or 'remove', got '{mode}'")
         
+        # SECURITY: Validate custom_fields type to prevent type confusion attacks
+        if custom_fields is not None and not isinstance(custom_fields, list):
+            raise TypeError(f"custom_fields must be a list or None, got {type(custom_fields).__name__}")
+        
         # Combine default and custom fields
         all_fields = set(field.lower() for field in self.DEFAULT_CREDENTIAL_FIELDS)
         if custom_fields:
-            all_fields.update(field.lower() for field in custom_fields)
+            # SECURITY: Filter out non-string items from custom_fields to prevent type confusion
+            string_fields = [field for field in custom_fields if isinstance(field, str)]
+            all_fields.update(field.lower() for field in string_fields)
         
         self.credential_fields = list(all_fields)
     
@@ -846,39 +895,68 @@ class CredentialCleaner:
         
         return False
     
-    def _clean_dict_recursive(self, data: Any, path: str = '') -> Any:
+    def _clean_dict_recursive(self, data: Any, path: str = '', visited: Optional[set] = None, depth: int = 0) -> Any:
         """
         Recursively clean credentials from dictionary or list structures.
+        
+        SECURITY: Implements depth limit and visited set tracking to prevent:
+        - Deep recursion DoS attacks (stack overflow)
+        - Circular reference infinite loops
         
         Args:
             data: The data structure to clean (dict, list, or primitive)
             path: Current path in the structure (for debugging)
+            visited: Set of object IDs already visited (for circular reference detection)
+            depth: Current recursion depth (for depth limit enforcement)
             
         Returns:
             Cleaned data structure
         """
-        if isinstance(data, dict):
-            cleaned = {}
-            for key, value in data.items():
-                if self._is_credential_field(key):
-                    # Only mask if value is a primitive (not a container)
-                    # Containers should be processed recursively to clean their contents
-                    if isinstance(value, (dict, list)):
-                        # Process container recursively to clean its contents
-                        cleaned[key] = self._clean_dict_recursive(value, f"{path}.{key}" if path else key)
-                    elif self.mode == 'mask':
-                        cleaned[key] = self.MASK_VALUE
-                    # else: remove mode - don't add to cleaned dict
-                else:
-                    # Recursively clean nested structures
-                    cleaned[key] = self._clean_dict_recursive(value, f"{path}.{key}" if path else key)
-            return cleaned
-        elif isinstance(data, list):
-            # Clean each item in the list
-            return [self._clean_dict_recursive(item, f"{path}[{i}]" if path else f"[{i}]") for i, item in enumerate(data)]
-        else:
-            # Primitive value - return as-is
+        # SECURITY: Limit recursion depth to prevent stack overflow DoS attacks
+        MAX_RECURSION_DEPTH = 100
+        if depth > MAX_RECURSION_DEPTH:
+            # Return data as-is if depth limit exceeded (fail-safe)
             return data
+        
+        # SECURITY: Track visited objects to prevent infinite loops from circular references
+        if visited is None:
+            visited = set()
+        
+        # For mutable objects (dict, list), track by id to detect circular references
+        if isinstance(data, (dict, list)):
+            data_id = id(data)
+            if data_id in visited:
+                # Circular reference detected - return data as-is to prevent infinite loop
+                return data
+            visited.add(data_id)
+        
+        try:
+            if isinstance(data, dict):
+                cleaned = {}
+                for key, value in data.items():
+                    if self._is_credential_field(key):
+                        # Only mask if value is a primitive (not a container)
+                        # Containers should be processed recursively to clean their contents
+                        if isinstance(value, (dict, list)):
+                            # Process container recursively to clean its contents
+                            cleaned[key] = self._clean_dict_recursive(value, f"{path}.{key}" if path else key, visited, depth + 1)
+                        elif self.mode == 'mask':
+                            cleaned[key] = self.MASK_VALUE
+                        # else: remove mode - don't add to cleaned dict
+                    else:
+                        # Recursively clean nested structures
+                        cleaned[key] = self._clean_dict_recursive(value, f"{path}.{key}" if path else key, visited, depth + 1)
+                return cleaned
+            elif isinstance(data, list):
+                # Clean each item in the list
+                return [self._clean_dict_recursive(item, f"{path}[{i}]" if path else f"[{i}]", visited, depth + 1) for i, item in enumerate(data)]
+            else:
+                # Primitive value - return as-is
+                return data
+        finally:
+            # Remove from visited set when done processing this object
+            if isinstance(data, (dict, list)):
+                visited.discard(data_id)
     
     def clean_credentials(self, data: Union[Dict, List, str, Any]) -> Union[Dict, List, Any]:
         """
@@ -908,14 +986,19 @@ class CredentialCleaner:
         """
         Clean credentials from HTTP headers.
         
+        SECURITY: Validates input type to prevent type confusion attacks.
+        
         Args:
             headers: Dictionary of HTTP headers
             
         Returns:
             Dictionary with credential headers masked or removed
         """
-        if not headers or not isinstance(headers, dict):
-            return headers or {}
+        # SECURITY: Validate input type to prevent type confusion attacks
+        if headers is None:
+            return {}
+        if not isinstance(headers, dict):
+            return {}
         
         cleaned = {}
         for key, value in headers.items():
@@ -932,14 +1015,19 @@ class CredentialCleaner:
         """
         Clean credentials from query parameters.
         
+        SECURITY: Validates input type to prevent type confusion attacks.
+        
         Args:
             query_params: Dictionary of query parameters
             
         Returns:
             Dictionary with credential parameters masked or removed
         """
-        if not query_params or not isinstance(query_params, dict):
-            return query_params or {}
+        # SECURITY: Validate input type to prevent type confusion attacks
+        if query_params is None:
+            return {}
+        if not isinstance(query_params, dict):
+            return {}
         
         cleaned = {}
         for key, value in query_params.items():

@@ -12,12 +12,13 @@ Or as a service:
 """
 import asyncio
 import json
-from datetime import datetime, timedelta
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 from clickhouse_driver import Client
 from src.clickhouse_analytics import ClickHouseAnalytics
-from src.config import connection_config
-from src.utils import load_env_vars
+from src.config import connection_config, _validate_connection_host
+from src.utils import load_env_vars, sanitize_error_message
 
 
 class AnalyticsProcessor:
@@ -34,6 +35,44 @@ class AnalyticsProcessor:
         self.client: Optional[Client] = None
         self.analytics: Optional[ClickHouseAnalytics] = None
     
+    def _validate_webhook_id(self, webhook_id: str) -> str:
+        """
+        Validate webhook_id to prevent injection attacks and DoS.
+        
+        Args:
+            webhook_id: The webhook identifier to validate
+            
+        Returns:
+            Validated webhook_id string
+            
+        Raises:
+            ValueError: If webhook_id is invalid or contains dangerous characters
+        """
+        if not webhook_id or not isinstance(webhook_id, str):
+            raise ValueError("webhook_id must be a non-empty string")
+        
+        webhook_id = webhook_id.strip()
+        
+        if not webhook_id:
+            raise ValueError("webhook_id cannot be empty")
+        
+        # Maximum length to prevent DoS (256 chars is reasonable for identifiers)
+        MAX_WEBHOOK_ID_LENGTH = 256
+        if len(webhook_id) > MAX_WEBHOOK_ID_LENGTH:
+            raise ValueError(f"webhook_id too long: {len(webhook_id)} characters (max: {MAX_WEBHOOK_ID_LENGTH})")
+        
+        # Reject null bytes and control characters
+        if '\x00' in webhook_id:
+            raise ValueError("webhook_id cannot contain null bytes")
+        
+        # Reject dangerous characters that could be used in injection attacks
+        dangerous_chars = ['\n', '\r', ';', '|', '&', '$', '`', '\\', '/', '(', ')', '<', '>']
+        for char in dangerous_chars:
+            if char in webhook_id:
+                raise ValueError(f"webhook_id contains dangerous character: '{char}'")
+        
+        return webhook_id
+    
     async def connect(self) -> None:
         """Connect to ClickHouse."""
         host = self.clickhouse_config.get('host', 'localhost')
@@ -43,12 +82,19 @@ class AnalyticsProcessor:
         password = self.clickhouse_config.get('password', '') or None
         
         try:
+            # SECURITY: Validate host to prevent SSRF attacks
+            try:
+                validated_host = _validate_connection_host(host, "ClickHouse")
+            except ValueError as e:
+                # Re-raise validation errors
+                raise ValueError(f"Host validation failed: {str(e)}")
+            
             loop = asyncio.get_event_loop()
             # Build client kwargs - only include password if it's not None/empty
             # Note: clickhouse-driver may require password to be omitted entirely if empty
             def create_client():
                 kwargs = {
-                    'host': host,
+                    'host': validated_host,
                     'port': port,
                     'database': database,
                     'user': user,
@@ -68,7 +114,9 @@ class AnalyticsProcessor:
             
             print("Analytics processor connected to ClickHouse")
         except Exception as e:
-            print(f"Failed to connect to ClickHouse: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "ClickHouse connection")
+            print(f"Failed to connect to ClickHouse: {sanitized_error}")
             raise
     
     async def calculate_stats(self, webhook_id: str) -> Dict:
@@ -85,6 +133,9 @@ class AnalyticsProcessor:
             return {}
         
         try:
+            # SECURITY: Validate webhook_id to prevent injection attacks and DoS
+            validated_webhook_id = self._validate_webhook_id(webhook_id)
+            
             loop = asyncio.get_event_loop()
             
             # Calculate stats from ALL events for this webhook_id
@@ -109,7 +160,7 @@ class AnalyticsProcessor:
                 lambda: self.client.execute(
                     query,
                     {
-                        'webhook_id': webhook_id
+                        'webhook_id': validated_webhook_id
                     }
                 )
             )
@@ -127,8 +178,13 @@ class AnalyticsProcessor:
                     'week': row[7],
                     'month': row[8],
                 }
+        except ValueError:
+            # Re-raise validation errors
+            raise
         except Exception as e:
-            print(f"Error calculating stats for {webhook_id}: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "stats calculation")
+            print(f"Error calculating stats: {sanitized_error}")
         
         return {}
     
@@ -144,9 +200,24 @@ class AnalyticsProcessor:
                 None,
                 lambda: self.client.execute(query)
             )
-            return [row[0] for row in result] if result else []
+            webhook_ids = [row[0] for row in result] if result else []
+            
+            # SECURITY: Validate webhook_ids from database before using them
+            # This prevents malicious webhook_ids stored in database from causing issues
+            validated_ids = []
+            for webhook_id in webhook_ids:
+                try:
+                    validated_id = self._validate_webhook_id(str(webhook_id))
+                    validated_ids.append(validated_id)
+                except ValueError:
+                    # Skip invalid webhook_ids from database
+                    continue
+            
+            return validated_ids
         except Exception as e:
-            print(f"Error getting webhook IDs: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "webhook ID retrieval")
+            print(f"Error getting webhook IDs: {sanitized_error}")
             return []
     
     async def process_and_save_stats(self) -> None:
@@ -174,7 +245,9 @@ class AnalyticsProcessor:
                 await self.analytics.save_stats(stats_dict)
                 print(f"Processed and saved stats for {len(stats_dict)} webhooks")
         except Exception as e:
-            print(f"Error processing stats: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "stats processing")
+            print(f"Error processing stats: {sanitized_error}")
     
     async def disconnect(self) -> None:
         """Disconnect from ClickHouse."""
@@ -210,7 +283,8 @@ async def analytics_processing_loop():
         await processor.connect()
         
         while True:
-            print(f"[{datetime.utcnow()}] Processing analytics...")
+            # SECURITY: Use timezone-aware datetime (datetime.utcnow() is deprecated)
+            print(f"[{datetime.now(timezone.utc)}] Processing analytics...")
             await processor.process_and_save_stats()
             
             # Process every 5 minutes
@@ -218,7 +292,9 @@ async def analytics_processing_loop():
     except KeyboardInterrupt:
         print("Stopping analytics processor...")
     except Exception as e:
-        print(f"Fatal error in analytics processor: {e}")
+        # SECURITY: Sanitize error messages to prevent information disclosure
+        sanitized_error = sanitize_error_message(e, "analytics processor")
+        print(f"Fatal error in analytics processor: {sanitized_error}")
     finally:
         await processor.disconnect()
 

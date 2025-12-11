@@ -6,10 +6,12 @@ for analytics and monitoring purposes.
 """
 from typing import Dict, Optional, Any, List, Tuple
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from clickhouse_driver import Client
 import json
 import uuid
+from src.config import _validate_connection_host
+from src.utils import sanitize_error_message
 
 
 class ClickHouseAnalytics:
@@ -49,13 +51,20 @@ class ClickHouseAnalytics:
         password = self.connection_config.get('password', '') or None
         
         try:
+            # SECURITY: Validate host to prevent SSRF attacks
+            try:
+                validated_host = _validate_connection_host(host, "ClickHouse Analytics")
+            except ValueError as e:
+                # Re-raise validation errors
+                raise ValueError(f"Host validation failed: {str(e)}")
+            
             # Run synchronous client creation in thread pool
             loop = asyncio.get_event_loop()
             
             def create_client():
                 # For ClickHouse with no password, don't pass password parameter at all
                 kwargs = {
-                    'host': host,
+                    'host': validated_host,
                     'port': port,
                     'database': database,
                     'user': user,
@@ -76,8 +85,13 @@ class ClickHouseAnalytics:
             self._worker_task = asyncio.create_task(self._worker())
             print("ClickHouse analytics worker started")
             
+        except ValueError:
+            # Re-raise validation errors
+            raise
         except Exception as e:
-            print(f"Failed to connect to ClickHouse for analytics: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "ClickHouse Analytics connection")
+            print(f"Failed to connect to ClickHouse for analytics: {sanitized_error}")
             raise
     
     async def _ensure_tables(self) -> None:
@@ -186,7 +200,9 @@ class ClickHouseAnalytics:
                     break
                     
             except Exception as e:
-                print(f"Error in ClickHouse worker: {e}")
+                # SECURITY: Sanitize error messages to prevent information disclosure
+                sanitized_error = sanitize_error_message(e, "ClickHouse worker")
+                print(f"Error in ClickHouse worker: {sanitized_error}")
                 await asyncio.sleep(1)  # Backoff on error
 
     async def _flush_logs(self, buffer: List[Tuple]) -> None:
@@ -206,7 +222,9 @@ class ClickHouseAnalytics:
             )
             # print(f"Flushed {len(buffer)} logs to ClickHouse")
         except Exception as e:
-            print(f"Failed to flush logs to ClickHouse: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "log flush")
+            print(f"Failed to flush logs to ClickHouse: {sanitized_error}")
 
     async def _flush_stats(self, buffer: List[Tuple]) -> None:
         """Flush stats buffer to ClickHouse."""
@@ -227,7 +245,9 @@ class ClickHouseAnalytics:
             )
             print(f"Flushed {len(buffer)} stats records to ClickHouse")
         except Exception as e:
-            print(f"Failed to flush stats to ClickHouse: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "stats flush")
+            print(f"Failed to flush stats to ClickHouse: {sanitized_error}")
 
     async def save_stats(self, stats: Dict[str, Dict]) -> None:
         """
@@ -245,7 +265,8 @@ class ClickHouseAnalytics:
                 return
 
         try:
-            timestamp = datetime.utcnow()
+            # SECURITY: Use timezone-aware datetime (datetime.utcnow() is deprecated)
+            timestamp = datetime.now(timezone.utc)
             records = []
             for webhook_id, webhook_stats in stats.items():
                 record_id = str(uuid.uuid4())
@@ -268,7 +289,9 @@ class ClickHouseAnalytics:
                 await self.queue.put(('stats', records))
                 
         except Exception as e:
-            print(f"Failed to queue stats for ClickHouse: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "stats queue")
+            print(f"Failed to queue stats for ClickHouse: {sanitized_error}")
     
     async def save_log(self, webhook_id: str, payload: Any, headers: Dict[str, str]) -> None:
         """
@@ -311,7 +334,8 @@ class ClickHouseAnalytics:
             cleaned_headers = cleaner.clean_headers(headers)
             
             record_id = str(uuid.uuid4())
-            timestamp = datetime.utcnow()
+            # SECURITY: Use timezone-aware datetime (datetime.utcnow() is deprecated)
+            timestamp = datetime.now(timezone.utc)
             
             # Serialize to JSON strings
             # Handle recursion errors during JSON serialization
@@ -326,7 +350,9 @@ class ClickHouseAnalytics:
             await self.queue.put(('log', (record_id, webhook_id, timestamp, payload_str, headers_str)))
             
         except Exception as e:
-            print(f"Failed to queue log for ClickHouse: {e}")
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "log queue")
+            print(f"Failed to queue log for ClickHouse: {sanitized_error}")
     
     async def disconnect(self) -> None:
         """Close ClickHouse connection."""
@@ -340,7 +366,9 @@ class ClickHouseAnalytics:
                 print("ClickHouse worker timed out during shutdown")
                 self._worker_task.cancel()
             except Exception as e:
-                print(f"Error waiting for ClickHouse worker: {e}")
+                # SECURITY: Sanitize error messages to prevent information disclosure
+                sanitized_error = sanitize_error_message(e, "worker shutdown")
+                print(f"Error waiting for ClickHouse worker: {sanitized_error}")
         
         if self.client:
             try:
