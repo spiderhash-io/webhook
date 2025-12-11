@@ -1,4 +1,5 @@
 import pytest
+import redis
 from httpx import AsyncClient, ASGITransport
 
 from src.main import app
@@ -8,8 +9,24 @@ host = "test"
 base_url = f"http://{host}"
 
 
+def _check_redis_available():
+    """Check if Redis is available for testing."""
+    try:
+        import os
+        redis_host = os.getenv('REDIS_HOST', 'localhost')
+        redis_port = int(os.getenv('REDIS_PORT', '6379'))
+        
+        r = redis.Redis(host=redis_host, port=redis_port, socket_connect_timeout=1)
+        r.ping()
+        r.close()
+        return True
+    except Exception:
+        return False
+
+
 @pytest.mark.asyncio
 @pytest.mark.integration
+@pytest.mark.skipif(not _check_redis_available(), reason="Redis not available")
 async def test_stats_requires_token_when_configured(monkeypatch):
     """Ensure STATS_AUTH_TOKEN is enforced when configured."""
     # Configure token auth and disable IP whitelist to isolate behavior
@@ -43,6 +60,7 @@ async def test_stats_requires_token_when_configured(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+@pytest.mark.skipif(not _check_redis_available(), reason="Redis not available")
 async def test_stats_ip_whitelist_enforced(monkeypatch):
     """Ensure STATS_ALLOWED_IPS restricts access based on client IP."""
     # Remove token auth so we only exercise IP whitelist behavior
@@ -66,6 +84,7 @@ async def test_stats_ip_whitelist_enforced(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+@pytest.mark.skipif(not _check_redis_available(), reason="Redis not available")
 async def test_stats_rate_limit_enforced(monkeypatch):
     """Ensure STATS_RATE_LIMIT applies per-client rate limiting."""
     # Disable auth and IP whitelist so we only test rate limiting
