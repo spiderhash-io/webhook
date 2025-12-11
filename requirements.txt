@@ -22,3 +22,4 @@ watchdog>=3.0.0
 websockets>=12.0
 aiokafka>=0.10.0
 aiomqtt>=2.0.0
+PyJWT>=2.8.0
