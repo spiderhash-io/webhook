@@ -1,6 +1,6 @@
 # tests/test_auth_endpoints.py
 import pytest
-import redis.asyncio as redis
+import os
 from httpx import AsyncClient, ASGITransport
 from src.main import app
 
@@ -11,16 +11,12 @@ test_url = f"http://{ host }"
 def _check_redis_available():
     """Check if Redis is available for testing."""
     try:
-        import redis.asyncio as redis
-        import asyncio
-        import os
-        
+        import redis
         redis_host = os.getenv('REDIS_HOST', 'localhost')
         redis_port = int(os.getenv('REDIS_PORT', '6379'))
         
         # Try to connect synchronously (for skip check)
-        import redis as sync_redis
-        r = sync_redis.Redis(host=redis_host, port=redis_port, socket_connect_timeout=1)
+        r = redis.Redis(host=redis_host, port=redis_port, socket_connect_timeout=1)
         r.ping()
         r.close()
         return True
