@@ -6,8 +6,8 @@ via resource exhaustion (unbounded retries, excessive delays, etc.).
 """
 import asyncio
 import logging
+import math
 from typing import Callable, Dict, Any, Tuple, Optional, List
-from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,6 @@ DEFAULT_RETRYABLE_ERRORS = [
     "ConnectionRefusedError",
     "TimeoutError",
     "OSError",
-    "IOError",
 ]
 
 # Default non-retryable error types
@@ -41,10 +40,6 @@ DEFAULT_NON_RETRYABLE_ERRORS = [
 class RetryHandler:
     """Handles retry logic for module execution."""
     
-    def __init__(self):
-        """Initialize retry handler with default configuration."""
-        pass
-    
     def _validate_retry_config(self, retry_config: Dict[str, Any]) -> Tuple[int, float, float, float, List[str], List[str]]:
         """
         Validate and sanitize retry configuration to prevent DoS attacks.
@@ -58,8 +53,9 @@ class RetryHandler:
         Returns:
             Tuple of (max_attempts, initial_delay, max_delay, backoff_multiplier, retryable_errors, non_retryable_errors)
             
-        Raises:
-            ValueError: If configuration values are invalid or out of bounds
+        Note:
+            Invalid configuration values are logged and adjusted to safe defaults,
+            rather than raising exceptions.
         """
         # Validate max_attempts
         max_attempts = retry_config.get("max_attempts", 3)
@@ -121,7 +117,7 @@ class RetryHandler:
             retryable_errors = DEFAULT_RETRYABLE_ERRORS
         else:
             # Filter to only valid string entries
-            retryable_errors = [str(e) for e in retryable_errors if isinstance(e, (str, type(None))) and e is not None]
+            retryable_errors = [str(e) for e in retryable_errors if isinstance(e, str) and e]
         
         non_retryable_errors = retry_config.get("non_retryable_errors", DEFAULT_NON_RETRYABLE_ERRORS)
         if not isinstance(non_retryable_errors, list):
@@ -129,7 +125,7 @@ class RetryHandler:
             non_retryable_errors = DEFAULT_NON_RETRYABLE_ERRORS
         else:
             # Filter to only valid string entries
-            non_retryable_errors = [str(e) for e in non_retryable_errors if isinstance(e, (str, type(None))) and e is not None]
+            non_retryable_errors = [str(e) for e in non_retryable_errors if isinstance(e, str) and e]
         
         return max_attempts, float(initial_delay), float(max_delay), float(backoff_multiplier), retryable_errors, non_retryable_errors
     
@@ -137,7 +133,7 @@ class RetryHandler:
         """
         Determine if an error is retryable.
         
-        SECURITY: Uses exact matching for error classification to prevent bypass attacks.
+        SECURITY: Uses exact matching first, then substring matching for backward compatibility.
         Unknown errors default to non-retryable for security (fail-safe).
         
         Args:
@@ -153,16 +149,16 @@ class RetryHandler:
         full_error_name = f"{error_module}.{error_type_name}" if error_module else error_type_name
         
         # Check non-retryable first (takes precedence)
-        # Use exact matching to prevent bypass attacks
+        # Try exact matching first, then substring matching for backward compatibility
         for non_retryable in non_retryable_errors:
             if non_retryable == error_type_name or non_retryable == full_error_name:
                 return False
-            # Also check if it's a substring match for backward compatibility, but prefer exact
+            # Also check if it's a substring match for backward compatibility
             if non_retryable in error_type_name or non_retryable in full_error_name:
                 return False
         
         # Check retryable errors
-        # Use exact matching to prevent bypass attacks
+        # Try exact matching first, then substring matching for backward compatibility
         for retryable in retryable_errors:
             if retryable == error_type_name or retryable == full_error_name:
                 return True
@@ -171,7 +167,8 @@ class RetryHandler:
                 return True
         
         # Check by exception type hierarchy (built-in Python exceptions)
-        if isinstance(error, (ConnectionError, TimeoutError, OSError, IOError)):
+        # Note: IOError is an alias for OSError in Python 3.3+, so only OSError is needed
+        if isinstance(error, (ConnectionError, TimeoutError, OSError)):
             return True
         
         # SECURITY: Default to non-retryable for unknown errors (fail-safe)
@@ -208,8 +205,8 @@ class RetryHandler:
             # Calculate exponential backoff
             delay = initial_delay * (backoff_multiplier ** attempt)
             
-            # Check for overflow/infinity
-            if not (delay >= 0 and delay != float('inf') and delay == delay):  # delay == delay checks for NaN
+            # Check for overflow/infinity/NaN
+            if not (delay >= 0 and delay != float('inf') and not math.isnan(delay)):
                 logger.warning(f"Backoff calculation resulted in invalid value: {delay}, using max_delay")
                 delay = max_delay
             

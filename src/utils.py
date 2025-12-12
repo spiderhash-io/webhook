@@ -2,11 +2,13 @@ import requests
 import uuid
 import os
 import re
+import time
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
 from typing import Any, Tuple, Optional, Dict, List, Union
+import redis.asyncio as redis
 
 
 def sanitize_error_message(error: Any, context: str = None) -> str:
@@ -23,11 +25,8 @@ def sanitize_error_message(error: Any, context: str = None) -> str:
     Returns:
         Generic error message safe for client exposure
     """
-    # Convert error to string if it's an exception
-    if hasattr(error, '__str__'):
-        error_str = str(error)
-    else:
-        error_str = str(error)
+    # Convert error to string
+    error_str = str(error)
     
     # Log detailed error server-side (for debugging)
     if context:
@@ -42,12 +41,25 @@ def sanitize_error_message(error: Any, context: str = None) -> str:
     # - Internal error details
     # - Stack traces
     
-    # Check for common sensitive patterns
+    # SECURITY: Check for sensitive strings first (simpler and more reliable)
+    error_lower = error_str.lower()
+    sensitive_strings = [
+        'postgresql://', 'mysql://', 'redis://', 'mongodb://',
+        'secret', 'password', '/etc/', 'c:\\', 'traceback', 'stack_trace',
+        'connection_string', 'connection string'
+    ]
+    for sensitive_str in sensitive_strings:
+        if sensitive_str in error_lower:
+            if context:
+                return f"Processing error occurred in {context}"
+            return "An error occurred while processing the request"
+    
+    # Check for common sensitive patterns (regex)
     sensitive_patterns = [
         (r'http[s]?://[^\s]+', 'URL'),
         (r'file://[^\s]+', 'file path'),
         (r'/[^\s]+', 'file path'),
-        (r'[a-zA-Z0-9_]+://[^\s]+', 'URL'),
+        (r'[a-zA-Z0-9_\-]+://[^\s]+', 'URL'),  # Include hyphens for schemes like postgresql://
         (r'localhost:\d+', 'service address'),
         (r'\d+\.\d+\.\d+\.\d+:\d+', 'service address'),
         (r'module[_\s]+[\w]+', 'module name'),
@@ -143,7 +155,6 @@ def safe_decode_body(body: bytes, content_type: Optional[str] = None, default_en
     # UTF-16 variants can decode almost any byte sequence, which is a security risk
     # Only allow UTF-16 if explicitly requested and validated
     SAFE_ENCODINGS = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'ascii']
-    DANGEROUS_ENCODINGS = ['utf-16', 'utf-16le', 'utf-16be', 'utf-7']  # Can decode almost anything
     
     # List of encodings to try (in order of preference)
     encodings_to_try = []
@@ -190,13 +201,6 @@ def safe_decode_body(body: bytes, content_type: Optional[str] = None, default_en
         )
 
 
-def count_words_at_url(url):
-    resp = requests.get(url)
-    txt = len(resp.text.split())
-    print(txt)
-    return txt
-
-
 async def save_to_disk(payload, config):
     my_uuid = uuid.uuid4()
     
@@ -210,7 +214,6 @@ async def save_to_disk(payload, config):
     with open(file_path, mode="w") as f:
         f.write(str(payload))    
         f.flush()
-        f.close()
 
 
 async def print_to_stdout(payload, headers, config):
@@ -441,9 +444,6 @@ def load_env_vars(data, visited=None, depth=0):
     return data
 
 
-import redis.asyncio as redis
-import time
-
 class EndpointStats:
     def __init__(self):
         self.stats = defaultdict(lambda: defaultdict(int))
@@ -453,7 +453,7 @@ class EndpointStats:
 
     async def increment(self, endpoint_name):
         async with self.lock:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             bucket = self._get_bucket(now)
             self.timestamps[endpoint_name][bucket] = self.timestamps[endpoint_name].get(bucket, 0) + 1
             self.stats[endpoint_name]['total'] += 1
@@ -466,23 +466,23 @@ class EndpointStats:
     def _cleanup_old_buckets(self, endpoint_name, now):
         # Remove buckets older than a certain cutoff (e.g., 1 day)
         cutoff = now - timedelta(days=1)
-        old_buckets = [time for time in self.timestamps[endpoint_name] if time < cutoff]
+        old_buckets = [bucket_time for bucket_time in self.timestamps[endpoint_name] if bucket_time < cutoff]
         for bucket in old_buckets:
             del self.timestamps[endpoint_name][bucket]
 
     def get_stats(self):
         stats_summary = defaultdict(dict)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for endpoint in self.timestamps:
             stats_summary[endpoint]['total'] = self.stats[endpoint]['total']
-            stats_summary[endpoint]['minute'] = sum(count for time, count in self.timestamps[endpoint].items() if time > now - timedelta(minutes=1))
-            stats_summary[endpoint]['5_minutes'] = sum(count for time, count in self.timestamps[endpoint].items() if time > now - timedelta(minutes=5))
-            stats_summary[endpoint]['15_minutes'] = sum(count for time, count in self.timestamps[endpoint].items() if time > now - timedelta(minutes=15))
-            stats_summary[endpoint]['30_minutes'] = sum(count for time, count in self.timestamps[endpoint].items() if time > now - timedelta(minutes=30))
-            stats_summary[endpoint]['hour'] = sum(count for time, count in self.timestamps[endpoint].items() if time > now - timedelta(hours=1))
-            stats_summary[endpoint]['day'] = sum(count for time, count in self.timestamps[endpoint].items() if time > now - timedelta(days=1))
-            stats_summary[endpoint]['week'] = sum(count for time, count in self.timestamps[endpoint].items() if time > now - timedelta(weeks=1))
-            stats_summary[endpoint]['month'] = sum(count for time, count in self.timestamps[endpoint].items() if time > now - timedelta(days=30))
+            stats_summary[endpoint]['minute'] = sum(count for bucket_time, count in self.timestamps[endpoint].items() if bucket_time > now - timedelta(minutes=1))
+            stats_summary[endpoint]['5_minutes'] = sum(count for bucket_time, count in self.timestamps[endpoint].items() if bucket_time > now - timedelta(minutes=5))
+            stats_summary[endpoint]['15_minutes'] = sum(count for bucket_time, count in self.timestamps[endpoint].items() if bucket_time > now - timedelta(minutes=15))
+            stats_summary[endpoint]['30_minutes'] = sum(count for bucket_time, count in self.timestamps[endpoint].items() if bucket_time > now - timedelta(minutes=30))
+            stats_summary[endpoint]['hour'] = sum(count for bucket_time, count in self.timestamps[endpoint].items() if bucket_time > now - timedelta(hours=1))
+            stats_summary[endpoint]['day'] = sum(count for bucket_time, count in self.timestamps[endpoint].items() if bucket_time > now - timedelta(days=1))
+            stats_summary[endpoint]['week'] = sum(count for bucket_time, count in self.timestamps[endpoint].items() if bucket_time > now - timedelta(weeks=1))
+            stats_summary[endpoint]['month'] = sum(count for bucket_time, count in self.timestamps[endpoint].items() if bucket_time > now - timedelta(days=30))
 
         return stats_summary
 
@@ -622,16 +622,9 @@ class RedisEndpointStats:
             # Actually, let's just implement it. If it's too slow, we'll see.
             # But wait, 'month' = 43200 minutes. MGET 43k keys is definitely bad.
             
-            # Alternative: Maintain separate counters for larger windows?
-            # e.g. stats:{endpoint}:hour_bucket:{hour_timestamp}
-            # stats:{endpoint}:day_bucket:{day_timestamp}
-            # This would require updating multiple keys on increment, but makes reading fast.
-            # Let's update increment to support multi-resolution buckets.
+            # Note: Multi-resolution buckets are implemented in _get_stats_optimized()
+            # to efficiently handle different time windows (minute, hour, day buckets)
             
-            pass # Logic continues below in a better implementation
-            
-        # Re-implementing get_stats with multi-resolution buckets support would be better.
-        # But let's stick to the interface. I'll update increment to write to multiple resolutions.
         return await self._get_stats_optimized()
 
     async def _get_stats_optimized(self):
@@ -814,7 +807,7 @@ class CredentialCleaner:
         'password', 'passwd', 'pwd', 'secret', 'token', 'api_key', 'apikey',
         'access_token', 'refresh_token', 'authorization', 'auth', 'credential',
         'credentials', 'private_key', 'privatekey', 'api_secret', 'client_secret',
-        'bearer', 'x-api-key', 'x-auth-token', 'x-api-key', 'x-access-token',
+        'bearer', 'x-api-key', 'x-auth-token', 'x-access-token',
         'session_id', 'sessionid', 'session_token', 'csrf_token', 'csrf',
         'oauth_token', 'oauth_secret', 'consumer_secret', 'token_secret'
     ]
@@ -1039,26 +1032,3 @@ class CredentialCleaner:
                 cleaned[key] = value
         
         return cleaned
-
-
-# SECRET_KEY = "your-secret-key"  # Replace with your secret key
-
-# def verify_hmac(body, received_signature):
-#     """
-#     Verify HMAC signature of the request body.
-#     """
-#     # Create a new hmac object using the secret key and the SHA256 hash function
-#     hmac_obj = hmac.new(SECRET_KEY.encode(), body, hashlib.sha256)
-#     # Compute the HMAC signature
-#     computed_signature = hmac_obj.hexdigest()
-#     # Compare the computed signature with the received signature
-#     return hmac.compare_digest(computed_signature, received_signature)
-
-
-# async def your_endpoint(request: Request, x_hmac_signature: str = Header(None)):
-#     # Read the request body
-#     body = await request.body()
-#
-#     # Verify HMAC
-#     if not verify_hmac(body, x_hmac_signature):
-#         raise HTTPException(status_code=401, detail="Invalid HMAC signature")

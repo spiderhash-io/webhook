@@ -1,6 +1,5 @@
 import json
 import asyncio
-import time
 from typing import Optional
 
 from fastapi import HTTPException, Request
@@ -96,15 +95,14 @@ class TaskManager:
         # This provides natural backpressure - tasks will wait if queue is full
         await self.semaphore.acquire()
         
-        # SECURITY: Create task first, then reference it in wrapper to avoid closure issues
-        # Create a placeholder task that will be replaced
-        task_placeholder = None
+        # Create task first, then reference it in wrapper to avoid closure issues
+        # We'll set the task reference after creation so the wrapper can access it
+        task_ref = {'task': None}  # Use dict to allow mutation in closure
         
         async def task_wrapper():
             """Wrapper to handle cleanup and timeout."""
-            # SECURITY: Use task_placeholder which is set after task creation
-            # This avoids referencing 'task' before it's defined
-            current_task = task_placeholder
+            # Get the task reference (will be set after task creation)
+            current_task = task_ref['task']
             try:
                 # Execute with timeout
                 return await asyncio.wait_for(coro, timeout=timeout)
@@ -119,13 +117,13 @@ class TaskManager:
                     if current_task:
                         self.active_tasks.discard(current_task)
                     self._total_tasks_completed += 1
-                    # Clean up completed tasks periodically
-                    if len(self.active_tasks) % 10 == 0:
+                    # Clean up completed tasks periodically (every 10 completions)
+                    if self._total_tasks_completed % 10 == 0:
                         self._cleanup_completed_tasks()
         
-        # Create task
+        # Create task and set reference
         task = asyncio.create_task(task_wrapper())
-        task_placeholder = task  # Set reference for wrapper
+        task_ref['task'] = task  # Set reference for wrapper
         
         async with self._lock:
             self.active_tasks.add(task)
@@ -283,12 +281,6 @@ class WebhookHandler:
                 # Return generic error to client (don't expose internal details)
                 from src.utils import sanitize_error_message
                 return False, sanitize_error_message(e, "webhook validation")
-            except BaseException as e:
-                # SECURITY: Catch BaseException (SystemExit, KeyboardInterrupt) to prevent application crash
-                # These should not normally occur, but we handle them defensively
-                print(f"ERROR: Validator raised BaseException for webhook '{self.webhook_id}': {type(e).__name__}")
-                from src.utils import sanitize_error_message
-                return False, sanitize_error_message(e, "webhook validation")
         
         return True, "Valid webhook"
 
@@ -359,7 +351,6 @@ class WebhookHandler:
             
         elif data_type == 'blob':
             payload = body
-            # Additional blob handling...
         else:
             raise HTTPException(status_code=415, detail="Unsupported data type")
 

@@ -41,12 +41,12 @@ class RateLimiter:
                 self.requests[webhook_id].popleft()
             
             # Check if limit exceeded
-            # SECURITY: If max_requests is 0, block all requests immediately
+            # SECURITY: If max_requests is 0, block all requests
             if max_requests == 0:
                 return False, "Rate limit exceeded. No requests allowed"
             
-            # SECURITY: Check that deque is not empty before accessing [0]
-            if len(self.requests[webhook_id]) >= max_requests and self.requests[webhook_id]:
+            # Check if limit exceeded (deque cannot be empty if len >= max_requests > 0)
+            if len(self.requests[webhook_id]) >= max_requests:
                 oldest_request = self.requests[webhook_id][0]
                 retry_after = int(oldest_request + window_seconds - now)
                 return False, f"Rate limit exceeded. Retry after {retry_after} seconds"
@@ -73,16 +73,30 @@ class RateLimiter:
         Returns:
             Tuple of (is_allowed, remaining_requests)
         """
-        is_allowed, message = await self.is_allowed(key, max_requests, window_seconds)
-        
-        if is_allowed:
-            # Calculate remaining requests
-            async with self.lock:
-                remaining = max(0, max_requests - len(self.requests[key]))
+        async with self.lock:
+            now = time.time()
+            cutoff = now - window_seconds
+            
+            # Remove old requests outside the window
+            while self.requests[key] and self.requests[key][0] < cutoff:
+                self.requests[key].popleft()
+            
+            # Check if limit exceeded
+            if max_requests == 0:
+                return False, 0
+            
+            current_count = len(self.requests[key])
+            
+            if current_count >= max_requests:
+                # Rate limit exceeded
+                return False, 0
+            
+            # Add current request
+            self.requests[key].append(now)
+            
+            # Calculate remaining (after adding current request)
+            remaining = max(0, max_requests - (current_count + 1))
             return True, remaining
-        else:
-            # No remaining requests if rate limited
-            return False, 0
     
     async def cleanup_old_entries(self, max_age_seconds: int = 3600):
         """

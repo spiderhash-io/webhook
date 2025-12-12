@@ -20,9 +20,6 @@ def _validate_webhook_id(webhook_id: Any) -> Optional[str]:
         
     Returns:
         Validated webhook_id string or None if invalid
-        
-    Raises:
-        ValueError: If webhook_id is invalid or contains dangerous characters
     """
     if not webhook_id or not isinstance(webhook_id, str):
         return None
@@ -208,8 +205,6 @@ def generate_webhook_path(webhook_id: str, config: Dict[str, Any]) -> Optional[D
     if not isinstance(config, dict):
         return None
     
-    data_type = config.get("data_type", "json")
-    
     # SECURITY: Sanitize webhook_id and module for descriptions to prevent XSS
     sanitized_webhook_id = _sanitize_for_description(webhook_id)
     
@@ -234,8 +229,11 @@ def generate_webhook_path(webhook_id: str, config: Dict[str, Any]) -> Optional[D
     # SECURITY: Sanitize webhook_id in operationId (alphanumeric + underscore only)
     # Remove any remaining dangerous characters
     safe_operation_id = re.sub(r'[^a-zA-Z0-9_]', '_', webhook_id)
-    if not safe_operation_id or not safe_operation_id[0].isalpha():
-        safe_operation_id = f"webhook_{safe_operation_id}" if safe_operation_id else "webhook_unknown"
+    # Ensure operation ID starts with a letter and is not empty
+    if not safe_operation_id:
+        safe_operation_id = "unknown"
+    if not safe_operation_id[0].isalpha():
+        safe_operation_id = f"webhook_{safe_operation_id}"
     operation_id = f"post_webhook_{safe_operation_id}"
     
     # Build path item
@@ -340,11 +338,13 @@ def extract_auth_schemes(config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
                         sanitized_scope = _sanitize_for_description(str(scope))
                         flows["clientCredentials"]["scopes"][sanitized_scope] = f"Required scope: {sanitized_scope}"
         
-        schemes["oauth2"] = {
-            "type": "oauth2",
-            "flows": flows,
-            "description": "OAuth 2.0 authentication"
-        }
+        # Only add OAuth2 scheme if flows is not empty (valid OpenAPI requirement)
+        if flows:
+            schemes["oauth2"] = {
+                "type": "oauth2",
+                "flows": flows,
+                "description": "OAuth 2.0 authentication"
+            }
     
     # OAuth1
     if config.get("oauth1"):
@@ -544,7 +544,7 @@ def extract_request_schema(config: Dict[str, Any]) -> Dict[str, Any]:
                 # JSON Schema is compatible with OpenAPI Schema
                 return json_schema
             except (ValueError, RecursionError, TypeError):
-                # Invalid schema (circular reference or too deep) - use generic schema
+                # Invalid schema (circular reference, too deep, or not JSON-serializable) - use generic schema
                 pass
     
     # Otherwise, generate a generic schema based on data_type

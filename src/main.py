@@ -517,7 +517,34 @@ async def read_webhook(webhook_id: str,  request: Request):
 
 
 @app.get("/")
-async def default_endpoint():
+async def default_endpoint(request: Request):
+    """
+    Default root endpoint - health check endpoint.
+    
+    SECURITY: Rate limited to prevent DoS attacks.
+    Rate limit can be configured via environment variable:
+    - DEFAULT_ENDPOINT_RATE_LIMIT: Requests per minute (default: 120)
+    """
+    # SECURITY: Rate limiting to prevent DoS attacks
+    default_rate_limit = int(os.getenv("DEFAULT_ENDPOINT_RATE_LIMIT", "120"))  # Default: 120 requests per minute
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if not client_ip:
+        client_ip = request.client.host if request.client else "unknown"
+    
+    # Use rate limiter with a separate key for default endpoint
+    default_key = f"default_endpoint:{client_ip}"
+    is_allowed, remaining = await rate_limiter.check_rate_limit(
+        default_key, 
+        max_requests=default_rate_limit, 
+        window_seconds=60
+    )
+    
+    if not is_allowed:
+        raise HTTPException(
+            status_code=429, 
+            detail=f"Rate limit exceeded. Limit: {default_rate_limit} requests per minute"
+        )
+    
     return JSONResponse(content={"message": "200 OK"})
 
 
@@ -611,17 +638,36 @@ async def reload_config_endpoint(request: Request):
         raise HTTPException(status_code=503, detail="ConfigManager not initialized")
     
     # Check authentication if configured
-    admin_token = os.getenv("CONFIG_RELOAD_ADMIN_TOKEN", "").strip()
-    if admin_token:
+    # SECURITY: Get original value to check if it was set (even if whitespace-only)
+    admin_token_raw = os.getenv("CONFIG_RELOAD_ADMIN_TOKEN", "")
+    admin_token = admin_token_raw.strip()
+    # SECURITY: If original was set but becomes empty after strip, treat as invalid (require auth but reject all)
+    if admin_token_raw and not admin_token:
+        # Whitespace-only token configured - require auth but reject all tokens
         auth_header = request.headers.get("authorization", "")
         if not auth_header:
             raise HTTPException(status_code=401, detail="Authentication required")
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    
+    if admin_token:
+        auth_header = request.headers.get("authorization", "")
+        # SECURITY: Check for None/empty header before processing
+        if not auth_header:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        # SECURITY: Prevent header injection (newlines, carriage returns, null bytes)
+        if "\n" in auth_header or "\r" in auth_header or "\x00" in auth_header:
+            raise HTTPException(status_code=401, detail="Invalid authentication header")
         
         # Extract token
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
         else:
             token = auth_header.strip()
+        
+        # SECURITY: Reject whitespace-only tokens
+        if not token:
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
         
         # Constant-time comparison
         import hmac
@@ -631,9 +677,15 @@ async def reload_config_endpoint(request: Request):
     # Parse request body
     try:
         body = await request.json()
-        reload_webhooks = body.get("reload_webhooks", True)
-        reload_connections = body.get("reload_connections", True)
-        validate_only = body.get("validate_only", False)
+        # SECURITY: Type validation to prevent type confusion attacks
+        reload_webhooks_raw = body.get("reload_webhooks", True)
+        reload_connections_raw = body.get("reload_connections", True)
+        validate_only_raw = body.get("validate_only", False)
+        
+        # Convert to boolean (handle type confusion)
+        reload_webhooks = bool(reload_webhooks_raw) if reload_webhooks_raw is not None else True
+        reload_connections = bool(reload_connections_raw) if reload_connections_raw is not None else True
+        validate_only = bool(validate_only_raw) if validate_only_raw is not None else False
     except Exception:
         # Default: reload both
         reload_webhooks = True
@@ -661,22 +713,79 @@ async def reload_config_endpoint(request: Request):
         })
     
     if result.success:
+        # SECURITY: Sanitize details to prevent information disclosure
+        sanitized_details = None
+        if result.details:
+            # Remove sensitive information from details
+            sanitized_details = {}
+            # SECURITY: List of sensitive keys to completely remove (not just redact)
+            sensitive_keys = ["stack_trace", "traceback", "file_path", "connection_string", "password", "secret", "token"]
+            for key, value in result.details.items():
+                key_lower = key.lower()
+                # Remove sensitive keys entirely
+                if any(sensitive_key in key_lower for sensitive_key in sensitive_keys):
+                    continue  # Skip this key entirely
+                
+                if isinstance(value, str):
+                    # Check for sensitive patterns
+                    value_lower = value.lower()
+                    if any(pattern in value_lower for pattern in ["password", "secret", "token", "connection_string", "postgresql://", "mysql://", "redis://", "/etc/", "c:\\"]):
+                        sanitized_details[key] = "[REDACTED]"
+                    else:
+                        sanitized_details[key] = value
+                else:
+                    sanitized_details[key] = value
+        
         return JSONResponse(content={
             "status": "success",
             "reloaded": {
                 "webhooks": reload_webhooks,
                 "connections": reload_connections
             },
-            "details": result.details,
+            "details": sanitized_details,
             "timestamp": result.timestamp
         })
     else:
+        # SECURITY: Sanitize error message to prevent information disclosure
+        # Additional pattern-based sanitization for connection strings and sensitive paths
+        if result.error:
+            error_lower = result.error.lower()
+            # Check for sensitive patterns in error message
+            if any(pattern in error_lower for pattern in ["postgresql://", "mysql://", "redis://", "secret", "password", "/etc/", "c:\\", "traceback", "stack_trace"]):
+                sanitized_error = sanitize_error_message(result.error, "reload_config")
+            else:
+                sanitized_error = sanitize_error_message(result.error, "reload_config")
+        else:
+            sanitized_error = "Configuration reload failed"
+        
+        # SECURITY: Sanitize details to prevent information disclosure
+        sanitized_details = None
+        if result.details:
+            sanitized_details = {}
+            # SECURITY: List of sensitive keys to completely remove (not just redact)
+            sensitive_keys = ["stack_trace", "traceback", "file_path", "connection_string", "password", "secret", "token"]
+            for key, value in result.details.items():
+                key_lower = key.lower()
+                # Remove sensitive keys entirely
+                if any(sensitive_key in key_lower for sensitive_key in sensitive_keys):
+                    continue  # Skip this key entirely
+                
+                if isinstance(value, str):
+                    value_lower = value.lower()
+                    # Check for sensitive patterns in values
+                    if any(pattern in value_lower for pattern in ["password", "secret", "token", "connection_string", "postgresql://", "mysql://", "redis://", "/etc/", "c:\\", "traceback", "stack_trace"]):
+                        sanitized_details[key] = "[REDACTED]"
+                    else:
+                        sanitized_details[key] = value
+                else:
+                    sanitized_details[key] = value
+        
         return JSONResponse(
             status_code=400,
             content={
                 "status": "error",
-                "error": result.error,
-                "details": result.details,
+                "error": sanitized_error,
+                "details": sanitized_details,
                 "timestamp": result.timestamp
             }
         )
@@ -699,11 +808,26 @@ async def config_status_endpoint(request: Request):
         raise HTTPException(status_code=503, detail="ConfigManager not initialized")
     
     # Check authentication if configured
-    admin_token = os.getenv("CONFIG_RELOAD_ADMIN_TOKEN", "").strip()
-    if admin_token:
+    # SECURITY: Get original value to check if it was set (even if whitespace-only)
+    admin_token_raw = os.getenv("CONFIG_RELOAD_ADMIN_TOKEN", "")
+    admin_token = admin_token_raw.strip()
+    # SECURITY: If original was set but becomes empty after strip, treat as invalid (require auth but reject all)
+    if admin_token_raw and not admin_token:
+        # Whitespace-only token configured - require auth but reject all tokens
         auth_header = request.headers.get("authorization", "")
         if not auth_header:
             raise HTTPException(status_code=401, detail="Authentication required")
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    
+    if admin_token:
+        auth_header = request.headers.get("authorization", "")
+        # SECURITY: Check for None/empty header before processing
+        if not auth_header:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        # SECURITY: Prevent header injection (newlines, carriage returns, null bytes)
+        if "\n" in auth_header or "\r" in auth_header or "\x00" in auth_header:
+            raise HTTPException(status_code=401, detail="Invalid authentication header")
         
         # Extract token
         if auth_header.startswith("Bearer "):
@@ -711,12 +835,42 @@ async def config_status_endpoint(request: Request):
         else:
             token = auth_header.strip()
         
+        # SECURITY: Reject whitespace-only tokens
+        if not token:
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+        
         # Constant-time comparison
         import hmac
         if not hmac.compare_digest(token.encode('utf-8'), admin_token.encode('utf-8')):
             raise HTTPException(status_code=401, detail="Invalid authentication token")
     
     status = config_manager.get_status()
+    
+    # SECURITY: Sanitize status to prevent information disclosure
+    # Remove sensitive information from pool_details
+    if "pool_details" in status and isinstance(status["pool_details"], dict):
+        sanitized_pool_details = {}
+        # SECURITY: List of sensitive keys to completely remove (not just redact)
+        sensitive_keys = ["password", "secret", "token", "connection_string"]
+        for pool_name, pool_info in status["pool_details"].items():
+            sanitized_info = {}
+            for key, value in pool_info.items():
+                key_lower = key.lower()
+                # Remove sensitive keys entirely
+                if any(sensitive_key in key_lower for sensitive_key in sensitive_keys):
+                    continue  # Skip this key entirely
+                
+                if isinstance(value, str):
+                    value_lower = value.lower()
+                    # Redact sensitive information in values
+                    if any(pattern in value_lower for pattern in ["password", "secret", "token", "connection_string", "postgresql://", "mysql://", "redis://"]):
+                        sanitized_info[key] = "[REDACTED]"
+                    else:
+                        sanitized_info[key] = value
+                else:
+                    sanitized_info[key] = value
+            sanitized_pool_details[pool_name] = sanitized_info
+        status["pool_details"] = sanitized_pool_details
     
     # Add file watching status
     global config_watcher

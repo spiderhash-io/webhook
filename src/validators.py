@@ -225,7 +225,6 @@ class BasicAuthValidator(BaseValidator):
                 return False, "Invalid base64 encoding: whitespace not allowed"
             
             # Validate base64 format (only alphanumeric, +, /, and = for padding)
-            import re
             if not re.match(r'^[A-Za-z0-9+/]*={0,2}$', encoded_credentials_stripped):
                 return False, "Invalid base64 encoding format"
             
@@ -472,7 +471,6 @@ class HMACValidator(BaseValidator):
         
         # Validate signature format: must be hex characters only
         # This prevents Unicode injection and ensures hmac.compare_digest works correctly
-        import re
         if not re.match(r'^[0-9a-fA-F]+$', received_signature.split('=', 1)[-1]):
             return False, "Invalid HMAC signature format (must be hexadecimal)"
         
@@ -688,7 +686,6 @@ class JsonSchemaValidator(BaseValidator):
         
         # Import here to avoid import errors if jsonschema is not installed
         try:
-            import json
             import jsonschema
             from jsonschema import validate
         except ImportError:
@@ -709,7 +706,6 @@ class JsonSchemaValidator(BaseValidator):
             # Use a registry that blocks remote references
             try:
                 from referencing import Registry
-                from referencing.jsonschema import DRAFT7
                 
                 # Create an empty registry that blocks all remote references (prevents SSRF)
                 registry = Registry()
@@ -1019,7 +1015,6 @@ class OAuth2Validator(BaseValidator):
         # Parse URL
         from urllib.parse import urlparse
         import ipaddress
-        import re
         
         try:
             parsed = urlparse(url)
@@ -1086,10 +1081,6 @@ class OAuth2Validator(BaseValidator):
             raise ValueError(
                 f"Access to metadata service '{hostname}' in introspection endpoint is not allowed for security reasons (SSRF prevention)"
             )
-        
-        # Block file:// and other dangerous schemes (already checked above, but double-check)
-        if parsed.scheme.lower() not in allowed_schemes:
-            raise ValueError(f"Dangerous URL scheme '{parsed.scheme}' is not allowed")
         
         return url
     
@@ -1383,7 +1374,6 @@ class DigestAuthValidator(BaseValidator):
         
         params = {}
         # Parse key="value" pairs
-        import re
         pattern = r'(\w+)=["\']?([^,"\']+)["\']?'
         matches = re.findall(pattern, digest_str)
         
@@ -1623,7 +1613,6 @@ class OAuth1Validator(BaseValidator):
         
         params = {}
         # Parse key="value" pairs
-        import re
         pattern = r'(\w+)="([^"]+)"'
         matches = re.findall(pattern, oauth_str)
         
@@ -1672,7 +1661,9 @@ class OAuth1Validator(BaseValidator):
                         # Skip body parsing if encoding fails
                         body_str = None
                 
-                if body_str and 'application/x-www-form-urlencoded' in str(body):
+                # Check if body looks like form-encoded data (contains & and =)
+                # OAuth 1.0 spec allows form-encoded body parameters in signature base string
+                if body_str and '&' in body_str and '=' in body_str:
                     from urllib.parse import parse_qs
                     body_params = parse_qs(body_str, keep_blank_values=True)
                     for key, values in body_params.items():
