@@ -289,7 +289,13 @@ async def cleanup_task():
 async def startup_event():
     global webhook_config_data, clickhouse_logger, config_manager, config_watcher
     
-    # Print ASCII art banner
+    import sys
+    import warnings
+    
+    # Suppress specific warnings that are not actionable
+    warnings.filterwarnings("ignore", category=FutureWarning, module="google.api_core")
+    
+    # Print ASCII art banner with version info
     print("\n" + "=" * 60)
     print("""
 ██╗    ██╗███████╗██████╗ ██╗  ██╗ ██████╗  ██████╗ ██╗  ██╗
@@ -299,20 +305,27 @@ async def startup_event():
 ╚███╔███╔╝███████╗██████╔╝██║  ██║╚██████╔╝╚██████╔╝██║  ██╗
  ╚══╝╚══╝ ╚══════╝╚═════╝ ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝
     """)
+    print("=" * 60)
+    print(f"Python Version: {sys.version.split()[0]}")
+    print(f"Platform: {sys.platform}")
     print("=" * 60 + "\n")
     
     # Initialize ConfigManager for live reload
+    print("📋 Initializing configuration manager...")
     config_manager = ConfigManager()
     try:
         init_result = await config_manager.initialize()
         if init_result.success:
-            print(f"ConfigManager initialized: {init_result.details}")
+            webhooks_count = init_result.details.get('webhooks_loaded', 0)
+            connections_count = init_result.details.get('connections_loaded', 0)
+            print(f"✅ ConfigManager initialized: {webhooks_count} webhook(s), {connections_count} connection(s)")
         else:
-            print(f"ConfigManager initialization warning: {init_result.error}")
+            print(f"⚠️  ConfigManager initialization warning: {init_result.error}")
     except Exception as e:
         # SECURITY: Sanitize error message to prevent information disclosure
         sanitized_error = sanitize_error_message(e, "startup_event.ConfigManager")
-        print(f"Failed to initialize ConfigManager: {sanitized_error}")
+        print(f"❌ Failed to initialize ConfigManager: {sanitized_error}")
+        print("   Falling back to legacy config loading...")
         # Fallback to old config loading
         webhook_config_data = await inject_connection_details(webhook_config_data, connection_config)
     else:
@@ -341,19 +354,21 @@ async def startup_event():
                 clickhouse_config = conn
                 break
     
+    # Initialize ClickHouse logger for automatic event logging
+    print("📊 Checking ClickHouse connection...")
     if clickhouse_config:
         try:
             clickhouse_logger = ClickHouseAnalytics(clickhouse_config)
             await clickhouse_logger.connect()
-            print("ClickHouse event logger initialized - all webhook events will be logged")
+            print("✅ ClickHouse event logger initialized - all webhook events will be logged")
         except Exception as e:
             # SECURITY: Sanitize error message to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "startup_event.ClickHouse")
-            print(f"Failed to initialize ClickHouse logger: {sanitized_error}")
-            print("Continuing without ClickHouse logging...")
+            print(f"⚠️  ClickHouse logger unavailable: {sanitized_error}")
+            print("   Continuing without ClickHouse logging...")
             clickhouse_logger = None  # Ensure it's None if connection failed
     else:
-        print("No ClickHouse connection found - webhook events will not be logged to ClickHouse")
+        print("ℹ️  ClickHouse not configured - webhook events will not be logged to ClickHouse")
         clickhouse_logger = None  # Explicitly set to None
     
     # Start file watcher if enabled
@@ -378,13 +393,19 @@ async def startup_event():
             
             config_watcher = ConfigFileWatcher(config_manager, debounce_seconds=debounce_seconds)
             config_watcher.start()
-            print("Config file watcher started - automatic reload enabled")
+            print(f"✅ Config file watcher started - automatic reload enabled (debounce: {debounce_seconds}s)")
         except Exception as e:
             # SECURITY: Sanitize error message to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "startup_event.ConfigFileWatcher")
             print(f"Failed to start config file watcher: {sanitized_error}")
 
+    # Start background cleanup task
     asyncio.create_task(cleanup_task())
+    
+    # Print startup completion message
+    print("\n" + "=" * 60)
+    print("🚀 Webhook service startup complete!")
+    print("=" * 60 + "\n")
 
 
 @app.on_event("shutdown")

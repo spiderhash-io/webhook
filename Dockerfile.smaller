@@ -1,5 +1,6 @@
 # Multi-stage build for smaller final image
-FROM python:3.9-slim AS builder
+# Using Python 3.11 for better performance and security (Python 3.9 is EOL)
+FROM python:3.11-slim AS builder
 
 # Set working directory
 WORKDIR /app
@@ -15,7 +16,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Final stage - minimal runtime image
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
@@ -34,9 +35,10 @@ RUN chown -R appuser:appuser /app /home/appuser/.local
 
 # Make sure scripts in .local are usable and Python can find packages
 ENV PATH=/home/appuser/.local/bin:$PATH \
-    PYTHONPATH=/home/appuser/.local/lib/python3.9/site-packages:$PYTHONPATH \
+    PYTHONPATH=/home/appuser/.local/lib/python3.11/site-packages:$PYTHONPATH \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONWARNINGS=ignore::FutureWarning
 
 # Remove unnecessary packages and clean up
 RUN apt-get update && apt-get purge -y \
