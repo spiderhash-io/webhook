@@ -104,10 +104,11 @@ class TestConfigInjectionAttacks:
     async def test_missing_required_config_fields(self):
         """Test that missing required config fields are handled securely."""
         incomplete_configs = [
-            {},  # Empty config
-            {"module": "log"},  # Missing data_type
+            {},  # Empty config - missing module
             {"data_type": "json"},  # Missing module
         ]
+        
+        # Note: {"module": "log"} (missing data_type) now works - defaults to "json"
         
         for incomplete_config in incomplete_configs:
             mock_request = Mock(spec=Request)
@@ -120,10 +121,10 @@ class TestConfigInjectionAttacks:
             try:
                 handler = WebhookHandler("test_webhook", configs, {}, mock_request)
                 result = await handler.process_webhook()
-                # Should fail with clear error
+                # Should fail with clear error (missing module)
                 assert False, f"Should reject incomplete config: {incomplete_config}"
             except (HTTPException, KeyError, AttributeError) as e:
-                # Expected - should reject incomplete config
+                # Expected - should reject incomplete config (missing module)
                 assert True
     
     @pytest.mark.asyncio

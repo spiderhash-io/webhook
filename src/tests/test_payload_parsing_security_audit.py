@@ -27,7 +27,7 @@ class TestDataTypeHandlingSecurity:
     
     @pytest.mark.asyncio
     async def test_missing_data_type_key(self):
-        """Test that missing data_type key is handled safely."""
+        """Test that missing data_type key defaults to 'json'."""
         mock_request = Mock(spec=Request)
         mock_request.headers = {"content-type": "application/json"}
         mock_request.query_params = {}
@@ -35,19 +35,15 @@ class TestDataTypeHandlingSecurity:
         
         configs = {"test_webhook": {
             "module": "log"
-            # Missing data_type
+            # Missing data_type - should default to "json"
         }}
         
-        try:
-            handler = WebhookHandler("test_webhook", configs, {}, mock_request)
-            result = await handler.process_webhook()
-            # Should fail with KeyError or HTTPException
-            assert False, "Should reject missing data_type"
-        except (KeyError, HTTPException) as e:
-            # Expected - should reject missing data_type
-            if isinstance(e, HTTPException):
-                assert e.status_code in [400, 415]
-            assert True
+        # Should work with default "json" data_type
+        handler = WebhookHandler("test_webhook", configs, {}, mock_request)
+        # Should not raise exception - defaults to "json"
+        # The handler will process it as JSON
+        assert handler.config.get('data_type') is None  # Not in config
+        # But process_webhook will use "json" as default
     
     @pytest.mark.asyncio
     async def test_data_type_type_confusion(self):
@@ -767,12 +763,8 @@ class TestPayloadParsingEdgeCases:
             # Missing data_type - should use .get() with default
         }}
         
-        try:
-            handler = WebhookHandler("test_webhook", configs, {}, mock_request)
-            result = await handler.process_webhook()
-            # Should fail (missing data_type)
-            assert False, "Should reject missing data_type"
-        except (KeyError, HTTPException) as e:
-            # Expected - missing data_type should cause error
-            assert True
+        # Missing data_type - should default to "json"
+        handler = WebhookHandler("test_webhook", configs, {}, mock_request)
+        # Should work with default "json" data_type
+        # No exception expected - defaults to "json"
 

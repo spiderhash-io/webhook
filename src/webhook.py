@@ -312,9 +312,8 @@ class WebhookHandler:
         
         # Read the incoming data based on its type
         # SECURITY: Validate data_type exists and is a string to prevent KeyError and type confusion
-        data_type = self.config.get('data_type')
-        if not data_type:
-            raise HTTPException(status_code=400, detail="Missing data_type configuration")
+        # Default to "json" if data_type is not specified (most common use case)
+        data_type = self.config.get('data_type', 'json')
         
         if not isinstance(data_type, str):
             raise HTTPException(status_code=400, detail="Invalid data_type configuration: must be a string")
