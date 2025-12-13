@@ -6,6 +6,7 @@ Generates OpenAPI 3.0 documentation dynamically from webhooks.json configuration
 from typing import Dict, List, Any, Optional
 import json
 import re
+import os
 import html
 import ipaddress
 from urllib.parse import urlparse
@@ -153,7 +154,7 @@ def generate_openapi_schema(webhook_config_data: Dict[str, Any]) -> Dict[str, An
         },
         "servers": [
             {
-                "url": "/",
+                "url": os.getenv("ROOT_PATH", "/").rstrip("/") or "/",
                 "description": "Current server"
             }
         ],

@@ -18,12 +18,18 @@ from src.config_watcher import ConfigFileWatcher
 # Check if OpenAPI docs should be disabled
 DISABLE_OPENAPI_DOCS = os.getenv("DISABLE_OPENAPI_DOCS", "false").lower() == "true"
 
+# Get root path for reverse proxy support (e.g., /webhook when behind nginx with /webhook/ prefix)
+# This allows FastAPI to generate correct URLs in OpenAPI schema when behind a proxy
+ROOT_PATH = os.getenv("ROOT_PATH", "").rstrip("/")  # Remove trailing slash if present
+
 # Initialize FastAPI app
 # Disable docs if requested
+# root_path is used when behind a reverse proxy to generate correct URLs
 app = FastAPI(
     docs_url="/docs" if not DISABLE_OPENAPI_DOCS else None,
     redoc_url="/redoc" if not DISABLE_OPENAPI_DOCS else None,
-    openapi_url="/openapi.json" if not DISABLE_OPENAPI_DOCS else None
+    openapi_url="/openapi.json" if not DISABLE_OPENAPI_DOCS else None,
+    root_path=ROOT_PATH if ROOT_PATH else None  # Set root_path for reverse proxy support
 )
 stats = RedisEndpointStats()  # Use Redis for persistent stats
 clickhouse_logger: ClickHouseAnalytics = None  # For logging events only
