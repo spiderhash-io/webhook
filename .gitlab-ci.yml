@@ -7,7 +7,7 @@ stages:
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-  PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.11"
   DOCKER_DRIVER: overlay2
   DOCKER_TLS_CERTDIR: "/certs"
   # CI_REGISTRY_IMAGE is automatically set by GitLab to $CI_REGISTRY/$CI_PROJECT_PATH
@@ -21,7 +21,7 @@ cache:
 # Unit tests job - runs fast unit tests (excludes integration and longrunning tests)
 unit-tests:
   stage: test
-  image: python:3.12-slim
+  image: python:3.11-slim
   before_script:
     - python --version
     - pip install --upgrade pip setuptools wheel
