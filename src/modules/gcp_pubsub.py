@@ -169,8 +169,13 @@ class GCPPubSubModule(BaseModule):
         
         try:
             # Serialize payload to JSON
+            # SECURITY: Catch RecursionError for deeply nested structures
             if isinstance(payload, (dict, list)):
-                message_data = json.dumps(payload).encode('utf-8')
+                try:
+                    message_data = json.dumps(payload).encode('utf-8')
+                except RecursionError:
+                    # Deeply nested structure exceeds recursion limit - use simplified representation
+                    message_data = json.dumps({"error": "Payload too deeply nested to serialize", "type": type(payload).__name__}).encode('utf-8')
             else:
                 message_data = str(payload).encode('utf-8')
             

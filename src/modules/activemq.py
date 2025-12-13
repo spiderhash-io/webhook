@@ -204,8 +204,13 @@ class ActiveMQModule(BaseModule):
         
         try:
             # Serialize payload to JSON
+            # SECURITY: Catch RecursionError for deeply nested structures
             if isinstance(payload, (dict, list)):
-                message = json.dumps(payload)
+                try:
+                    message = json.dumps(payload)
+                except RecursionError:
+                    # Deeply nested structure exceeds recursion limit - use simplified representation
+                    message = json.dumps({"error": "Payload too deeply nested to serialize", "type": type(payload).__name__})
             else:
                 message = str(payload)
             
