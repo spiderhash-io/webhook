@@ -222,12 +222,29 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         
         # Content-Security-Policy: Restrict resource loading
         # Default policy: Only allow same-origin resources
+        # For OpenAPI docs endpoints, use more permissive CSP to allow Swagger UI resources
+        is_docs_endpoint = request.url.path in ["/docs", "/redoc", "/openapi.json"]
+        
         csp_policy = os.getenv("CSP_POLICY", "")
         if csp_policy:
             # Use custom CSP if provided
             response.headers["Content-Security-Policy"] = csp_policy
+        elif is_docs_endpoint:
+            # Permissive CSP for OpenAPI docs (Swagger UI needs CDN resources)
+            docs_csp = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https://fastapi.tiangolo.com https://cdn.jsdelivr.net; "
+                "font-src 'self' data: https://cdn.jsdelivr.net; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'"
+            )
+            response.headers["Content-Security-Policy"] = docs_csp
         else:
-            # Default restrictive CSP
+            # Default restrictive CSP for all other endpoints
             default_csp = (
                 "default-src 'self'; "
                 "script-src 'self'; "
