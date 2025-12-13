@@ -289,6 +289,18 @@ async def cleanup_task():
 async def startup_event():
     global webhook_config_data, clickhouse_logger, config_manager, config_watcher
     
+    # Print ASCII art banner
+    print("\n" + "=" * 60)
+    print("""
+__        __  _____  _   _   _    _   _____   _    _ 
+\\ \\      / / |  _  || | | | | |  | | |  _  | | |  | |
+ \\ \\ /\\ / /  | | | || | | | | |  | | | | | | | |  | |
+  \\ V  V /   | | | || | | | | |/\\| | | | | | | |/\\| |
+   \\_/\\_/    | |_| || |_| | |  /\\  | | |_| | |  /\\  |
+              \\___/  \\___/  |_/  \\_|  \\___/  |_/  \\_|
+    """)
+    print("=" * 60 + "\n")
+    
     # Initialize ConfigManager for live reload
     config_manager = ConfigManager()
     try:
