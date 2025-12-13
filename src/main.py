@@ -20,16 +20,19 @@ DISABLE_OPENAPI_DOCS = os.getenv("DISABLE_OPENAPI_DOCS", "false").lower() == "tr
 
 # Get root path for reverse proxy support (e.g., /webhook when behind nginx with /webhook/ prefix)
 # This allows FastAPI to generate correct URLs in OpenAPI schema when behind a proxy
+# Note: This is used ONLY for URL generation, NOT for path stripping (uvicorn --root-path would do that)
 ROOT_PATH = os.getenv("ROOT_PATH", "").rstrip("/")  # Remove trailing slash if present
 
 # Initialize FastAPI app
 # Disable docs if requested
-# root_path is used when behind a reverse proxy to generate correct URLs
+# root_path is used when behind a reverse proxy to generate correct URLs in OpenAPI schema
+# openapi_url must include ROOT_PATH so Swagger UI loads the correct JSON file
+openapi_url_path = f"{ROOT_PATH}/openapi.json" if (ROOT_PATH and not DISABLE_OPENAPI_DOCS) else ("/openapi.json" if not DISABLE_OPENAPI_DOCS else None)
 app = FastAPI(
     docs_url="/docs" if not DISABLE_OPENAPI_DOCS else None,
     redoc_url="/redoc" if not DISABLE_OPENAPI_DOCS else None,
-    openapi_url="/openapi.json" if not DISABLE_OPENAPI_DOCS else None,
-    root_path=ROOT_PATH if ROOT_PATH else None  # Set root_path for reverse proxy support
+    openapi_url=openapi_url_path,
+    root_path=ROOT_PATH if ROOT_PATH else None  # Set root_path for reverse proxy support (URL generation only)
 )
 stats = RedisEndpointStats()  # Use Redis for persistent stats
 clickhouse_logger: ClickHouseAnalytics = None  # For logging events only

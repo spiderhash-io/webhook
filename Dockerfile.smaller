@@ -54,7 +54,7 @@ RUN apt-get update && apt-get purge -y \
 USER appuser
 
 # Specify the command to run on container start
-# Use shell form to allow environment variable expansion for --root-path
-# If ROOT_PATH is set, uvicorn will strip that prefix from incoming requests
-CMD uvicorn src.main:app --host 0.0.0.0 --port 8000 ${ROOT_PATH:+--root-path $ROOT_PATH}
+# Note: Do NOT use --root-path here as it strips the path prefix from requests
+# FastAPI's root_path parameter (set in code) is used only for URL generation in OpenAPI schema
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
