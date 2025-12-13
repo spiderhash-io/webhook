@@ -11,9 +11,7 @@ Or as a service:
     uvicorn src.analytics_processor:app --host 0.0.0.0 --port 8001
 """
 import asyncio
-import json
-import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Dict, Optional
 from clickhouse_driver import Client
 from src.clickhouse_analytics import ClickHouseAnalytics
@@ -89,7 +87,7 @@ class AnalyticsProcessor:
                 # Re-raise validation errors
                 raise ValueError(f"Host validation failed: {str(e)}")
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             # Build client kwargs - only include password if it's not None/empty
             # Note: clickhouse-driver may require password to be omitted entirely if empty
             def create_client():
@@ -136,7 +134,7 @@ class AnalyticsProcessor:
             # SECURITY: Validate webhook_id to prevent injection attacks and DoS
             validated_webhook_id = self._validate_webhook_id(webhook_id)
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             
             # Calculate stats from ALL events for this webhook_id
             # Using ClickHouse's now() function to calculate rolling windows
@@ -194,7 +192,7 @@ class AnalyticsProcessor:
             return []
         
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             query = "SELECT DISTINCT webhook_id FROM webhook_logs"
             result = await loop.run_in_executor(
                 None,
@@ -253,7 +251,7 @@ class AnalyticsProcessor:
         """Disconnect from ClickHouse."""
         if self.client:
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, lambda: self.client.disconnect())
             except Exception:
                 pass

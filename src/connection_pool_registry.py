@@ -9,6 +9,8 @@ This module provides a registry for connection pools that supports:
 """
 import asyncio
 import time
+import hashlib
+import json
 from typing import Any, Dict, Optional, Callable, Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -35,7 +37,7 @@ class ConnectionPoolRegistry:
     - Pool versioning: Track multiple versions of pools for same connection
     - Graceful migration: Old pools remain active during transition
     - Automatic cleanup: Deprecated pools are closed after timeout
-    - Thread-safe: Safe for concurrent access
+    - Async-safe: Safe for concurrent async access
     """
     
     def __init__(self, migration_timeout: float = 300.0):
@@ -104,9 +106,6 @@ class ConnectionPoolRegistry:
         
         # Security: Use full SHA256 hash to prevent hash collisions
         # Using only 16 chars (64 bits) can cause collisions with different configs
-        import hashlib
-        import json
-        
         try:
             # Security: Prevent JSON DoS via circular references and deeply nested structures
             config_str = json.dumps(connection_config, sort_keys=True, default=str)
@@ -140,7 +139,7 @@ class ConnectionPoolRegistry:
             except Exception as e:
                 # Security: Sanitize error messages to prevent information disclosure
                 from src.utils import sanitize_error_message
-                error_msg = sanitize_error_message(str(e))
+                error_msg = sanitize_error_message(e, "ConnectionPoolRegistry.get_pool")
                 raise RuntimeError(f"Failed to create connection pool: {error_msg}") from e
             
             # Increment version
@@ -148,12 +147,13 @@ class ConnectionPoolRegistry:
             self._version_counter[connection_name] = version
             
             # Security: Store config_str for comparison but not the full config dict
-            # This allows config comparison without storing sensitive data
+            # Note: config_str contains serialized config (may include sensitive data in JSON form)
+            # This allows config comparison without storing the full config dict object
             safe_metadata = {
                 "host": connection_config.get("host", ""),
                 "port": connection_config.get("port", ""),
                 "type": connection_config.get("type", ""),
-                "config_str": config_str  # Store for comparison, but it's already sanitized JSON
+                "config_str": config_str  # Store for comparison (contains serialized config)
             }
             
             # Create new pool info
@@ -225,7 +225,7 @@ class ConnectionPoolRegistry:
                 except Exception as e:
                     # Security: Sanitize error messages to prevent information disclosure
                     from src.utils import sanitize_error_message
-                    error_msg = sanitize_error_message(str(e))
+                    error_msg = sanitize_error_message(e, "ConnectionPoolRegistry.cleanup_deprecated_pools")
                     print(f"Warning: Error closing deprecated pool {connection_name}: {error_msg}")
                 
                 del self._deprecated_pools[connection_name]
@@ -275,7 +275,7 @@ class ConnectionPoolRegistry:
             Dictionary mapping connection names to pool information
         """
         result = {}
-        for connection_name in set(list(self._pools.keys()) + list(self._deprecated_pools.keys())):
+        for connection_name in set(self._pools.keys()) | set(self._deprecated_pools.keys()):
             info = self.get_pool_info(connection_name)
             if info:
                 result[connection_name] = info
@@ -300,7 +300,7 @@ class ConnectionPoolRegistry:
                 except Exception as e:
                     # Security: Sanitize error messages to prevent information disclosure
                     from src.utils import sanitize_error_message
-                    error_msg = sanitize_error_message(str(e))
+                    error_msg = sanitize_error_message(e, "ConnectionPoolRegistry.close_all_pools")
                     print(f"Warning: Error closing pool {pool_info.connection_name}: {error_msg}")
             
             self._pools.clear()

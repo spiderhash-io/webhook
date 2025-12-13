@@ -1,8 +1,7 @@
 # src/config.py
 import json
 import ipaddress
-import urllib.parse
-from typing import Any
+from typing import Any, Dict
 from redis import Redis
 from src.utils import load_env_vars
 from src.modules.rabbitmq import RabbitMQConnectionPool
@@ -98,9 +97,6 @@ def _validate_connection_host(host: str, connection_type: str) -> str:
     dangerous_chars = [';', '|', '&', '$', '`', '(', ')', '{', '}', '<', '>', '?', '*', '!', '\\']
     for char in dangerous_chars:
         if char in host:
-            # Allow brackets for IPv6 addresses
-            if char in ['[', ']'] and is_ipv6_bracketed:
-                continue
             raise ValueError(f"{connection_type} host contains dangerous character '{char}': '{host}'")
     
     # Handle IPv6 addresses in brackets
@@ -175,10 +171,10 @@ def _validate_connection_host(host: str, connection_type: str) -> str:
     
     # Basic hostname validation (alphanumeric, dots, hyphens)
     # This is permissive but safe - actual DNS resolution will happen later
-    # If it's an IPv6 address in brackets, we already validated it above
+    # If it's an IPv6 address in brackets but wasn't a valid IP, reject it
     if is_ipv6_bracketed:
-        # Already validated as IP address above, return as-is
-        return host
+        # Bracketed but not a valid IP address - reject
+        raise ValueError(f"Invalid {connection_type} IPv6 address format: '{host}'")
     
     # For regular hostnames, validate format
     if not all(c.isalnum() or c in '.-' for c in host):
@@ -222,7 +218,22 @@ def _validate_connection_port(port: Any, connection_type: str) -> int:
     return port_int
 
 
-async def inject_connection_details(webhook_config_data, connection_config):
+async def inject_connection_details(webhook_config_data: Dict[str, Any], connection_config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Inject connection details into webhook configurations.
+    
+    This function:
+    - Validates connection configurations
+    - Creates connection pools/objects for supported connection types
+    - Injects connection details into webhook configs
+    
+    Args:
+        webhook_config_data: Dictionary of webhook configurations
+        connection_config: Dictionary of connection configurations
+        
+    Returns:
+        Updated webhook_config_data with connection details injected
+    """
     # Iterate over webhook configuration items
     for webhook_id, config in webhook_config_data.items():
         # Check if 'connection' is in the webhook configuration
@@ -236,7 +247,7 @@ async def inject_connection_details(webhook_config_data, connection_config):
                 if not connection_type:
                     raise ValueError(f"Connection '{connection_name}' is missing required 'type' field")
 
-                # create connection pool redis rq
+                # Create Redis connection for Redis RQ
                 if connection_type == "redis-rq":
                     # Validate host and port before creating connection
                     raw_host = connection_details.get("host")
@@ -245,14 +256,14 @@ async def inject_connection_details(webhook_config_data, connection_config):
                     validated_host = _validate_connection_host(raw_host, "Redis RQ")
                     validated_port = _validate_connection_port(raw_port, "Redis RQ")
                     
-                    # Initialize a Redis connection pool with validated host/port
+                    # Initialize a Redis connection with validated host/port
                     connection_details["conn"] = Redis(
                         host=validated_host,
                         port=validated_port,
                         db=connection_details.get("db", 0)
                     )
 
-                # create connection pool rabbitmq
+                # Create RabbitMQ connection pool
                 if connection_type == "rabbitmq":
                     # Validate host and port before creating connection
                     raw_host = connection_details.get("host")

@@ -3,6 +3,7 @@ Input validation and sanitization utilities.
 Provides functions to validate and sanitize webhook inputs.
 """
 import re
+import html
 from typing import Any, Dict, Tuple
 
 
@@ -54,7 +55,11 @@ class InputValidator:
                     if char in header_value:
                         return False, f"Invalid header value: contains forbidden character"
         
-        total_size = sum(len(k) + len(v) for k, v in headers.items())
+        # Calculate total header size (only count string values to avoid errors)
+        total_size = sum(
+            len(k) + (len(v) if isinstance(v, str) else 0)
+            for k, v in headers.items()
+        )
         if total_size > InputValidator.MAX_HEADER_SIZE:
             return False, f"Headers too large: {total_size} bytes (max: {InputValidator.MAX_HEADER_SIZE})"
         
@@ -136,18 +141,12 @@ class InputValidator:
     
     @staticmethod
     def sanitize_string(value: str) -> str:
-        """Sanitize string value (basic HTML escaping)."""
+        """Sanitize string value (HTML escaping)."""
         if not isinstance(value, str):
             return value
         
-        # Basic HTML escaping
-        value = value.replace('&', '&amp;')
-        value = value.replace('<', '&lt;')
-        value = value.replace('>', '&gt;')
-        value = value.replace('"', '&quot;')
-        value = value.replace("'", '&#x27;')
-        
-        return value
+        # Use html.escape() for proper HTML escaping (handles edge cases correctly)
+        return html.escape(value, quote=True)
     
     @staticmethod
     def check_dangerous_patterns(value: str) -> Tuple[bool, str]:
@@ -193,11 +192,6 @@ class InputValidator:
         MAX_WEBHOOK_ID_LENGTH = 64
         if len(webhook_id) > MAX_WEBHOOK_ID_LENGTH:
             return False, f"Webhook ID too long: {len(webhook_id)} characters (max: {MAX_WEBHOOK_ID_LENGTH})"
-        
-        # Minimum length to prevent abuse
-        MIN_WEBHOOK_ID_LENGTH = 1
-        if len(webhook_id) < MIN_WEBHOOK_ID_LENGTH:
-            return False, "Webhook ID too short"
         
         # Only allow alphanumeric, underscore, and hyphen
         # Must start with alphanumeric (not underscore or hyphen)

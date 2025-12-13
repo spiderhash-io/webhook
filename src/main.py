@@ -3,10 +3,8 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
-from starlette.responses import Response
 import asyncio
 import os
-from datetime import datetime
 from typing import Optional
 
 from src.webhook import WebhookHandler
@@ -290,14 +288,18 @@ async def startup_event():
     
     # Initialize ClickHouse logger for automatic event logging
     # Look for any clickhouse connection (webhook instances just log events)
-    conn_config = config_manager.get_connection_config if config_manager else connection_config
     clickhouse_config = None
     if config_manager:
-        for conn_name in conn_config.keys() if hasattr(conn_config, 'keys') else []:
-            conn = config_manager.get_connection_config(conn_name)
-            if conn and conn.get('type') == 'clickhouse':
-                clickhouse_config = conn
-                break
+        # Access connection config dict directly (similar to _webhook_config access pattern)
+        try:
+            conn_config = config_manager._connection_config
+            for conn_name, conn in conn_config.items():
+                if conn and conn.get('type') == 'clickhouse':
+                    clickhouse_config = conn
+                    break
+        except AttributeError:
+            # Fallback if _connection_config not accessible
+            pass
     else:
         for conn_name, conn in connection_config.items():
             if conn.get('type') == 'clickhouse':
@@ -749,12 +751,7 @@ async def reload_config_endpoint(request: Request):
         # SECURITY: Sanitize error message to prevent information disclosure
         # Additional pattern-based sanitization for connection strings and sensitive paths
         if result.error:
-            error_lower = result.error.lower()
-            # Check for sensitive patterns in error message
-            if any(pattern in error_lower for pattern in ["postgresql://", "mysql://", "redis://", "secret", "password", "/etc/", "c:\\", "traceback", "stack_trace"]):
-                sanitized_error = sanitize_error_message(result.error, "reload_config")
-            else:
-                sanitized_error = sanitize_error_message(result.error, "reload_config")
+            sanitized_error = sanitize_error_message(result.error, "reload_config")
         else:
             sanitized_error = "Configuration reload failed"
         

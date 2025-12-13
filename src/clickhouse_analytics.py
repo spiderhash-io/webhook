@@ -59,7 +59,7 @@ class ClickHouseAnalytics:
                 raise ValueError(f"Host validation failed: {str(e)}")
             
             # Run synchronous client creation in thread pool
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             
             def create_client():
                 # For ClickHouse with no password, don't pass password parameter at all
@@ -85,9 +85,6 @@ class ClickHouseAnalytics:
             self._worker_task = asyncio.create_task(self._worker())
             print("ClickHouse analytics worker started")
             
-        except ValueError:
-            # Re-raise validation errors
-            raise
         except Exception as e:
             # SECURITY: Sanitize error messages to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "ClickHouse Analytics connection")
@@ -121,11 +118,13 @@ class ClickHouseAnalytics:
                 ORDER BY (webhook_id, timestamp)
                 PARTITION BY toYYYYMM(timestamp)
                 """
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, lambda: self.client.execute(create_stats_table))
                 self.stats_table_created = True
             except Exception as e:
-                print(f"Failed to create stats table (might already exist): {e}")
+                # SECURITY: Sanitize error messages to prevent information disclosure
+                sanitized_error = sanitize_error_message(e, "table creation")
+                print(f"Failed to create stats table (might already exist): {sanitized_error}")
         
         # Create webhook_logs table (for general logging)
         if not self.logs_table_created:
@@ -142,22 +141,24 @@ class ClickHouseAnalytics:
                 ORDER BY (webhook_id, timestamp)
                 PARTITION BY toYYYYMM(timestamp)
                 """
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, lambda: self.client.execute(create_logs_table))
                 self.logs_table_created = True
             except Exception as e:
-                print(f"Failed to create logs table (might already exist): {e}")
+                # SECURITY: Sanitize error messages to prevent information disclosure
+                sanitized_error = sanitize_error_message(e, "table creation")
+                print(f"Failed to create logs table (might already exist): {sanitized_error}")
 
     async def _worker(self):
         """Background worker to flush logs and stats to ClickHouse."""
         log_buffer: List[Tuple] = []
         stats_buffer: List[Tuple] = []
-        last_flush = datetime.now()
+        last_flush = datetime.now(timezone.utc)
         
         while self._running or (self.queue and not self.queue.empty()) or log_buffer or stats_buffer:
             try:
                 # Calculate timeout for next flush
-                now = datetime.now()
+                now = datetime.now(timezone.utc)
                 time_since_flush = (now - last_flush).total_seconds()
                 timeout = max(0.1, self.flush_interval - time_since_flush)
                 
@@ -180,7 +181,7 @@ class ClickHouseAnalytics:
                     break
                 
                 # Check if we need to flush
-                now = datetime.now()
+                now = datetime.now(timezone.utc)
                 time_since_flush = (now - last_flush).total_seconds()
                 should_flush = time_since_flush >= self.flush_interval
                 
@@ -215,7 +216,7 @@ class ClickHouseAnalytics:
             INSERT INTO webhook_logs (id, webhook_id, timestamp, payload, headers)
             VALUES
             """
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 lambda: self.client.execute(insert_query, buffer)
@@ -238,7 +239,7 @@ class ClickHouseAnalytics:
                 minute_30, hour, day, week, month
             ) VALUES
             """
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 lambda: self.client.execute(insert_query, buffer)
@@ -372,7 +373,7 @@ class ClickHouseAnalytics:
         
         if self.client:
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, lambda: self.client.disconnect())
             except Exception:
                 pass

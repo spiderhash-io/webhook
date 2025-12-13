@@ -1,9 +1,6 @@
 import aio_pika
 from aio_pika import connect_robust
-from aio_pika.pool import Pool
-# import aio_pika
 import asyncio
-import json
 import time
 from typing import Optional
 
@@ -188,49 +185,3 @@ class RabbitMQConnectionPool:
             "circuit_breaker_active": self._circuit_breaker_triggered,
             "last_exhaustion_time": self._last_exhaustion_time,
         }
-
-
-async def rabbitmq_publish(payload, config, headers):
-
-    headers_dict = dict(headers.items())
-
-    connection_pool = config.get('connection_details', {}).get("connection_pool")
-    queue_name = config.get('queue_name')
-    
-    if not connection_pool:
-        raise Exception("Connection pool is not defined")
-
-    connection = await connection_pool.get_connection()
-
-    if connection is None:
-        raise Exception("Could not acquire a connection from the pool")
-
-    try:
-        # Create a new channel
-        channel = await connection.channel()
-
-        # Declare a queue (ensure it exists). Queue parameters need to be adjusted as per your setup.
-        queue = await channel.declare_queue(queue_name, durable=True)
-
-        # Serialize the payload to JSON
-        json_body = json.dumps(payload).encode()
-       
-
-        # Create the message. You could add properties like delivery_mode=2 to make message persistent.
-        message = aio_pika.Message(
-            body=json_body,
-            headers=headers_dict,
-            delivery_mode=2
-        )
-
-        # Send the message. The routing_key needs to match the queue name if default exchange is used.
-        await channel.default_exchange.publish(message, routing_key=queue_name)
-
-        print("Message published to: " + str(queue_name))
-    except Exception as e:
-        print(f"Failed to publish message: {e}")
-        raise e
-
-    finally:
-        # Always release the connection back to the pool
-        await connection_pool.release(connection)

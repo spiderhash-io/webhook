@@ -9,7 +9,7 @@ import asyncio
 import threading
 from typing import Optional
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileModifiedEvent
+from watchdog.events import FileSystemEventHandler
 from src.utils import sanitize_error_message
 
 
@@ -86,16 +86,13 @@ class ConfigFileHandler(FileSystemEventHandler):
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    # No event loop available, create task in new thread
-                    threading.Thread(
-                        target=self._run_reload_in_thread,
-                        args=(file_path,),
-                        daemon=True
-                    ).start()
-                    return
+                # No running event loop available, create task in new thread
+                threading.Thread(
+                    target=self._run_reload_in_thread,
+                    args=(file_path,),
+                    daemon=True
+                ).start()
+                return
         
         # Schedule reload task in event loop
         if loop and loop.is_running():
@@ -183,6 +180,8 @@ class ConfigFileWatcher:
         connection_path = os.path.abspath(connection_file)
         
         # Watch the directory containing the config files
+        # Note: Assumes both config files are in the same directory
+        # If they're in different directories, only the webhook file's directory will be watched
         watch_dir = os.path.dirname(webhook_path) or os.path.dirname(connection_path) or "."
         watch_dir = os.path.abspath(watch_dir)
         
@@ -191,11 +190,8 @@ class ConfigFileWatcher:
             try:
                 self.event_loop = asyncio.get_running_loop()
             except RuntimeError:
-                try:
-                    self.event_loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    # No event loop available, will create tasks in threads
-                    self.event_loop = None
+                # No running event loop available, will create tasks in threads
+                self.event_loop = None
         
         # Create event handler
         self.handler = ConfigFileHandler(

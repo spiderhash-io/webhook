@@ -1,8 +1,8 @@
 """
-Config Manager for thread-safe configuration management and live reload.
+Config Manager for async-safe configuration management and live reload.
 
 This module provides:
-- Thread-safe config storage using Read-Copy-Update (RCU) pattern
+- Async-safe config storage using Read-Copy-Update (RCU) pattern
 - Configuration validation
 - Reload orchestration
 - Integration with ConnectionPoolRegistry
@@ -41,10 +41,10 @@ class ReloadResult:
 
 class ConfigManager:
     """
-    Thread-safe configuration manager with live reload support.
+    Async-safe configuration manager with live reload support.
     
     Features:
-    - Read-Copy-Update (RCU) pattern for thread-safe updates
+    - Read-Copy-Update (RCU) pattern for async-safe updates
     - Configuration validation before applying changes
     - Integration with ConnectionPoolRegistry for pool management
     - Support for webhook and connection config reloading
@@ -68,7 +68,7 @@ class ConfigManager:
         self.connection_config_file = connection_config_file
         self.pool_registry = pool_registry or ConnectionPoolRegistry()
         
-        # Thread-safe config storage
+        # Async-safe config storage
         self._webhook_config: Dict[str, Any] = {}
         self._connection_config: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
@@ -302,7 +302,7 @@ class ConfigManager:
     
     def get_webhook_config(self, webhook_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get webhook configuration by ID (thread-safe read).
+        Get webhook configuration by ID (async-safe read).
         
         Args:
             webhook_id: Webhook identifier
@@ -314,7 +314,7 @@ class ConfigManager:
     
     def get_connection_config(self, connection_name: str) -> Optional[Dict[str, Any]]:
         """
-        Get connection configuration by name (thread-safe read).
+        Get connection configuration by name (async-safe read).
         
         Args:
             connection_name: Connection name
@@ -470,9 +470,9 @@ class ConfigManager:
             factory = create_rabbitmq_pool
         elif conn_type == 'redis-rq':
             factory = create_redis_pool
-        elif conn_type == 'postgresql' or conn_type == 'postgres':
+        elif conn_type in ['postgresql', 'postgres']:
             factory = create_postgresql_pool
-        elif conn_type == 'mysql' or conn_type == 'mariadb':
+        elif conn_type in ['mysql', 'mariadb']:
             factory = create_mysql_pool
         else:
             # Other connection types don't use pools
@@ -483,6 +483,7 @@ class ConfigManager:
         try:
             await self.pool_registry.get_pool(connection_name, connection_config, factory)
         except Exception as e:
-            # Log error but don't fail reload - pool will be created when actually needed
-            print(f"Warning: Failed to create pool for connection '{connection_name}': {e}")
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "ConfigManager._update_connection_pool")
+            print(f"Warning: Failed to create pool for connection '{connection_name}': {sanitized_error}")
 
