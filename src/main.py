@@ -333,8 +333,10 @@ async def startup_event():
             sanitized_error = sanitize_error_message(e, "startup_event.ClickHouse")
             print(f"Failed to initialize ClickHouse logger: {sanitized_error}")
             print("Continuing without ClickHouse logging...")
+            clickhouse_logger = None  # Ensure it's None if connection failed
     else:
         print("No ClickHouse connection found - webhook events will not be logged to ClickHouse")
+        clickhouse_logger = None  # Explicitly set to None
     
     # Start file watcher if enabled
     file_watching_enabled = os.getenv("CONFIG_FILE_WATCHING_ENABLED", "false").lower() == "true"
@@ -467,17 +469,19 @@ async def read_webhook(webhook_id: str,  request: Request):
     payload, headers, task = result
 
     # Update stats (persistent in Redis)
-    # Don't fail webhook if stats fail
+    # Don't fail webhook if stats fail - silently skip if Redis unavailable
     try:
         await stats.increment(webhook_id)
     except Exception as e:
-        print(f"Failed to update stats: {e}")
-        # Continue processing even if stats fail
+        # Silently skip stats update if Redis is unavailable
+        # Don't log errors to avoid noise when Redis is intentionally not configured
+        pass
 
     # Automatically log all webhook events to ClickHouse
     # This allows analytics service to process them later
+    # Only log if ClickHouse is available and connected
     global clickhouse_logger
-    if clickhouse_logger:
+    if clickhouse_logger and clickhouse_logger.client:
         try:
             # Log asynchronously using task manager (fire and forget)
             from src.webhook import task_manager
@@ -485,8 +489,9 @@ async def read_webhook(webhook_id: str,  request: Request):
                 await clickhouse_logger.save_log(webhook_id, payload, headers)
             await task_manager.create_task(log_to_clickhouse())
         except Exception as e:
-            # Don't fail webhook if logging fails
-            print(f"Failed to log webhook event to ClickHouse: {e}")
+            # Silently skip ClickHouse logging if it fails
+            # Don't log errors to avoid noise when ClickHouse is intentionally not configured
+            pass
 
     # Check if retry is configured and task is running
     retry_config = webhook_handler.config.get("retry", {})
