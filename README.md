@@ -2,14 +2,16 @@
 
 A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, MQTT, disk, or stdout.
 
-**Status**: Production-ready with comprehensive security features, 1,895 passing tests, and support for multiple output destinations. All 11 authentication methods implemented!
+**Status**: Production-ready with comprehensive security features, 2,493 passing tests, and support for multiple output destinations. All 11 authentication methods implemented!
 
 ## Features
 
 ### Core Functionality
-- **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, WebSocket, PostgreSQL, MySQL/MariaDB, S3, Kafka, ActiveMQ, AWS S3, GCP Pub/Sub, ZeroMQ, or stdout.
+- **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, WebSocket, PostgreSQL, MySQL/MariaDB, S3, Kafka, ActiveMQ, AWS SQS, GCP Pub/Sub, ZeroMQ, or stdout.
 - **Plugin Architecture**: Easy to extend with new modules without modifying core code.
 - **Configuration-Driven**: Easy configuration via JSON files (`webhooks.json`, `connections.json`) and environment variables.
+- **Live Config Reload**: Hot-reload webhook and connection configurations without restarting the application (via ConfigManager and ConfigFileWatcher).
+- **Connection Pool Management**: Centralized connection pool registry with automatic pool lifecycle management and versioning.
 - **Statistics**: Tracks webhook usage statistics (requests per minute, hour, day, etc.) via `/stats`.
 - **ClickHouse Analytics**: Automatic logging of all webhook events to ClickHouse for analytics and monitoring.
 - **Distributed Architecture**: Support for multiple webhook instances with centralized analytics processing.
@@ -31,6 +33,9 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - `src/main.py`: Entry point, FastAPI app, and route definitions.
 - `src/webhook.py`: Core logic for handling and processing webhooks.
 - `src/config.py`: Configuration loading and injection.
+- `src/config_manager.py`: Live configuration management with hot-reload support.
+- `src/config_watcher.py`: File system watcher for automatic config reload on file changes.
+- `src/connection_pool_registry.py`: Centralized connection pool management with versioning and lifecycle control.
 - `src/modules/`: Output modules (RabbitMQ, Redis, ClickHouse, etc.).
   - `base.py`: Abstract base class for all modules
   - `registry.py`: Module registry for plugin management
@@ -38,6 +43,9 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - `src/utils.py`: Utility functions and in-memory statistics.
 - `src/clickhouse_analytics.py`: ClickHouse analytics service for saving logs and statistics.
 - `src/analytics_processor.py`: Separate analytics processor that reads from ClickHouse and calculates aggregated statistics.
+- `src/openapi_generator.py`: Dynamic OpenAPI schema generation from webhook configurations.
+- `src/rate_limiter.py`: Sliding window rate limiting implementation.
+- `src/input_validator.py`: Input validation and sanitization utilities.
 - `ARCHITECTURE.md`: Detailed architecture documentation
 - `PERFORMANCE_TEST.md`: Performance testing documentation
 
@@ -103,11 +111,11 @@ black src/
 
 ### Docker (Single Instance)
 
-Use the optimized small image to run a single FastAPI instance in Docker:
+Use the optimized smaller image (multi-stage build for minimal size) to run a single FastAPI instance in Docker:
 
 ```bash
-# Build image
-docker build -f Dockerfile.small -t core-webhook-module:small .
+# Build image using smallest Dockerfile
+docker build -f Dockerfile.smaller -t core-webhook-module:latest .
 
 # Run container (mount configs from host)
 docker run --rm \
@@ -115,7 +123,36 @@ docker run --rm \
   -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
   -v "$(pwd)/connections.json:/app/connections.json:ro" \
   --env-file .env \
-  core-webhook-module:small
+  core-webhook-module:latest
+```
+
+**Using GitLab Container Registry:**
+```bash
+# Pull from registry
+docker pull registry.gitlab.com/saas-core-platform/core-webhook-module:latest
+
+# Run container
+docker run --rm \
+  -p 8000:8000 \
+  -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
+  -v "$(pwd)/connections.json:/app/connections.json:ro" \
+  registry.gitlab.com/saas-core-platform/core-webhook-module:latest
+```
+
+**Docker Compose Example:**
+```yaml
+services:
+  webhook:
+    image: registry.gitlab.com/saas-core-platform/core-webhook-module:latest
+    container_name: webhook-service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./webhooks.json:/app/webhooks.json:ro
+      - ./connections.json:/app/connections.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
 ```
 
 Then open `http://localhost:8000/docs` for the interactive API docs (Swagger UI) or `http://localhost:8000/redoc` for ReDoc.
@@ -128,7 +165,7 @@ For performance testing and a full deployment with multiple webhook instances:
 
 ```bash
 # Start all services (5 webhook instances + ClickHouse + Redis + RabbitMQ + Analytics)
-docker-compose up -d
+docker compose up -d
 
 # Run performance tests
 ./src/tests/run_performance_test.sh
@@ -137,6 +174,37 @@ python3 src/tests/performance_test_multi_instance.py
 ```
 
 See `docs/PERFORMANCE_TEST.md` and `DEVELOPMENT.md` for detailed multi-instance and performance testing documentation.
+
+### Live Configuration Reload
+
+The application supports hot-reloading of configuration files without restart:
+
+**Enable File Watching:**
+```bash
+export CONFIG_FILE_WATCHING_ENABLED=true
+export CONFIG_RELOAD_DEBOUNCE_SECONDS=3.0
+```
+
+**Manual Reload via API:**
+```bash
+# Reload webhook configurations
+curl -X POST http://localhost:8000/admin/reload-config \
+  -H "Authorization: Bearer admin_token"
+
+# Reload connection configurations
+curl -X POST http://localhost:8000/admin/reload-connections \
+  -H "Authorization: Bearer admin_token"
+```
+
+**Features:**
+- Automatic file watching with debouncing (default: 3 seconds)
+- Thread-safe configuration updates
+- Connection pool lifecycle management
+- Validation before applying changes
+- Rollback on errors
+- Zero-downtime updates
+
+See `docs/LIVE_CONFIG_RELOAD_FEATURE.md` for detailed documentation.
 
 ## Configuration
 
@@ -988,7 +1056,7 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 - [x] OAuth 2.0 Authentication (Token Introspection & JWT)
 - [x] Google reCAPTCHA Validation (v2 & v3)
 
-### Output Modules
+### Output Modules (17/17 Complete ✅)
 - [x] Log Module (stdout)
 - [x] Save to Disk Module
 - [x] RabbitMQ Module
@@ -1007,15 +1075,23 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 - [x] GCP Pub/Sub Module
 - [x] ZeroMQ Module
 
+### Configuration Management
+- [x] Live Config Reload (ConfigManager)
+- [x] File System Watcher (ConfigFileWatcher)
+- [x] Connection Pool Registry
+- [x] Environment Variable Substitution
+- [x] Configuration Validation
+
 ### Future Enhancements
 - [ ] Payload Transformation (pre-processing step)
 - [ ] Cloudflare Turnstile Validation
 - [ ] Batch insert support for database modules
+- [ ] Webhook chaining (multiple destinations per webhook)
 - [ ] Performance test documentation expansion
 
 ## Test Status
 
-**Current Test Coverage: 1,895 tests passing** ✅
+**Current Test Coverage: 2,493 tests passing** ✅ (109 longrunning tests deselected by default)
 
 Test suites include:
 - Authentication tests (all 11 methods)
@@ -1029,9 +1105,20 @@ Test suites include:
 - Input validation tests
 - CORS tests
 - Integration tests
+- Config manager and watcher tests
+- Connection pool registry tests
+- Analytics processor tests
+
+**Test Coverage:** 90%+ code coverage
 
 Run tests with:
 ```bash
 make test-all    # Run all tests (excludes longrunning)
 pytest -v        # Run all tests with verbose output
+pytest -m "not longrunning"  # Exclude long-running tests
 ```
+
+**CI/CD:**
+- GitLab CI runs unit tests on every push
+- Docker images are automatically built and pushed to GitLab Container Registry
+- Tests run with coverage reporting
