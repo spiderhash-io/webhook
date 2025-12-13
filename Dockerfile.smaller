@@ -54,6 +54,7 @@ RUN apt-get update && apt-get purge -y \
 USER appuser
 
 # Specify the command to run on container start
-# Use --root-path to handle reverse proxy path prefix (strips prefix from requests)
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--root-path", "${ROOT_PATH:-}"]
+# Use shell form to allow environment variable expansion for --root-path
+# If ROOT_PATH is set, uvicorn will strip that prefix from incoming requests
+CMD uvicorn src.main:app --host 0.0.0.0 --port 8000 ${ROOT_PATH:+--root-path $ROOT_PATH}
 
