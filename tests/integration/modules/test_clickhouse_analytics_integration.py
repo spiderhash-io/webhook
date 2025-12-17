@@ -8,8 +8,12 @@ table creation, batch operations, and statistics saving.
 import pytest
 import asyncio
 import httpx
-from tests.integration.test_config import CLICKHOUSE_HTTP_URL
+import os
+from tests.integration.test_config import CLICKHOUSE_HTTP_URL, CLICKHOUSE_HOST
 from src.clickhouse_analytics import ClickHouseAnalytics
+
+# Allow localhost for integration tests
+os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "true"
 
 
 @pytest.mark.integration
@@ -19,8 +23,11 @@ class TestClickHouseAnalyticsIntegration:
     @pytest.fixture
     async def analytics_service(self):
         """Create a ClickHouseAnalytics instance for testing."""
+        # Use CLICKHOUSE_HOST from test config (defaults to localhost but can be overridden)
+        # For integration tests in Docker, this should be the service name
+        clickhouse_host = os.getenv("CLICKHOUSE_HOST", CLICKHOUSE_HOST)
         connection_config = {
-            "host": "localhost",
+            "host": clickhouse_host,
             "port": 9000,  # Native protocol
             "database": "default",
             "user": "default",

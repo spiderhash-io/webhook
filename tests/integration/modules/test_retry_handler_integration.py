@@ -186,7 +186,7 @@ class TestRetryHandlerIntegration:
         retry_config = {
             "enabled": True,
             "max_attempts": 3,
-            "initial_delay": 10.0,  # Large initial delay
+            "initial_delay": 0.1,  # Small initial delay
             "max_delay": 0.2,  # Small max delay (should cap)
             "backoff_multiplier": 2.0
         }

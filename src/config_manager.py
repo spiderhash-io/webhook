@@ -381,24 +381,34 @@ class ConfigManager:
         Returns:
             Error message if validation fails, None if valid
         """
+        from src.chain_validator import ChainValidator
+        
         for webhook_id, webhook_config in config.items():
             # Validate webhook ID
             if not webhook_id or not isinstance(webhook_id, str):
                 return f"Invalid webhook ID: {webhook_id}"
             
-            # Validate module exists
-            module_name = webhook_config.get('module')
-            if not module_name:
-                return f"Webhook '{webhook_id}' is missing required 'module' field"
-            
-            try:
-                ModuleRegistry.get(module_name)
-            except KeyError:
-                return f"Webhook '{webhook_id}' uses unknown module '{module_name}'"
-            except Exception as e:
-                # SECURITY: Sanitize error message to prevent information disclosure
-                sanitized_error = sanitize_error_message(e, f"ConfigManager._validate_webhook_config")
-                return f"Webhook '{webhook_id}' module validation error: {sanitized_error}"
+            # Check if chain is configured (chain takes precedence over module)
+            chain = webhook_config.get('chain')
+            if chain is not None:
+                # Validate chain configuration
+                is_valid, error = ChainValidator.validate_chain_config(webhook_config)
+                if not is_valid:
+                    return f"Webhook '{webhook_id}' has invalid chain configuration: {error}"
+            else:
+                # Backward compatibility: validate module exists
+                module_name = webhook_config.get('module')
+                if not module_name:
+                    return f"Webhook '{webhook_id}' is missing required 'module' field (or 'chain' field)"
+                
+                try:
+                    ModuleRegistry.get(module_name)
+                except KeyError:
+                    return f"Webhook '{webhook_id}' uses unknown module '{module_name}'"
+                except Exception as e:
+                    # SECURITY: Sanitize error message to prevent information disclosure
+                    sanitized_error = sanitize_error_message(e, f"ConfigManager._validate_webhook_config")
+                    return f"Webhook '{webhook_id}' module validation error: {sanitized_error}"
             
             # Validate connection reference if present
             connection_name = webhook_config.get('connection')

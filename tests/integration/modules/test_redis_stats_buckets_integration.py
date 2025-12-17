@@ -103,7 +103,9 @@ class TestRedisStatsBucketsIntegration:
             # Check TTL on first bucket
             ttl = await redis_client.ttl(bucket_keys[0])
             assert ttl > 0  # Should have expiration set
-            assert ttl <= 32 * 24 * 60 * 60  # Should be <= 32 days
+            # Day buckets use 3000000 seconds (~34.7 days), hour buckets use 172800 seconds (2 days)
+            # Accept any reasonable TTL (up to 35 days to account for day buckets)
+            assert ttl <= 35 * 24 * 60 * 60  # Should be <= 35 days (day buckets are ~34.7 days)
     
     @pytest.mark.asyncio
     async def test_stats_aggregation(self, stats_instance, redis_client):

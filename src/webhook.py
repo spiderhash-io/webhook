@@ -1,12 +1,14 @@
 import json
 import asyncio
-from typing import Optional
+from typing import Optional, Any, Dict
 
 from fastapi import HTTPException, Request
 from src.modules.registry import ModuleRegistry
 from src.validators import AuthorizationValidator, BasicAuthValidator, HMACValidator, IPWhitelistValidator, JWTValidator, RateLimitValidator, JsonSchemaValidator, RecaptchaValidator, QueryParameterAuthValidator, HeaderAuthValidator, OAuth2Validator, DigestAuthValidator, OAuth1Validator
 from src.input_validator import InputValidator
 from src.retry_handler import retry_handler
+from src.chain_validator import ChainValidator
+from src.chain_processor import ChainProcessor
 
 
 class TaskManager:
@@ -353,6 +355,13 @@ class WebhookHandler:
         else:
             raise HTTPException(status_code=415, detail="Unsupported data type")
 
+        # Check if chain is configured (chain takes precedence over module for backward compatibility)
+        chain = self.config.get('chain')
+        if chain is not None:
+            # Process chain
+            return await self._process_chain(payload, headers_dict)
+        
+        # Backward compatibility: process single module
         # Get the module from registry
         module_name = self.config.get('module')
         if not module_name:
@@ -459,3 +468,95 @@ class WebhookHandler:
             
             # Return original payload and headers for logging (before cleanup)
             return payload, dict(self.headers.items()), None
+    
+    async def _process_chain(self, payload: Any, headers: Dict[str, str]):
+        """
+        Process webhook using chain configuration.
+        
+        SECURITY: Validates chain configuration before processing.
+        """
+        # Validate chain configuration
+        is_valid, error = ChainValidator.validate_chain_config(self.config)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid chain configuration: {error}")
+        
+        # Get chain and chain-config
+        chain = self.config.get('chain')
+        chain_config = self.config.get('chain-config', {})
+        
+        # Credential cleanup: Clean credentials from payload and headers before storing/logging
+        # Original data is preserved for validation, only cleaned copy is passed to modules
+        cleanup_config = self.config.get("credential_cleanup", {})
+        cleanup_enabled = cleanup_config.get("enabled", True)  # Default: enabled (opt-out)
+        
+        cleaned_payload = payload
+        cleaned_headers = dict(headers)
+        
+        if cleanup_enabled:
+            from src.utils import CredentialCleaner
+            
+            # Get cleanup mode (mask or remove)
+            cleanup_mode = cleanup_config.get("mode", "mask")
+            custom_fields = cleanup_config.get("fields", [])
+            
+            try:
+                cleaner = CredentialCleaner(custom_fields=custom_fields, mode=cleanup_mode)
+                
+                # Clean payload (deep copy to avoid modifying original)
+                if isinstance(payload, (dict, list)):
+                    import copy
+                    cleaned_payload = cleaner.clean_credentials(copy.deepcopy(payload))
+                else:
+                    cleaned_payload = payload  # For blob data, no cleaning needed
+                
+                # Clean headers
+                cleaned_headers = cleaner.clean_headers(cleaned_headers)
+            except Exception as e:
+                # If cleanup fails, log but don't crash - use original data
+                print(f"WARNING: Credential cleanup failed for webhook '{self.webhook_id}': {e}")
+                cleaned_payload = payload
+                cleaned_headers = dict(headers)
+        
+        # Add webhook_id to config for modules that need it
+        webhook_config_with_id = {**self.config, '_webhook_id': self.webhook_id}
+        
+        # Create chain processor
+        processor = ChainProcessor(
+            chain=chain,
+            chain_config=chain_config,
+            webhook_config=webhook_config_with_id,
+            pool_registry=self.pool_registry
+        )
+        
+        # Execute chain using task manager (fire-and-forget)
+        async def execute_chain():
+            try:
+                results = await processor.execute(cleaned_payload, cleaned_headers)
+                summary = processor.get_summary(results)
+                
+                # Log chain execution summary
+                successful = summary['successful']
+                failed = summary['failed']
+                total = summary['total_modules']
+                
+                if failed > 0:
+                    print(f"Chain execution for webhook '{self.webhook_id}': {successful}/{total} modules succeeded, {failed} failed")
+                    # Log individual failures
+                    for result in summary['results']:
+                        if not result['success']:
+                            print(f"  - Module '{result['module']}' failed: {result['error']}")
+                else:
+                    print(f"Chain execution for webhook '{self.webhook_id}': All {total} modules succeeded")
+            except Exception as e:
+                # Log chain execution errors
+                print(f"ERROR: Chain execution failed for webhook '{self.webhook_id}': {e}")
+        
+        try:
+            # Create task with task manager (fire-and-forget)
+            await task_manager.create_task(execute_chain())
+        except Exception as e:
+            # If task queue is full, log and continue (task will be lost, but webhook is accepted)
+            print(f"WARNING: Could not create task for chain execution in webhook '{self.webhook_id}': {e}")
+        
+        # Return original payload and headers for logging (before cleanup)
+        return payload, dict(self.headers.items()), None

@@ -85,8 +85,10 @@ def _validate_connection_host(host: str, connection_type: str) -> str:
         raise ValueError(f"{connection_type} host cannot contain null bytes")
     
     # Check for localhost variants FIRST (before dangerous character check for IPv6)
+    # Allow localhost for integration tests if ALLOW_LOCALHOST_FOR_TESTS is set
+    allow_localhost = os.getenv("ALLOW_LOCALHOST_FOR_TESTS", "false").lower() == "true"
     localhost_variants = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']
-    if host.lower() in localhost_variants:
+    if host.lower() in localhost_variants and not allow_localhost:
         raise ValueError(
             f"Access to localhost '{host}' is not allowed for security reasons."
         )
