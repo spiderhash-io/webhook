@@ -99,7 +99,11 @@ class TestPostgreSQLModule:
         module = PostgreSQLModule(config)
         assert module._validate_hostname('localhost') is False
         assert module._validate_hostname('127.0.0.1') is False
-        assert module._validate_hostname('192.168.1.1') is False
+        # Private IPs are now allowed for internal network usage
+        assert module._validate_hostname('192.168.1.1') is True
+        assert module._validate_hostname('10.0.0.1') is True
+        # Still block link-local addresses
+        assert module._validate_hostname('169.254.1.1') is False
     
     def test_validate_hostname_allows_public(self):
         """Test hostname validation allows public hostnames."""

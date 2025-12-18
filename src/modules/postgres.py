@@ -157,18 +157,31 @@ class PostgreSQLModule(BaseModule):
         
         hostname = hostname.strip().lower()
         
-        # Block localhost variants
-        localhost_variants = [
-            'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
-            '127.', '10.', '172.16.', '172.17.', '172.18.', '172.19.',
-            '172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
-            '172.25.', '172.26.', '172.27.', '172.28.', '172.29.',
-            '172.30.', '172.31.', '192.168.', '169.254.'
-        ]
+        # Allow localhost for tests (if environment variable is set)
+        import os
+        allow_localhost = os.getenv("ALLOW_LOCALHOST_FOR_TESTS", "false").lower() == "true"
         
-        for variant in localhost_variants:
-            if hostname.startswith(variant):
-                return False
+        # Block localhost variants (unless allowed for tests)
+        if not allow_localhost:
+            localhost_variants = [
+                'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
+                '127.'
+            ]
+            for variant in localhost_variants:
+                if hostname.startswith(variant):
+                    return False
+        
+        # Block private IP ranges (RFC 1918) - DISABLED FOR INTERNAL NETWORKS
+        # Private IPs are now allowed for internal network usage
+        # if hostname.startswith(('10.', '172.16.', '172.17.', '172.18.', '172.19.',
+        #                          '172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
+        #                          '172.25.', '172.26.', '172.27.', '172.28.', '172.29.',
+        #                          '172.30.', '172.31.', '192.168.')):
+        #     return False
+        
+        # Block link-local addresses (169.254.x.x) - still blocked for security
+        if hostname.startswith('169.254.'):
+            return False
         
         # Block file:// and other dangerous schemes
         if '://' in hostname:

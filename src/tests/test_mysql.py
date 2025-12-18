@@ -101,7 +101,7 @@ class TestMySQLModule:
         assert module._validate_column_name('valid_column') == 'valid_column'
     
     def test_validate_hostname_blocks_localhost(self):
-        """Test hostname validation blocks localhost."""
+        """Test hostname validation blocks localhost (but allows private IPs for internal networks)."""
         config = {
             'connection_details': {},
             'module-config': {'table': 'test_table'}
@@ -109,7 +109,11 @@ class TestMySQLModule:
         module = MySQLModule(config)
         assert module._validate_hostname('localhost') is False
         assert module._validate_hostname('127.0.0.1') is False
-        assert module._validate_hostname('192.168.1.1') is False
+        # Private IPs are now allowed for internal network usage
+        assert module._validate_hostname('192.168.1.1') is True
+        assert module._validate_hostname('10.0.0.1') is True
+        # Still block link-local addresses
+        assert module._validate_hostname('169.254.1.1') is False
     
     def test_validate_hostname_allows_public(self):
         """Test hostname validation allows public hostnames."""
