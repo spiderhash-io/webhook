@@ -196,12 +196,45 @@ class TestSSRFPrevention:
     
     @pytest.mark.asyncio
     async def test_ssrf_private_ip_blocked(self):
-        """Test that private IP addresses are blocked."""
+        """Test that localhost and metadata service are blocked (private IPs are now allowed for internal networks)."""
+        # Localhost is still blocked
+        localhost_config = {
+            'connection_details': {
+                'host': '127.0.0.1',
+                'port': 3306,
+                'database': 'test_db',
+                'user': 'test_user',
+                'password': 'test_pass'
+            },
+            'module-config': {'table': 'test_table'},
+            '_webhook_id': 'test_webhook'
+        }
+        module = MySQLModule(localhost_config)
+        with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
+            await module.setup()
+        
+        # Link-local/metadata service is still blocked
+        metadata_config = {
+            'connection_details': {
+                'host': '169.254.169.254',  # AWS metadata service
+                'port': 3306,
+                'database': 'test_db',
+                'user': 'test_user',
+                'password': 'test_pass'
+            },
+            'module-config': {'table': 'test_table'},
+            '_webhook_id': 'test_webhook'
+        }
+        module = MySQLModule(metadata_config)
+        with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
+            await module.setup()
+        
+        # Private IPs are now allowed for internal network usage
+        # (matching the policy change in config.py and module hostname validation)
         private_ips = [
             '192.168.1.1',
             '10.0.0.1',
             '172.16.0.1',
-            '169.254.169.254',  # AWS metadata service
         ]
         
         for ip in private_ips:
@@ -218,8 +251,31 @@ class TestSSRFPrevention:
             }
             
             module = MySQLModule(config)
-            with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
+            # Should not raise ValueError for private IPs (they're allowed now)
+            # Mock the pool creation to avoid actual connection attempts
+            # Mock pool and connection objects
+            mock_pool = AsyncMock()
+            conn = AsyncMock()
+            cur = AsyncMock()
+            acquire_ctx = MagicMock()
+            acquire_ctx.__aenter__ = AsyncMock(return_value=conn)
+            acquire_ctx.__aexit__ = AsyncMock(return_value=None)
+            mock_pool.acquire = MagicMock(return_value=acquire_ctx)
+            cursor_ctx = MagicMock()
+            cursor_ctx.__aenter__ = AsyncMock(return_value=cur)
+            cursor_ctx.__aexit__ = AsyncMock(return_value=None)
+            conn.cursor = MagicMock(return_value=cursor_ctx)
+            cur.execute = AsyncMock(return_value=None)
+            cur.fetchone = AsyncMock(return_value=None)
+            
+            async def mock_create_pool_func(*args, **kwargs):
+                return mock_pool
+            
+            with patch('src.modules.mysql.aiomysql.create_pool', side_effect=mock_create_pool_func):
+                # Should not raise ValueError for private IPs (they're allowed now)
+                # Connection will succeed with mocked pool
                 await module.setup()
+                assert module.pool is not None
     
     @pytest.mark.asyncio
     async def test_ssrf_metadata_service_blocked(self):
