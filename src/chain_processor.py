@@ -153,6 +153,7 @@ class ChainProcessor:
             ChainResult object
         """
         module_name = chain_item.get('module')
+        module = None  # Initialize to None to track if module was created
         
         try:
             # Build module configuration
@@ -173,26 +174,36 @@ class ChainProcessor:
             retry_config = chain_item.get('retry')
             
             # Execute module (with retry if configured)
-            if retry_config and retry_config.get('enabled', False):
-                # Execute with retry
-                success, error = await retry_handler.execute_with_retry(
-                    module.process,
-                    payload,
-                    headers,
-                    retry_config=retry_config
-                )
-                if success:
-                    return ChainResult(module_name, True)
+            try:
+                if retry_config and retry_config.get('enabled', False):
+                    # Execute with retry
+                    success, error = await retry_handler.execute_with_retry(
+                        module.process,
+                        payload,
+                        headers,
+                        retry_config=retry_config
+                    )
+                    if success:
+                        result = ChainResult(module_name, True)
+                    else:
+                        result = ChainResult(module_name, False, error)
                 else:
-                    return ChainResult(module_name, False, error)
-            else:
-                # Execute without retry
-                try:
+                    # Execute without retry
                     await module.process(payload, headers)
-                    return ChainResult(module_name, True)
-                except Exception as e:
-                    logger.error(f"Chain module {index} ({module_name}): Execution failed: {e}")
-                    return ChainResult(module_name, False, e)
+                    result = ChainResult(module_name, True)
+            except Exception as e:
+                logger.error(f"Chain module {index} ({module_name}): Execution failed: {e}")
+                result = ChainResult(module_name, False, e)
+            finally:
+                # Always cleanup module resources (teardown) if module was created
+                if module is not None:
+                    try:
+                        await module.teardown()
+                    except Exception as teardown_error:
+                        # Log teardown errors but don't fail the chain result
+                        logger.warning(f"Chain module {index} ({module_name}): Teardown failed: {teardown_error}")
+            
+            return result
         
         except Exception as e:
             # Catch any unexpected errors

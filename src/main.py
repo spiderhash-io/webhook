@@ -288,6 +288,177 @@ async def cleanup_task():
 # Removed analytics_task - statistics aggregation is now handled by separate analytics service
 
 
+async def validate_connections(connection_config: dict):
+    """
+    Validate all connections at startup and log results.
+    
+    Args:
+        connection_config: Dictionary of connection configurations
+    """
+    if not connection_config:
+        print("ℹ️  No connections configured")
+        return
+    
+    print("\n🔌 Validating connections...")
+    print("-" * 60)
+    
+    success_count = 0
+    failure_count = 0
+    
+    for conn_name, conn_details in connection_config.items():
+        if not conn_details or not isinstance(conn_details, dict):
+            continue
+            
+        conn_type = conn_details.get('type', 'unknown')
+        status_icon = "⏳"
+        status_msg = ""
+        
+        try:
+            if conn_type == 'postgresql':
+                # Test PostgreSQL connection
+                import asyncpg
+                host = conn_details.get('host', 'localhost')
+                port = conn_details.get('port', 5432)
+                database = conn_details.get('database', 'postgres')
+                user = conn_details.get('user', 'postgres')
+                password = conn_details.get('password', '')
+                
+                connection_string = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+                conn = await asyncio.wait_for(
+                    asyncpg.connect(connection_string),
+                    timeout=5.0
+                )
+                await conn.fetchval('SELECT 1')
+                await conn.close()
+                status_icon = "✅"
+                status_msg = f"Connected to {host}:{port}/{database}"
+                
+            elif conn_type == 'mysql':
+                # Test MySQL connection
+                import aiomysql
+                host = conn_details.get('host', 'localhost')
+                port = conn_details.get('port', 3306)
+                database = conn_details.get('database', 'mysql')
+                user = conn_details.get('user', 'root')
+                password = conn_details.get('password', '')
+                
+                pool = await asyncio.wait_for(
+                    aiomysql.create_pool(
+                        host=host,
+                        port=port,
+                        user=user,
+                        password=password,
+                        db=database,
+                        minsize=1,
+                        maxsize=1
+                    ),
+                    timeout=5.0
+                )
+                async with pool.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        await cur.execute('SELECT 1')
+                        await cur.fetchone()
+                pool.close()
+                await pool.wait_closed()
+                status_icon = "✅"
+                status_msg = f"Connected to {host}:{port}/{database}"
+                
+            elif conn_type == 'kafka':
+                # Test Kafka connection
+                from aiokafka import AIOKafkaProducer
+                bootstrap_servers = conn_details.get('bootstrap_servers', 'localhost:9092')
+                
+                producer = AIOKafkaProducer(
+                    bootstrap_servers=bootstrap_servers,
+                    value_serializer=lambda v: v
+                )
+                await asyncio.wait_for(producer.start(), timeout=5.0)
+                await producer.stop()
+                status_icon = "✅"
+                status_msg = f"Connected to {bootstrap_servers}"
+                
+            elif conn_type == 'redis-rq':
+                # Test Redis connection
+                from redis import Redis
+                host = conn_details.get('host', 'localhost')
+                port = conn_details.get('port', 6379)
+                db = conn_details.get('db', 0)
+                
+                client = Redis(host=host, port=port, db=db, socket_connect_timeout=5)
+                client.ping()
+                status_icon = "✅"
+                status_msg = f"Connected to {host}:{port}/{db}"
+                
+            elif conn_type == 'rabbitmq':
+                # Test RabbitMQ connection
+                import aio_pika
+                host = conn_details.get('host', 'localhost')
+                port = conn_details.get('port', 5672)
+                user = conn_details.get('user', 'guest')
+                password = conn_details.get('pass', 'guest')
+                
+                connection = await asyncio.wait_for(
+                    aio_pika.connect_robust(f"amqp://{user}:{password}@{host}:{port}/"),
+                    timeout=5.0
+                )
+                await connection.close()
+                status_icon = "✅"
+                status_msg = f"Connected to {host}:{port}"
+                
+            elif conn_type == 'clickhouse':
+                # Test ClickHouse connection
+                from clickhouse_driver import Client
+                import asyncio
+                host = conn_details.get('host', 'localhost')
+                port = conn_details.get('port', 9000)
+                database = conn_details.get('database', 'default')
+                user = conn_details.get('user', 'default')
+                password = conn_details.get('password', '') or None
+                
+                def test_connection():
+                    kwargs = {'host': host, 'port': port, 'database': database, 'user': user, 'secure': False}
+                    if password:
+                        kwargs['password'] = password
+                    client = Client(**kwargs)
+                    client.execute('SELECT 1')
+                    return True
+                
+                await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(None, test_connection),
+                    timeout=5.0
+                )
+                status_icon = "✅"
+                status_msg = f"Connected to {host}:{port}/{database}"
+                
+            else:
+                # Unknown connection type - skip validation but log
+                status_icon = "⚠️ "
+                status_msg = f"Connection type '{conn_type}' validation not implemented"
+                
+            if status_icon == "✅":
+                success_count += 1
+            else:
+                failure_count += 1
+                
+        except asyncio.TimeoutError:
+            status_icon = "❌"
+            status_msg = "Connection timeout"
+            failure_count += 1
+        except Exception as e:
+            status_icon = "❌"
+            error_msg = sanitize_error_message(e, f"{conn_type} connection")
+            status_msg = f"Failed: {error_msg}"
+            failure_count += 1
+        
+        print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+    
+    print("-" * 60)
+    print(f"✅ {success_count} connection(s) successful")
+    if failure_count > 0:
+        print(f"❌ {failure_count} connection(s) failed")
+    print()
+
+
 @app.on_event("startup")
 async def startup_event():
     global webhook_config_data, clickhouse_logger, config_manager, config_watcher
@@ -336,6 +507,21 @@ async def startup_event():
         # Build webhook_config_data from ConfigManager for backward compatibility
         webhook_config_data = {}
         # Note: ConfigManager will be used directly in webhook handler
+    
+    # Validate all connections at startup
+    try:
+        if config_manager:
+            # Get connection config from ConfigManager using public method
+            conn_config = config_manager.get_all_connection_configs()
+        else:
+            # Use legacy connection_config
+            conn_config = connection_config
+        
+        await validate_connections(conn_config)
+    except Exception as e:
+        # Don't fail startup if validation fails, just log it
+        sanitized_error = sanitize_error_message(e, "connection validation")
+        print(f"⚠️  Connection validation error: {sanitized_error}")
     
     # Initialize ClickHouse logger for automatic event logging
     # Look for any clickhouse connection (webhook instances just log events)
