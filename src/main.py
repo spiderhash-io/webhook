@@ -632,7 +632,7 @@ async def shutdown_event():
         print(f"Error closing Redis stats: {sanitized_error}")
 
 
-@app.post("/webhook/{webhook_id}")
+@app.post("/webhook/{webhook_id}", tags=["Webhooks"])
 async def read_webhook(webhook_id: str,  request: Request):
     global config_manager
     
@@ -802,7 +802,7 @@ async def default_endpoint(request: Request):
     return JSONResponse(content={"message": "200 OK"})
 
 
-@app.get("/stats")
+@app.get("/stats", tags=["Statistics"])
 async def stats_endpoint(request: Request):
     """
     Statistics endpoint - requires authentication to prevent information disclosure.
@@ -811,6 +811,9 @@ async def stats_endpoint(request: Request):
     - STATS_AUTH_TOKEN: Bearer token for authentication (recommended)
     - STATS_ALLOWED_IPS: Comma-separated list of allowed IP addresses (optional)
     - STATS_RATE_LIMIT: Requests per minute (default: 60)
+    
+    Returns statistics about webhook endpoint usage including request counts, 
+    success/failure rates, and response times.
     """
     # Check authentication token if configured
     stats_auth_token = os.getenv("STATS_AUTH_TOKEN", "").strip()
@@ -879,12 +882,18 @@ async def stats_endpoint(request: Request):
     return stats_data
 
 
-@app.post("/admin/reload-config")
+@app.post("/admin/reload-config", tags=["Admin"])
 async def reload_config_endpoint(request: Request):
     """
     Admin endpoint to manually trigger configuration reload.
     
     Supports reloading webhooks, connections, or both.
+    
+    Requires authentication via CONFIG_RELOAD_ADMIN_TOKEN environment variable.
+    
+    Request body (JSON):
+    - reload_webhooks: boolean (optional, default: true)
+    - reload_connections: boolean (optional, default: true)
     """
     global config_manager
     
@@ -1040,7 +1049,7 @@ async def reload_config_endpoint(request: Request):
         )
 
 
-@app.get("/admin/config-status")
+@app.get("/admin/config-status", tags=["Admin"])
 async def config_status_endpoint(request: Request):
     """
     Admin endpoint to get current configuration status.
@@ -1050,6 +1059,8 @@ async def config_status_endpoint(request: Request):
     - Reload in progress status
     - Webhook and connection counts
     - Connection pool information
+    
+    Requires authentication via CONFIG_RELOAD_ADMIN_TOKEN environment variable.
     """
     global config_manager
     
