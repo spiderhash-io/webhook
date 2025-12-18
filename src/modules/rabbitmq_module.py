@@ -11,7 +11,11 @@ class RabbitMQModule(BaseModule):
     def __init__(self, config: Dict[str, Any], pool_registry=None):
         super().__init__(config, pool_registry)
         # Validate queue name during initialization to fail early
-        raw_queue_name = self.config.get('queue_name')
+        # Queue name should be in module-config, not top-level config
+        raw_queue_name = self.module_config.get('queue_name')
+        # Fallback to top-level for backward compatibility (deprecated)
+        if raw_queue_name is None:
+            raw_queue_name = self.config.get('queue_name')
         if raw_queue_name is not None:
             # Validate even if empty string (will raise ValueError)
             self._validated_queue_name = self._validate_queue_name(raw_queue_name)

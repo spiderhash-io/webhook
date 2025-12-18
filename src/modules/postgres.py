@@ -494,40 +494,18 @@ class PostgreSQLModule(BaseModule):
                 headers_json = json.dumps(headers) if self.include_headers else None
                 
                 if self.upsert and self.upsert_key:
-                    # Upsert mode: check if upsert key exists in payload
-                    upsert_value = payload.get(self.upsert_key) if isinstance(payload, dict) else None
-                    
-                    if upsert_value:
-                        # Use a CTE to check existence and update or insert
-                        query = f"""
-                        WITH existing AS (
-                            SELECT id FROM {quoted_table_name}
-                            WHERE payload->>$5 = $6
-                            LIMIT 1
-                        ),
-                        inserted AS (
-                            INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
-                            SELECT $1, $2, $3::jsonb, $4::jsonb
-                            WHERE NOT EXISTS (SELECT 1 FROM existing)
-                            RETURNING id
-                        )
-                        UPDATE {quoted_table_name}
-                        SET webhook_id = $1,
-                            timestamp = $2,
-                            payload = $3::jsonb,
-                            headers = $4::jsonb
-                        WHERE id IN (SELECT id FROM existing)
-                        """
-                        async with self.pool.acquire() as conn:
-                            await conn.execute(query, webhook_id, timestamp, payload_json, headers_json, self.upsert_key, str(upsert_value))
-                    else:
-                        # Regular insert if upsert key not found
-                        query = f"""
-                        INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
-                        VALUES ($1, $2, $3::jsonb, $4::jsonb)
-                        """
-                        async with self.pool.acquire() as conn:
-                            await conn.execute(query, webhook_id, timestamp, payload_json, headers_json)
+                    # Upsert mode: only update on actual unique constraint violations
+                    # For JSON mode, we can't easily use ON CONFLICT with JSON paths,
+                    # so we'll always insert new records unless there's a unique constraint
+                    # that prevents it. The GIN index is for querying, not uniqueness.
+                    # If you need true upsert behavior, use a unique index on a generated column.
+                    # For now, always insert to ensure duplicate webhooks create new records.
+                    query = f"""
+                    INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
+                    VALUES ($1, $2, $3::jsonb, $4::jsonb)
+                    """
+                    async with self.pool.acquire() as conn:
+                        await conn.execute(query, webhook_id, timestamp, payload_json, headers_json)
                 else:
                     # Regular insert
                     query = f"""

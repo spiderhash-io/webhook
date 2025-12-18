@@ -13,9 +13,11 @@ class MQTTModule(BaseModule):
         super().__init__(config)
         self.client: Optional[MQTTClient] = None
         # Validate topic name during initialization to fail early
-        raw_topic = self.config.get('topic')
+        # Topic should be in module-config, not top-level config
+        raw_topic = self.module_config.get('topic')
+        # Fallback to top-level for backward compatibility (deprecated)
         if raw_topic is None:
-            raw_topic = self.module_config.get('topic')
+            raw_topic = self.config.get('topic')
         if raw_topic is not None:
             self._validated_topic = self._validate_topic_name(raw_topic)
         else:

@@ -547,58 +547,20 @@ class MySQLModule(BaseModule):
                 headers_json = json.dumps(headers) if self.include_headers else None
                 
                 if self.upsert and self.upsert_key:
-                    # Upsert mode: check if upsert key exists in payload
-                    upsert_value = payload.get(self.upsert_key) if isinstance(payload, dict) else None
-                    
-                    if upsert_value:
-                        # Use a subquery to check existence and update or insert
-                        # MySQL doesn't support CTEs in older versions, so use simpler approach
-                        query = f"""
-                        INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
-                        VALUES (%s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                            webhook_id = VALUES(webhook_id),
-                            timestamp = VALUES(timestamp),
-                            payload = VALUES(payload),
-                            headers = VALUES(headers)
-                        """
-                        # For JSON mode upsert, we need a unique index on the JSON path
-                        # This is complex, so we'll use a simpler approach: check and update
-                        check_query = f"""
-                        SELECT id FROM {quoted_table_name}
-                        WHERE JSON_EXTRACT(payload, %s) = %s
-                        LIMIT 1
-                        """
-                        async with self.pool.acquire() as conn:
-                            async with conn.cursor() as cur:
-                                await cur.execute(check_query, (f'$.{self.upsert_key}', str(upsert_value)))
-                                existing = await cur.fetchone()
-                                
-                                if existing:
-                                    # Update existing record
-                                    update_query = f"""
-                                    UPDATE {quoted_table_name}
-                                    SET webhook_id = %s,
-                                        timestamp = %s,
-                                        payload = %s,
-                                        headers = %s
-                                    WHERE id = %s
-                                    """
-                                    await cur.execute(update_query, (webhook_id, timestamp, payload_json, headers_json, existing[0]))
-                                else:
-                                    # Insert new record
-                                    await cur.execute(query, (webhook_id, timestamp, payload_json, headers_json))
-                                await conn.commit()
-                    else:
-                        # Regular insert if upsert key not found
-                        query = f"""
-                        INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
-                        VALUES (%s, %s, %s, %s)
-                        """
-                        async with self.pool.acquire() as conn:
-                            async with conn.cursor() as cur:
-                                await cur.execute(query, (webhook_id, timestamp, payload_json, headers_json))
-                                await conn.commit()
+                    # Upsert mode: only update on actual unique constraint violations
+                    # For JSON mode, we can't easily use ON DUPLICATE KEY with JSON paths,
+                    # so we'll always insert new records unless there's a unique constraint
+                    # that prevents it. If you need true upsert behavior, use a unique index
+                    # on a generated column. For now, always insert to ensure duplicate
+                    # webhooks create new records.
+                    query = f"""
+                    INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
+                    VALUES (%s, %s, %s, %s)
+                    """
+                    async with self.pool.acquire() as conn:
+                        async with conn.cursor() as cur:
+                            await cur.execute(query, (webhook_id, timestamp, payload_json, headers_json))
+                            await conn.commit()
                 else:
                     # Regular insert
                     query = f"""

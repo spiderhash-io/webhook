@@ -298,4 +298,95 @@ class TestMySQLModule:
         module = MySQLModule(basic_config)
         assert module._quote_identifier('test_table') == '`test_table`'
         assert module._quote_identifier('test`table') == '`test``table`'
+    
+    @pytest.mark.asyncio
+    async def test_ensure_table_creates_indexes_after_table(self, basic_config, mock_pool):
+        """Test that indexes are created AFTER table exists (not before)."""
+        # Configure with schema that includes indexes
+        basic_config['module-config'] = {
+            'table': 'webhook_events',
+            'storage_mode': 'relational',
+            'schema': {
+                'fields': {
+                    'event_id': {'type': 'string', 'column': 'event_id', 'constraints': ['NOT NULL']},
+                    'user_id': {'type': 'integer', 'column': 'user_id'}
+                },
+                'indexes': {
+                    'idx_event_id': {'columns': ['event_id']},
+                    'idx_user_id': {'columns': ['user_id']}
+                }
+            }
+        }
+        
+        module = MySQLModule(basic_config)
+        module.pool = mock_pool
+        
+        # Track the order of execute calls
+        execute_calls = []
+        original_execute = mock_pool.acquire.return_value.__aenter__.return_value.cursor.return_value.__aenter__.return_value.execute
+        
+        async def track_execute(query):
+            execute_calls.append(query)
+            return await original_execute(query)
+        
+        mock_pool.acquire.return_value.__aenter__.return_value.cursor.return_value.__aenter__.return_value.execute = track_execute
+        
+        await module._ensure_table()
+        
+        # Verify table was created first
+        assert len(execute_calls) >= 1
+        table_queries = [q for q in execute_calls if 'CREATE TABLE' in q.upper()]
+        assert len(table_queries) > 0
+        
+        # Verify indexes were created after table
+        index_queries = [q for q in execute_calls if 'CREATE INDEX' in q.upper()]
+        if len(index_queries) > 0:
+            # Find the position of first table creation and first index creation
+            first_table_pos = next(i for i, q in enumerate(execute_calls) if 'CREATE TABLE' in q.upper())
+            first_index_pos = next(i for i, q in enumerate(execute_calls) if 'CREATE INDEX' in q.upper())
+            assert first_table_pos < first_index_pos, "Index creation should happen after table creation"
+        
+        assert module._table_created is True
+    
+    @pytest.mark.asyncio
+    async def test_index_name_validation_and_quoting(self, basic_config, mock_pool):
+        """Test that index names are properly validated and quoted."""
+        basic_config['module-config'] = {
+            'table': 'webhook_events',
+            'storage_mode': 'relational',
+            'schema': {
+                'fields': {
+                    'event_id': {'type': 'string', 'column': 'event_id'}
+                },
+                'indexes': {
+                    'idx_event_id': {'columns': ['event_id']}
+                }
+            }
+        }
+        
+        module = MySQLModule(basic_config)
+        module.pool = mock_pool
+        
+        execute_calls = []
+        original_execute = mock_pool.acquire.return_value.__aenter__.return_value.cursor.return_value.__aenter__.return_value.execute
+        
+        async def track_execute(query):
+            execute_calls.append(query)
+            return await original_execute(query)
+        
+        mock_pool.acquire.return_value.__aenter__.return_value.cursor.return_value.__aenter__.return_value.execute = track_execute
+        
+        await module._ensure_table()
+        
+        # Find the index creation query
+        index_queries = [q for q in execute_calls if 'CREATE INDEX' in q.upper()]
+        assert len(index_queries) > 0
+        
+        index_query = index_queries[0]
+        # Verify index name is properly quoted (MySQL uses backticks)
+        assert '`idx_event_id`' in index_query
+        # Verify it references the table (which should be quoted)
+        assert '`webhook_events`' in index_query
+        # Verify it references the column (which should be quoted)
+        assert '`event_id`' in index_query
 

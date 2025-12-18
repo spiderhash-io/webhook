@@ -12,7 +12,11 @@ class KafkaModule(BaseModule):
         super().__init__(config, pool_registry)
         self.producer = None
         # Validate topic name during initialization to fail early
-        raw_topic = self.config.get('topic')
+        # Topic should be in module-config, not top-level config
+        raw_topic = self.module_config.get('topic')
+        # Fallback to top-level for backward compatibility (deprecated)
+        if raw_topic is None:
+            raw_topic = self.config.get('topic')
         if raw_topic is not None:
             # Validate even if empty string (will raise ValueError)
             self._validated_topic = self._validate_topic_name(raw_topic)

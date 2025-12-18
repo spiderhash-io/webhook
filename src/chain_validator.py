@@ -115,15 +115,18 @@ class ChainValidator:
             if connection is not None and not isinstance(connection, str):
                 return False, f"Chain item {index}: 'connection' must be a string if provided"
             
-            # SECURITY: Validate topic field if present (must be string, used by Kafka module)
-            topic = item.get('topic')
-            if topic is not None and not isinstance(topic, str):
-                return False, f"Chain item {index}: 'topic' must be a string if provided"
-            
             # SECURITY: Validate module-config if present (must be dict)
             module_config = item.get('module-config')
             if module_config is not None and not isinstance(module_config, dict):
                 return False, f"Chain item {index}: 'module-config' must be a dictionary if provided"
+            
+            # SECURITY: Warn if deprecated top-level configs are used (should be in module-config)
+            deprecated_top_level = ['topic', 'queue_name', 'destination']
+            for deprecated_key in deprecated_top_level:
+                if deprecated_key in item:
+                    # Still allow for backward compatibility, but prefer module-config
+                    if module_config and deprecated_key in module_config:
+                        return False, f"Chain item {index}: '{deprecated_key}' should be in 'module-config', not at top level"
             
             # SECURITY: Validate retry config if present (must be dict)
             retry_config = item.get('retry')
@@ -141,11 +144,13 @@ class ChainValidator:
                         return False, f"Chain item {index}: 'retry.max_attempts' must be a positive integer"
             
             # SECURITY: Reject unknown fields to prevent injection
-            # Allow module-specific top-level configs (e.g., 'topic' for Kafka)
-            allowed_fields = {'module', 'connection', 'module-config', 'retry', 'topic'}
+            # Only allow standard chain item fields - module-specific configs should be in module-config
+            allowed_fields = {'module', 'connection', 'module-config', 'retry'}
+            # Allow deprecated top-level fields for backward compatibility
+            allowed_fields.update(['topic', 'queue_name', 'destination'])
             for field in item.keys():
                 if field not in allowed_fields:
-                    return False, f"Chain item {index}: unknown field '{field}' (allowed: {', '.join(allowed_fields)})"
+                    return False, f"Chain item {index}: unknown field '{field}' (allowed: {', '.join(sorted(allowed_fields))})"
             
             return True, None
         

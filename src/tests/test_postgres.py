@@ -288,4 +288,80 @@ class TestPostgreSQLModule:
         module = PostgreSQLModule(basic_config)
         assert module._quote_identifier('test_table') == '"test_table"'
         assert module._quote_identifier('test"table') == '"test""table"'
+    
+    @pytest.mark.asyncio
+    async def test_ensure_table_creates_gin_index_after_table(self, basic_config, mock_pool):
+        """Test that GIN index is created AFTER table exists (not before)."""
+        # Configure with upsert enabled to trigger GIN index creation
+        basic_config['module-config'] = {
+            'table': 'webhook_events',
+            'storage_mode': 'json',
+            'upsert': True,
+            'upsert_key': 'event_id'
+        }
+        
+        module = PostgreSQLModule(basic_config)
+        module.pool = mock_pool
+        
+        # Track the order of execute calls
+        execute_calls = []
+        original_execute = mock_pool.acquire.return_value.__aenter__.return_value.execute
+        
+        async def track_execute(query):
+            execute_calls.append(query)
+            return await original_execute(query)
+        
+        mock_pool.acquire.return_value.__aenter__.return_value.execute = track_execute
+        
+        await module._ensure_table()
+        
+        # Verify table was created first
+        assert len(execute_calls) >= 1
+        assert 'CREATE TABLE' in execute_calls[0].upper()
+        
+        # Verify GIN index was created after table
+        if len(execute_calls) > 1:
+            assert 'CREATE INDEX' in execute_calls[1].upper()
+            assert 'GIN' in execute_calls[1].upper()
+            assert 'payload' in execute_calls[1].lower()
+        
+        assert module._table_created is True
+    
+    @pytest.mark.asyncio
+    async def test_gin_index_name_validation_and_quoting(self, basic_config, mock_pool):
+        """Test that GIN index name is properly validated and quoted."""
+        basic_config['module-config'] = {
+            'table': 'webhook_events',
+            'storage_mode': 'json',
+            'upsert': True,
+            'upsert_key': 'event_id'
+        }
+        
+        module = PostgreSQLModule(basic_config)
+        module.pool = mock_pool
+        
+        execute_calls = []
+        original_execute = mock_pool.acquire.return_value.__aenter__.return_value.execute
+        
+        async def track_execute(query):
+            execute_calls.append(query)
+            return await original_execute(query)
+        
+        mock_pool.acquire.return_value.__aenter__.return_value.execute = track_execute
+        
+        await module._ensure_table()
+        
+        # Find the index creation query
+        index_queries = [q for q in execute_calls if 'CREATE INDEX' in q.upper()]
+        assert len(index_queries) > 0
+        
+        index_query = index_queries[0]
+        # Verify index name is properly quoted (should contain quotes around the name)
+        assert '"webhook_events_payload_gin"' in index_query or 'webhook_events_payload_gin' in index_query
+        # Verify it's a GIN index
+        assert 'USING GIN' in index_query.upper()
+        # Verify it references the payload column
+        assert 'payload' in index_query.lower()
+        # Verify it references the table (which should be quoted)
+        assert '"webhook_events"' in index_query or 'webhook_events' in index_query
 

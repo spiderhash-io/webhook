@@ -228,15 +228,8 @@ class ChainProcessor:
                 connection_details = copy.deepcopy(self.connection_config[connection_name])
                 module_config['connection_details'] = connection_details
         
-        # Copy module-specific top-level configs from chain item (e.g., 'topic' for Kafka)
-        # These are configs that modules expect at the top level, not in module-config
-        module_specific_keys = ['topic']  # Add other module-specific keys as needed
-        for key in module_specific_keys:
-            if key in chain_item:
-                module_config[key] = chain_item[key]
-            # Also check in webhook config (for backward compatibility)
-            elif key in self.webhook_config:
-                module_config[key] = self.webhook_config[key]
+        # All module-specific configs should be in module-config, not at top level
+        # This ensures proper isolation between modules in a chain
         
         # Merge module-config if specified
         if 'module-config' in chain_item:
