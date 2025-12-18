@@ -111,12 +111,9 @@ def _validate_connection_host(host: str, connection_type: str) -> str:
     try:
         ip = ipaddress.ip_address(host_for_parsing)
         
-        # Block private IP ranges (RFC 1918)
-        if ip.is_private:
-            raise ValueError(
-                f"Access to private IP '{host}' is not allowed for security reasons. "
-                f"Private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) are blocked to prevent SSRF attacks."
-            )
+        # NOTE: Private IP ranges are now allowed to support internal networks.
+        # We still block clearly dangerous ranges (link-local, multicast, reserved)
+        # and localhost-style addresses are handled above.
         
         # Block link-local addresses
         if ip.is_link_local:
@@ -142,7 +139,7 @@ def _validate_connection_host(host: str, connection_type: str) -> str:
                 f"Access to reserved IP '{host}' is not allowed for security reasons."
             )
         
-        # Allow public IPs
+        # Allow public and private IPs (except the blocked categories above)
         return host
     
     except ValueError as e:

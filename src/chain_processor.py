@@ -220,6 +220,13 @@ class ChainProcessor:
         if 'connection' in chain_item:
             module_config['connection'] = chain_item['connection']
         
+        # Copy module-specific top-level configs from chain item (e.g., 'topic' for Kafka)
+        # These are configs that modules expect at the top level, not in module-config
+        module_specific_keys = ['topic']  # Add other module-specific keys as needed
+        for key in module_specific_keys:
+            if key in chain_item:
+                module_config[key] = chain_item[key]
+        
         # Merge module-config if specified
         if 'module-config' in chain_item:
             chain_module_config = chain_item['module-config']

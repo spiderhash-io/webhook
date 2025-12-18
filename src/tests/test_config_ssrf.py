@@ -10,8 +10,8 @@ from src.config import _validate_connection_host, _validate_connection_port, inj
 class TestConfigSSRFPrevention:
     """Test suite for SSRF prevention in connection configuration."""
     
-    def test_private_ip_blocked(self):
-        """Test that private IPs are blocked."""
+    def test_private_ip_allowed(self):
+        """Test that private IPs are allowed (internal network support)."""
         private_ips = [
             '10.0.0.1',
             '172.16.0.1',
@@ -20,10 +20,11 @@ class TestConfigSSRFPrevention:
             '172.31.255.255',
             '192.168.255.255',
         ]
-        
         for ip in private_ips:
-            with pytest.raises(ValueError, match=r'private IP|not allowed'):
-                _validate_connection_host(ip, "Test")
+            # Private IPs are now allowed to support internal networks.
+            # Validation should return the host unchanged.
+            result = _validate_connection_host(ip, "Test")
+            assert result == ip
     
     def test_localhost_blocked(self):
         """Test that localhost is blocked."""
@@ -156,7 +157,7 @@ class TestConfigSSRFPrevention:
     
     @pytest.mark.asyncio
     async def test_redis_rq_connection_validation(self):
-        """Test that Redis RQ connections are validated."""
+        """Test that Redis RQ connections are validated (including private IPs)."""
         webhook_config = {
             "test_webhook": {
                 "module": "redis_rq",
@@ -167,15 +168,24 @@ class TestConfigSSRFPrevention:
         connection_config = {
             "redis_test": {
                 "type": "redis-rq",
-                "host": "10.0.0.1",  # Private IP - should be blocked
+                "host": "10.0.0.1",  # Private IP - now allowed for internal networks
                 "port": 6379,
                 "db": 0
             }
         }
-        
-        # Should raise ValueError due to private IP
-        with pytest.raises(ValueError, match=r'private IP|not allowed'):
-            await inject_connection_details(webhook_config, connection_config)
+        # Mock Redis to avoid actual connection
+        with patch('src.config.Redis') as mock_redis:
+            mock_redis.return_value = Mock()
+
+            result = await inject_connection_details(webhook_config, connection_config)
+
+            # Should succeed and create connection_details even with private IP
+            assert "connection_details" in result["test_webhook"]
+            mock_redis.assert_called_once_with(
+                host="10.0.0.1",
+                port=6379,
+                db=0
+            )
     
     @pytest.mark.asyncio
     async def test_redis_rq_public_ip_allowed(self):

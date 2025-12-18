@@ -115,6 +115,11 @@ class ChainValidator:
             if connection is not None and not isinstance(connection, str):
                 return False, f"Chain item {index}: 'connection' must be a string if provided"
             
+            # SECURITY: Validate topic field if present (must be string, used by Kafka module)
+            topic = item.get('topic')
+            if topic is not None and not isinstance(topic, str):
+                return False, f"Chain item {index}: 'topic' must be a string if provided"
+            
             # SECURITY: Validate module-config if present (must be dict)
             module_config = item.get('module-config')
             if module_config is not None and not isinstance(module_config, dict):
@@ -136,7 +141,8 @@ class ChainValidator:
                         return False, f"Chain item {index}: 'retry.max_attempts' must be a positive integer"
             
             # SECURITY: Reject unknown fields to prevent injection
-            allowed_fields = {'module', 'connection', 'module-config', 'retry'}
+            # Allow module-specific top-level configs (e.g., 'topic' for Kafka)
+            allowed_fields = {'module', 'connection', 'module-config', 'retry', 'topic'}
             for field in item.keys():
                 if field not in allowed_fields:
                     return False, f"Chain item {index}: unknown field '{field}' (allowed: {', '.join(allowed_fields)})"
