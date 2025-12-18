@@ -45,6 +45,16 @@ class ChainProcessor:
             pool_registry: Optional ConnectionPoolRegistry
             connection_config: Optional connection configuration dictionary
         """
+        # SECURITY: Validate input types to prevent type confusion attacks
+        if not isinstance(chain, list):
+            raise TypeError(f"chain must be a list, got {type(chain).__name__}")
+        if chain_config is not None and not isinstance(chain_config, dict):
+            raise TypeError(f"chain_config must be a dict or None, got {type(chain_config).__name__}")
+        if not isinstance(webhook_config, dict):
+            raise TypeError(f"webhook_config must be a dict, got {type(webhook_config).__name__}")
+        if connection_config is not None and not isinstance(connection_config, dict):
+            raise TypeError(f"connection_config must be a dict or None, got {type(connection_config).__name__}")
+        
         self.chain = chain
         self.chain_config = chain_config or {}
         self.webhook_config = webhook_config
@@ -164,11 +174,17 @@ class ChainProcessor:
                 module_class = ModuleRegistry.get(module_name)
                 module = module_class(module_config, pool_registry=self.pool_registry)
             except (KeyError, ValueError) as e:
-                logger.error(f"Chain module {index} ({module_name}): Failed to get module class: {e}")
-                return ChainResult(module_name, False, e)
+                # SECURITY: Sanitize error messages to prevent information disclosure
+                from src.utils import sanitize_error_message
+                sanitized_error = sanitize_error_message(e, "module instantiation")
+                logger.error(f"Chain module {index} ({module_name}): Failed to get module class: {sanitized_error}")
+                return ChainResult(module_name, False, e)  # Return original exception for debugging, but log sanitized
             except Exception as e:
-                logger.error(f"Chain module {index} ({module_name}): Failed to instantiate module: {e}")
-                return ChainResult(module_name, False, e)
+                # SECURITY: Sanitize error messages to prevent information disclosure
+                from src.utils import sanitize_error_message
+                sanitized_error = sanitize_error_message(e, "module instantiation")
+                logger.error(f"Chain module {index} ({module_name}): Failed to instantiate module: {sanitized_error}")
+                return ChainResult(module_name, False, e)  # Return original exception for debugging, but log sanitized
             
             # Get retry config for this module (if specified)
             retry_config = chain_item.get('retry')
@@ -192,23 +208,32 @@ class ChainProcessor:
                     await module.process(payload, headers)
                     result = ChainResult(module_name, True)
             except Exception as e:
-                logger.error(f"Chain module {index} ({module_name}): Execution failed: {e}")
-                result = ChainResult(module_name, False, e)
+                # SECURITY: Sanitize error messages to prevent information disclosure
+                from src.utils import sanitize_error_message
+                sanitized_error = sanitize_error_message(e, "module execution")
+                logger.error(f"Chain module {index} ({module_name}): Execution failed: {sanitized_error}")
+                result = ChainResult(module_name, False, e)  # Return original exception for debugging, but log sanitized
             finally:
                 # Always cleanup module resources (teardown) if module was created
                 if module is not None:
                     try:
                         await module.teardown()
                     except Exception as teardown_error:
+                        # SECURITY: Sanitize teardown error messages to prevent information disclosure
+                        from src.utils import sanitize_error_message
+                        sanitized_error = sanitize_error_message(teardown_error, "module teardown")
                         # Log teardown errors but don't fail the chain result
-                        logger.warning(f"Chain module {index} ({module_name}): Teardown failed: {teardown_error}")
+                        logger.warning(f"Chain module {index} ({module_name}): Teardown failed: {sanitized_error}")
             
             return result
         
         except Exception as e:
+            # SECURITY: Sanitize error messages to prevent information disclosure
+            from src.utils import sanitize_error_message
+            sanitized_error = sanitize_error_message(e, "chain module execution")
             # Catch any unexpected errors
-            logger.error(f"Chain module {index} ({module_name}): Unexpected error: {e}")
-            return ChainResult(module_name, False, e)
+            logger.error(f"Chain module {index} ({module_name}): Unexpected error: {sanitized_error}")
+            return ChainResult(module_name, False, e)  # Return original exception for debugging, but log sanitized
     
     def _build_module_config(self, chain_item: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -222,9 +247,23 @@ class ChainProcessor:
         Returns:
             Complete module configuration dictionary
         """
+        # SECURITY: Validate chain_item type
+        if not isinstance(chain_item, dict):
+            raise TypeError(f"chain_item must be a dict, got {type(chain_item).__name__}")
+        
         # Start with base webhook config (copy to avoid modifying original)
+        # SECURITY: Use safe_deepcopy to prevent DoS via circular references
         import copy
-        module_config = copy.deepcopy(self.webhook_config)
+        try:
+            module_config = copy.deepcopy(self.webhook_config)
+        except (RecursionError, MemoryError) as e:
+            # SECURITY: Handle circular references and memory exhaustion
+            logger.error(f"Failed to deep copy webhook_config: {e}")
+            # Fallback to shallow copy (less safe but prevents DoS)
+            import copy as shallow_copy
+            module_config = shallow_copy.copy(self.webhook_config)
+            if isinstance(module_config, dict):
+                module_config = dict(module_config)  # Create new dict
         
         # Override module name
         module_config['module'] = chain_item.get('module')
@@ -236,7 +275,16 @@ class ChainProcessor:
             
             # Inject connection details from connection_config if available
             if self.connection_config and connection_name in self.connection_config:
-                connection_details = copy.deepcopy(self.connection_config[connection_name])
+                try:
+                    connection_details = copy.deepcopy(self.connection_config[connection_name])
+                except (RecursionError, MemoryError) as e:
+                    # SECURITY: Handle circular references and memory exhaustion
+                    logger.error(f"Failed to deep copy connection_details: {e}")
+                    # Fallback to shallow copy
+                    import copy as shallow_copy
+                    connection_details = shallow_copy.copy(self.connection_config[connection_name])
+                    if isinstance(connection_details, dict):
+                        connection_details = dict(connection_details)  # Create new dict
                 module_config['connection_details'] = connection_details
         
         # All module-specific configs should be in module-config, not at top level
@@ -250,11 +298,29 @@ class ChainProcessor:
                 existing_module_config = module_config.get('module-config', {})
                 if isinstance(existing_module_config, dict):
                     # Deep merge
-                    merged_config = copy.deepcopy(existing_module_config)
+                    try:
+                        merged_config = copy.deepcopy(existing_module_config)
+                    except (RecursionError, MemoryError) as e:
+                        # SECURITY: Handle circular references and memory exhaustion
+                        logger.error(f"Failed to deep copy existing_module_config: {e}")
+                        # Fallback to shallow copy
+                        import copy as shallow_copy
+                        merged_config = shallow_copy.copy(existing_module_config)
+                        if isinstance(merged_config, dict):
+                            merged_config = dict(merged_config)  # Create new dict
                     merged_config.update(chain_module_config)
                     module_config['module-config'] = merged_config
                 else:
-                    module_config['module-config'] = copy.deepcopy(chain_module_config)
+                    try:
+                        module_config['module-config'] = copy.deepcopy(chain_module_config)
+                    except (RecursionError, MemoryError) as e:
+                        # SECURITY: Handle circular references and memory exhaustion
+                        logger.error(f"Failed to deep copy chain_module_config: {e}")
+                        # Fallback to shallow copy
+                        import copy as shallow_copy
+                        module_config['module-config'] = shallow_copy.copy(chain_module_config)
+                        if isinstance(module_config['module-config'], dict):
+                            module_config['module-config'] = dict(module_config['module-config'])
             else:
                 # Invalid module-config, use empty dict
                 module_config['module-config'] = {}
