@@ -408,7 +408,6 @@ async def validate_connections(connection_config: dict):
             elif conn_type == 'clickhouse':
                 # Test ClickHouse connection
                 from clickhouse_driver import Client
-                import asyncio
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 9000)
                 database = conn_details.get('database', 'default')
@@ -423,8 +422,9 @@ async def validate_connections(connection_config: dict):
                     client.execute('SELECT 1')
                     return True
                 
+                loop = asyncio.get_event_loop()
                 await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(None, test_connection),
+                    loop.run_in_executor(None, test_connection),
                     timeout=5.0
                 )
                 status_icon = "✅"
