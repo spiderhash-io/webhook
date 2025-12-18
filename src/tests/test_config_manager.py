@@ -143,6 +143,24 @@ class TestConfigManager:
             assert config_manager.get_connection_config("nonexistent") is None
     
     @pytest.mark.asyncio
+    async def test_get_all_connection_configs(self, config_manager):
+        """Test getting all connection configs."""
+        # Mock pool creation to avoid actual connection attempts
+        with patch.object(config_manager.pool_registry, 'get_pool', new_callable=AsyncMock) as mock_get_pool:
+            mock_get_pool.return_value = AsyncMock()
+            await config_manager.initialize()
+            
+            all_configs = config_manager.get_all_connection_configs()
+            assert isinstance(all_configs, dict)
+            assert "test_connection" in all_configs
+            assert all_configs["test_connection"]["type"] == "rabbitmq"
+            
+            # Verify it returns a copy (modifying shouldn't affect internal state)
+            all_configs["test_connection"]["modified"] = True
+            original_config = config_manager.get_connection_config("test_connection")
+            assert "modified" not in original_config
+    
+    @pytest.mark.asyncio
     async def test_invalid_webhook_config_rejected(self, config_manager, temp_webhook_config):
         """Test that invalid webhook config is rejected."""
         await config_manager.initialize()

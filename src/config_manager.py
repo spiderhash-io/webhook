@@ -324,6 +324,16 @@ class ConfigManager:
         """
         return self._connection_config.get(connection_name)
     
+    def get_all_connection_configs(self) -> Dict[str, Any]:
+        """
+        Get all connection configurations (async-safe read).
+        
+        Returns:
+            Dictionary of all connection configurations (deep copy to prevent external modification)
+        """
+        import copy
+        return copy.deepcopy(self._connection_config)
+    
     def get_status(self) -> Dict[str, Any]:
         """
         Get current status of the config manager.

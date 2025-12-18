@@ -458,7 +458,9 @@ async def read_webhook(webhook_id: str,  request: Request):
         webhook_config = config_manager.get_webhook_config(webhook_id)
         if webhook_config:
             webhook_configs[webhook_id] = webhook_config
-        conn_configs = {}  # Connection configs accessed via pool_registry
+        # Pass connection_config for chain processor to inject connection_details
+        # ConfigManager already has environment variables substituted
+        conn_configs = config_manager.get_all_connection_configs() if config_manager else {}
         pool_registry = config_manager.pool_registry
     else:
         # Fallback to old config system
