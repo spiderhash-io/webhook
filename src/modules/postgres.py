@@ -347,16 +347,6 @@ class PostgreSQLModule(BaseModule):
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
                 """
-                
-                # Create unique index on JSONB path for upsert if configured
-                if self.upsert and self.upsert_key:
-                    # Create GIN index on payload for efficient JSONB queries
-                    index_query = f"""
-                    CREATE INDEX IF NOT EXISTS {quoted_table_name}_payload_gin 
-                    ON {quoted_table_name} USING GIN (payload)
-                    """
-                    async with self.pool.acquire() as conn:
-                        await conn.execute(index_query)
             elif self.storage_mode == 'relational':
                 # Relational mode: create columns from schema
                 if not self.schema or 'fields' not in self.schema:
@@ -438,6 +428,21 @@ class PostgreSQLModule(BaseModule):
             
             async with self.pool.acquire() as conn:
                 await conn.execute(create_table_query)
+            
+            # Create GIN index on JSONB payload for JSON mode if upsert is enabled
+            if self.storage_mode == 'json' and self.upsert and self.upsert_key:
+                # Create GIN index on payload for efficient JSONB queries
+                # This must happen after table creation
+                # Create a valid index name from the table name
+                index_name = f"{self.table_name}_payload_gin"
+                validated_index_name = self._validate_table_name(index_name)
+                quoted_index_name = self._quote_identifier(validated_index_name)
+                index_query = f"""
+                CREATE INDEX IF NOT EXISTS {quoted_index_name} 
+                ON {quoted_table_name} USING GIN (payload)
+                """
+                async with self.pool.acquire() as conn:
+                    await conn.execute(index_query)
             
             # Create indexes if specified
             if self.schema and 'indexes' in self.schema:
