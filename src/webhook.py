@@ -525,7 +525,8 @@ class WebhookHandler:
             chain=chain,
             chain_config=chain_config,
             webhook_config=webhook_config_with_id,
-            pool_registry=self.pool_registry
+            pool_registry=self.pool_registry,
+            connection_config=self.connection_config
         )
         
         # Execute chain using task manager (fire-and-forget)

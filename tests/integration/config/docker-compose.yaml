@@ -124,6 +124,11 @@ services:
       - CLICKHOUSE_PORT=8123
       - KAFKA_HOST=redpanda
       - KAFKA_PORT=9092
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DATABASE=dapp
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000
     depends_on:
       redis:
@@ -131,6 +136,8 @@ services:
       rabbitmq:
         condition: service_healthy
       clickhouse:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - webhook-network
@@ -197,6 +204,27 @@ services:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     command: mosquitto -c /mosquitto/config/mosquitto.conf
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    ports:
+      - "5432:5432"  # PostgreSQL port
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: dapp
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+
 
 networks:
   webhook-network:
@@ -209,3 +237,4 @@ volumes:
   redpanda_data:         # Redpanda data persistence
   mosquitto_data:        # Mosquitto data persistence
   mosquitto_log:         # Mosquitto log persistence
+  postgres_test_data:    # PostgreSQL data persistence

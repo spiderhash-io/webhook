@@ -19,5 +19,20 @@
         "database": "default",
         "user": "default",
         "password": ""
+    },
+    "postgres_local": {
+        "type": "postgresql",
+        "host": "postgres",
+        "port": 5432,
+        "database": "dapp",
+        "user": "postgres",
+        "password": "postgres",
+        "pool_min_size": 2,
+        "pool_max_size": 10,
+        "ssl": false
+    },
+    "kafka_redpanda_local": {
+        "type": "kafka",
+        "bootstrap_servers": "redpanda:9092"
     }
 }

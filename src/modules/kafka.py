@@ -8,8 +8,8 @@ from src.modules.base import BaseModule
 class KafkaModule(BaseModule):
     """Module for publishing webhook payloads to Apache Kafka."""
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], pool_registry=None):
+        super().__init__(config, pool_registry)
         self.producer = None
         # Validate topic name during initialization to fail early
         raw_topic = self.config.get('topic')

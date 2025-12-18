@@ -32,7 +32,7 @@ class ChainProcessor:
     """Processes webhook chains (sequential or parallel execution)."""
     
     def __init__(self, chain: List[Any], chain_config: Dict[str, Any], 
-                 webhook_config: Dict[str, Any], pool_registry=None):
+                 webhook_config: Dict[str, Any], pool_registry=None, connection_config=None):
         """
         Initialize chain processor.
         
@@ -43,11 +43,13 @@ class ChainProcessor:
             chain_config: Chain execution configuration
             webhook_config: Base webhook configuration
             pool_registry: Optional ConnectionPoolRegistry
+            connection_config: Optional connection configuration dictionary
         """
         self.chain = chain
         self.chain_config = chain_config or {}
         self.webhook_config = webhook_config
         self.pool_registry = pool_registry
+        self.connection_config = connection_config or {}
         
         # Get execution mode (default: sequential)
         self.execution_mode = self.chain_config.get('execution', 'sequential')
@@ -217,8 +219,14 @@ class ChainProcessor:
         module_config['module'] = chain_item.get('module')
         
         # Override connection if specified in chain item
-        if 'connection' in chain_item:
-            module_config['connection'] = chain_item['connection']
+        connection_name = chain_item.get('connection')
+        if connection_name:
+            module_config['connection'] = connection_name
+            
+            # Inject connection details from connection_config if available
+            if self.connection_config and connection_name in self.connection_config:
+                connection_details = copy.deepcopy(self.connection_config[connection_name])
+                module_config['connection_details'] = connection_details
         
         # Copy module-specific top-level configs from chain item (e.g., 'topic' for Kafka)
         # These are configs that modules expect at the top level, not in module-config
@@ -226,6 +234,9 @@ class ChainProcessor:
         for key in module_specific_keys:
             if key in chain_item:
                 module_config[key] = chain_item[key]
+            # Also check in webhook config (for backward compatibility)
+            elif key in self.webhook_config:
+                module_config[key] = self.webhook_config[key]
         
         # Merge module-config if specified
         if 'module-config' in chain_item:

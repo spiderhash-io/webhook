@@ -89,5 +89,36 @@
             "max_requests": 3,
             "window_seconds": 60
         }
+    },
+    "webhook_db_then_kafka": {
+        "data_type": "json",
+        "topic": "webhook_events",
+        "chain": [
+            {
+                "module": "postgresql",
+                "connection": "postgres_local",
+                "module-config": {
+                    "table": "webhook_events",
+                    "storage_mode": "json",
+                    "upsert": true,
+                    "upsert_key": "event_id",
+                    "include_headers": true,
+                    "include_timestamp": true
+                }
+            },
+            {
+                "module": "kafka",
+                "connection": "kafka_redpanda_local",
+                "module-config": {
+                    "forward_headers": true,
+                    "key": "event_id"
+                }
+            }
+        ],
+        "chain-config": {
+            "execution": "sequential",
+            "continue_on_error": true
+        },
+        "authorization": "Bearer dev_secret_token"
     }
 }

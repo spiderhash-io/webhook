@@ -279,4 +279,135 @@ class TestChainProcessor:
         assert summary['failed'] == 1
         assert summary['success_rate'] == 2/3
         assert len(summary['results']) == 3
+    
+    def test_build_module_config_with_connection_details(self, mock_webhook_config):
+        """Test that connection_details are injected from connection_config."""
+        chain_item = {
+            'module': 'postgresql',
+            'connection': 'postgres_local',
+            'module-config': {'table': 'webhook_events'}
+        }
+        
+        connection_config = {
+            'postgres_local': {
+                'type': 'postgresql',
+                'host': 'localhost',
+                'port': 5432,
+                'database': 'test',
+                'user': 'postgres',
+                'password': 'postgres'
+            }
+        }
+        
+        processor = ChainProcessor(
+            chain=[chain_item],
+            chain_config={},
+            webhook_config=mock_webhook_config,
+            connection_config=connection_config
+        )
+        
+        config = processor._build_module_config(chain_item)
+        
+        # Verify connection_details are injected
+        assert 'connection_details' in config, "connection_details should be injected from connection_config"
+        assert config['connection_details']['type'] == 'postgresql'
+        assert config['connection_details']['host'] == 'localhost'
+        assert config['connection_details']['port'] == 5432
+        assert config['connection_details']['database'] == 'test'
+        assert config['connection_details']['user'] == 'postgres'
+        assert config['connection_details']['password'] == 'postgres'
+    
+    def test_build_module_config_without_connection_config(self, mock_webhook_config):
+        """Test that module config works even without connection_config."""
+        chain_item = {
+            'module': 'log',
+            'module-config': {}
+        }
+        
+        processor = ChainProcessor(
+            chain=[chain_item],
+            chain_config={},
+            webhook_config=mock_webhook_config,
+            connection_config=None  # No connection config
+        )
+        
+        config = processor._build_module_config(chain_item)
+        
+        # Should still work, just no connection_details
+        assert config['module'] == 'log'
+        # connection_details may or may not be present, but shouldn't crash
+    
+    def test_build_module_config_missing_connection(self, mock_webhook_config):
+        """Test that missing connection in connection_config doesn't crash."""
+        chain_item = {
+            'module': 'postgresql',
+            'connection': 'nonexistent_connection',
+            'module-config': {'table': 'webhook_events'}
+        }
+        
+        connection_config = {
+            'postgres_local': {
+                'type': 'postgresql',
+                'host': 'localhost'
+            }
+        }
+        
+        processor = ChainProcessor(
+            chain=[chain_item],
+            chain_config={},
+            webhook_config=mock_webhook_config,
+            connection_config=connection_config
+        )
+        
+        config = processor._build_module_config(chain_item)
+        
+        # Should not crash, but connection_details won't be injected
+        assert config['module'] == 'postgresql'
+        assert config['connection'] == 'nonexistent_connection'
+        # connection_details should not be present since connection doesn't exist
+        assert 'connection_details' not in config or config.get('connection_details') == {}
+    
+    @pytest.mark.asyncio
+    async def test_module_instantiation_with_pool_registry(self, mock_webhook_config):
+        """Test that modules can be instantiated with pool_registry parameter."""
+        from src.modules.kafka import KafkaModule
+        from src.modules.postgres import PostgreSQLModule
+        
+        # Test KafkaModule accepts pool_registry
+        kafka_config = {
+            'module': 'kafka',
+            'topic': 'test_topic',
+            'connection_details': {
+                'bootstrap_servers': 'localhost:9092'
+            }
+        }
+        
+        # Should not raise TypeError
+        try:
+            kafka_module = KafkaModule(kafka_config, pool_registry=None)
+            assert kafka_module is not None
+        except TypeError as e:
+            pytest.fail(f"KafkaModule should accept pool_registry parameter: {e}")
+        
+        # Test PostgreSQLModule accepts pool_registry
+        postgres_config = {
+            'module': 'postgresql',
+            'connection_details': {
+                'host': 'localhost',
+                'port': 5432,
+                'database': 'test',
+                'user': 'postgres',
+                'password': 'postgres'
+            },
+            'module-config': {
+                'table': 'test_table'
+            }
+        }
+        
+        # Should not raise TypeError
+        try:
+            postgres_module = PostgreSQLModule(postgres_config, pool_registry=None)
+            assert postgres_module is not None
+        except TypeError as e:
+            pytest.fail(f"PostgreSQLModule should accept pool_registry parameter: {e}")
 

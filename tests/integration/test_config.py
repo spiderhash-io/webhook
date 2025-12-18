@@ -31,6 +31,13 @@ MQTT_TLS_PORT = int(os.getenv("MQTT_TLS_PORT", "8883"))
 MQTT_USER = os.getenv("MQTT_USER", "")
 MQTT_PASS = os.getenv("MQTT_PASS", "")
 
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+POSTGRES_DATABASE = os.getenv("POSTGRES_DATABASE", "dapp")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
+POSTGRES_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DATABASE}"
+
 # FastAPI server endpoint
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
