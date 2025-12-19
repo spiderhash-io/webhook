@@ -8,6 +8,7 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 
 ### Core Functionality
 - **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, WebSocket, PostgreSQL, MySQL/MariaDB, S3, Kafka, ActiveMQ, AWS SQS, GCP Pub/Sub, ZeroMQ, or stdout.
+- **Webhook Chaining**: Send webhook payloads to multiple destinations in sequence or parallel (e.g., save to S3 then Redis, save to DB and RabbitMQ simultaneously).
 - **Plugin Architecture**: Easy to extend with new modules without modifying core code.
 - **Configuration-Driven**: Easy configuration via JSON files (`webhooks.json`, `connections.json`) and environment variables.
 - **Live Config Reload**: Hot-reload webhook and connection configurations without restarting the application (via ConfigManager and ConfigFileWatcher).
@@ -36,6 +37,8 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - `src/config_manager.py`: Live configuration management with hot-reload support.
 - `src/config_watcher.py`: File system watcher for automatic config reload on file changes.
 - `src/connection_pool_registry.py`: Centralized connection pool management with versioning and lifecycle control.
+- `src/chain_processor.py`: Chain processor for executing multiple modules sequentially or in parallel.
+- `src/chain_validator.py`: Chain configuration validation and security checks.
 - `src/modules/`: Output modules (RabbitMQ, Redis, ClickHouse, etc.).
   - `base.py`: Abstract base class for all modules
   - `registry.py`: Module registry for plugin management
@@ -1031,6 +1034,146 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 - `relational`: Map payload fields to table columns with schema validation
 - `hybrid`: Store mapped fields in columns + full payload in JSON
 
+#### Webhook Chaining (Multiple Destinations)
+Send webhook payloads to multiple destinations in sequence or parallel. This feature allows you to create complex workflows where a single webhook triggers multiple actions.
+
+**Simple Array Format:**
+```json
+{
+    "chained_webhook": {
+        "data_type": "json",
+        "chain": ["s3", "redis_rq"],
+        "chain-config": {
+            "execution": "sequential",
+            "continue_on_error": true
+        },
+        "authorization": "Bearer token"
+    }
+}
+```
+
+**Detailed Format with Per-Module Config:**
+```json
+{
+    "chained_webhook": {
+        "data_type": "json",
+        "chain": [
+            {
+                "module": "s3",
+                "connection": "s3_storage",
+                "module-config": {
+                    "bucket": "webhook-archive",
+                    "prefix": "events"
+                },
+                "retry": {
+                    "enabled": true,
+                    "max_attempts": 3
+                }
+            },
+            {
+                "module": "redis_rq",
+                "connection": "redis_local",
+                "module-config": {
+                    "queue_name": "process_events"
+                }
+            }
+        ],
+        "chain-config": {
+            "execution": "sequential",
+            "continue_on_error": true
+        },
+        "authorization": "Bearer secret"
+    }
+}
+```
+
+**Configuration Options:**
+- `chain`: Array of module names (strings) or detailed module configurations (objects)
+- `chain-config.execution`: `"sequential"` (one after another) or `"parallel"` (all at once)
+- `chain-config.continue_on_error`: `true` to continue chain execution even if a module fails, `false` to stop on first error
+- `retry`: Per-module retry configuration (optional)
+
+**Execution Modes:**
+- **Sequential**: Modules execute one after another in order. Useful when one module depends on another (e.g., save to DB then publish to Kafka).
+- **Parallel**: All modules execute simultaneously. Useful for independent operations (e.g., save to DB and send to RabbitMQ at the same time).
+
+**Examples:**
+
+**Example 1: Save to S3 then Redis (Sequential)**
+```json
+{
+    "s3_then_redis": {
+        "data_type": "json",
+        "chain": [
+            {
+                "module": "s3",
+                "connection": "s3_storage",
+                "module-config": {
+                    "bucket": "webhook-archive",
+                    "prefix": "events"
+                }
+            },
+            {
+                "module": "redis_rq",
+                "connection": "redis_local",
+                "module-config": {
+                    "queue_name": "process_events"
+                }
+            }
+        ],
+        "chain-config": {
+            "execution": "sequential",
+            "continue_on_error": true
+        },
+        "authorization": "Bearer secret"
+    }
+}
+```
+
+**Example 2: Save to DB and RabbitMQ (Parallel)**
+```json
+{
+    "db_and_rmq": {
+        "data_type": "json",
+        "chain": [
+            {
+                "module": "postgresql",
+                "connection": "postgres_local",
+                "module-config": {
+                    "table": "webhook_events"
+                }
+            },
+            {
+                "module": "rabbitmq",
+                "connection": "rabbitmq_local",
+                "module-config": {
+                    "queue_name": "event_queue"
+                }
+            }
+        ],
+        "chain-config": {
+            "execution": "parallel",
+            "continue_on_error": true
+        },
+        "authorization": "Bearer secret"
+    }
+}
+```
+
+**Backward Compatibility:**
+- Existing single-module configurations (using `module` field) continue to work unchanged
+- If both `module` and `chain` are present, `chain` takes precedence
+- No breaking changes to existing webhook configurations
+
+**Security Features:**
+- Maximum chain length limit (20 modules) to prevent DoS attacks
+- Module name validation to prevent injection attacks
+- Type validation for all configuration fields
+- Resource management with concurrency limits
+- Error sanitization to prevent information disclosure
+
+See `docs/WEBHOOK_CHAINING_FEATURE.md` for detailed documentation.
+
 ## TODO List
 
 ### Core Features
@@ -1042,6 +1185,7 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 - [x] JSON Schema Validation
 - [x] Payload size, depth, and string length validation
 - [x] Dynamic OpenAPI Docs (generate from webhooks.json)
+- [x] Webhook chaining (multiple destinations per webhook)
 
 ### Authentication Methods (11/11 Complete ✅)
 - [x] Basic Authentication
@@ -1086,7 +1230,6 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 - [ ] Payload Transformation (pre-processing step)
 - [ ] Cloudflare Turnstile Validation
 - [ ] Batch insert support for database modules
-- [ ] Webhook chaining (multiple destinations per webhook)
 - [ ] Performance test documentation expansion
 
 ## Test Status
@@ -1100,6 +1243,7 @@ Test suites include:
 - Module tests (all 17 output modules)
 - Database module tests (PostgreSQL, MySQL)
 - Webhook flow tests
+- Webhook chaining tests (sequential and parallel execution)
 - Rate limiting tests
 - Redis statistics tests
 - Input validation tests
@@ -1108,6 +1252,7 @@ Test suites include:
 - Config manager and watcher tests
 - Connection pool registry tests
 - Analytics processor tests
+- Chain processor and validator tests
 
 **Test Coverage:** 90%+ code coverage
 

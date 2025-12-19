@@ -246,7 +246,32 @@ class WebhookHandler:
         headers_dict = {k.lower(): v for k, v in self.request.headers.items()}
         
         # Get query parameters for query auth validation
-        query_params = dict(self.request.query_params)
+        # SECURITY: Validate query_params is dict-like before conversion to prevent type confusion
+        try:
+            # FastAPI's QueryParams is dict-like, but validate defensively
+            if self.request.query_params is None:
+                query_params = {}
+            elif hasattr(self.request.query_params, 'items'):
+                # QueryParams-like object, convert to dict
+                query_params = dict(self.request.query_params)
+            elif isinstance(self.request.query_params, dict):
+                # Already a dict, use as-is
+                query_params = self.request.query_params.copy()
+            else:
+                # Unexpected type, default to empty dict
+                print(f"WARNING: Unexpected query_params type: {type(self.request.query_params).__name__}")
+                query_params = {}
+        except (TypeError, AttributeError) as e:
+            # If conversion fails, default to empty dict and log error
+            # SECURITY: Sanitize error message to prevent information disclosure
+            from src.utils import sanitize_error_message
+            sanitized_error = sanitize_error_message(e, "query parameter extraction")
+            print(f"ERROR: Failed to extract query parameters: {sanitized_error}")
+            query_params = {}
+        
+        # SECURITY: Ensure query_params is a dict (defensive check)
+        if not isinstance(query_params, dict):
+            query_params = {}
         
         # Run all validators
         for validator in self.validators:

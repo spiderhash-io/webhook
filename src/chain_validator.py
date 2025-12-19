@@ -31,6 +31,10 @@ class ChainValidator:
         Returns:
             Tuple of (is_valid, error_message)
         """
+        # SECURITY: Validate config is a dict to prevent type confusion attacks
+        if not isinstance(config, dict):
+            return False, "Configuration must be a dictionary"
+        
         # Check if chain exists
         chain = config.get('chain')
         if chain is None:
@@ -56,11 +60,15 @@ class ChainValidator:
                 return False, error
         
         # Validate chain-config if present
-        chain_config = config.get('chain-config', {})
-        if chain_config:
-            is_valid, error = ChainValidator._validate_chain_execution_config(chain_config)
-            if not is_valid:
-                return False, error
+        # SECURITY: Check if chain-config key exists (not just if it's truthy)
+        # This prevents empty strings, empty lists, etc. from bypassing validation
+        if 'chain-config' in config:
+            chain_config = config.get('chain-config')
+            # SECURITY: Validate chain_config is a dict before processing
+            if chain_config is not None:
+                is_valid, error = ChainValidator._validate_chain_execution_config(chain_config)
+                if not is_valid:
+                    return False, error
         
         return True, None
     
@@ -98,11 +106,16 @@ class ChainValidator:
             # Detailed format: dict with module, connection, module-config, retry, etc.
             # SECURITY: Validate module field exists and is a string
             module_name = item.get('module')
-            if not module_name:
+            # SECURITY: Check type first to prevent type confusion (empty list/dict are falsy)
+            if module_name is None:
                 return False, f"Chain item {index}: missing required 'module' field"
             
             if not isinstance(module_name, str):
                 return False, f"Chain item {index}: 'module' must be a string"
+            
+            # SECURITY: Check that module name is not empty after type validation
+            if not module_name.strip():
+                return False, f"Chain item {index}: module name cannot be empty or whitespace-only"
             
             # SECURITY: Validate module exists in registry
             try:
