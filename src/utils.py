@@ -445,13 +445,44 @@ def load_env_vars(data, visited=None, depth=0):
 
 
 class EndpointStats:
+    # SECURITY: Limits to prevent DoS attacks
+    MAX_ENDPOINT_NAME_LENGTH = 256  # Maximum endpoint name length
+    MAX_ENDPOINTS = 100000  # Maximum number of unique endpoints
+    
     def __init__(self):
         self.stats = defaultdict(lambda: defaultdict(int))
         self.timestamps = defaultdict(dict)  # Using dict for timestamps
         self.lock = asyncio.Lock()
         self.bucket_size = timedelta(minutes=1)  # Smallest bucket size
 
+    def _validate_endpoint_name(self, endpoint_name):
+        """
+        Validate endpoint name to prevent DoS and type confusion attacks.
+        
+        SECURITY: Validates type, length, and dangerous characters.
+        """
+        # Type validation
+        if not isinstance(endpoint_name, str):
+            raise TypeError(f"endpoint_name must be a string, got {type(endpoint_name).__name__}")
+        
+        # Length validation
+        if len(endpoint_name) > self.MAX_ENDPOINT_NAME_LENGTH:
+            raise ValueError(f"endpoint_name too long: {len(endpoint_name)} chars (max: {self.MAX_ENDPOINT_NAME_LENGTH})")
+        
+        # Null byte detection
+        if '\x00' in endpoint_name:
+            raise ValueError("endpoint_name contains null byte")
+        
+        # Check endpoint count limit
+        if len(self.timestamps) >= self.MAX_ENDPOINTS and endpoint_name not in self.timestamps:
+            raise ValueError(f"Maximum number of endpoints ({self.MAX_ENDPOINTS}) exceeded")
+        
+        return endpoint_name
+
     async def increment(self, endpoint_name):
+        # SECURITY: Validate endpoint name before processing
+        endpoint_name = self._validate_endpoint_name(endpoint_name)
+        
         async with self.lock:
             now = datetime.now(timezone.utc)
             bucket = self._get_bucket(now)
@@ -460,8 +491,19 @@ class EndpointStats:
             self._cleanup_old_buckets(endpoint_name, now)  # Cleanup old buckets
 
     def _get_bucket(self, timestamp):
-        # Align timestamp to the start of the bucket
-        return timestamp - (timestamp - datetime.min) % self.bucket_size
+        """
+        Align timestamp to the start of the bucket.
+        
+        SECURITY: Fixed timezone-aware datetime handling to prevent TypeError.
+        """
+        # SECURITY: Handle timezone-aware timestamps correctly
+        # Use epoch (1970-01-01) as reference point instead of datetime.min
+        # to avoid timezone-naive/aware mixing issues
+        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        delta = timestamp - epoch
+        # Align to bucket boundary
+        bucket_offset = delta % self.bucket_size
+        return timestamp - bucket_offset
 
     def _cleanup_old_buckets(self, endpoint_name, now):
         # Remove buckets older than a certain cutoff (e.g., 1 day)

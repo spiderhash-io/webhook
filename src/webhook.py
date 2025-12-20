@@ -189,6 +189,7 @@ class WebhookHandler:
         self.pool_registry = pool_registry
         self.headers = self.request.headers
         self._cached_body = None  # Cache request body after first read
+        self._body_reading_lock = asyncio.Lock()  # SECURITY: Lock to prevent race conditions when reading body
         
         # SECURITY: Validate config type before validator instantiation to prevent type confusion
         if not isinstance(self.config, dict):
@@ -237,8 +238,23 @@ class WebhookHandler:
         """Validate webhook using all configured validators."""
         # Get raw body for HMAC validation
         # Cache body after first read since FastAPI Request.body() can only be read once
+        # SECURITY: Use lock to prevent race conditions when reading body concurrently
         if self._cached_body is None:
-            self._cached_body = await self.request.body()
+            async with self._body_reading_lock:
+                # Double-check after acquiring lock (another coroutine might have read it)
+                if self._cached_body is None:
+                    # SECURITY: Wrap body reading in try-except to handle exceptions gracefully
+                    try:
+                        self._cached_body = await self.request.body()
+                    except Exception as e:
+                        # SECURITY: Sanitize error message to prevent information disclosure
+                        from src.utils import sanitize_error_message
+                        error_msg = sanitize_error_message(e, "request body reading")
+                        print(f"ERROR: Failed to read request body: {error_msg}")
+                        # Set cached_body to empty bytes to prevent retry
+                        self._cached_body = b''
+                        # Return validation failure with sanitized error
+                        return False, "Failed to read request body"
         
         body = self._cached_body
         
@@ -320,9 +336,27 @@ class WebhookHandler:
         
         # Get raw body for validation
         # Reuse cached body from validate_webhook() since FastAPI Request.body() can only be read once
+        # SECURITY: Use lock to prevent race conditions when reading body concurrently
         if self._cached_body is None:
-            # If validate_webhook() wasn't called, read body now (shouldn't happen in normal flow)
-            self._cached_body = await self.request.body()
+            async with self._body_reading_lock:
+                # Double-check after acquiring lock (another coroutine might have read it)
+                if self._cached_body is None:
+                    # If validate_webhook() wasn't called, read body now (shouldn't happen in normal flow)
+                    # SECURITY: Wrap body reading in try-except to handle exceptions gracefully
+                    try:
+                        self._cached_body = await self.request.body()
+                    except Exception as e:
+                        # SECURITY: Sanitize error message to prevent information disclosure
+                        from src.utils import sanitize_error_message
+                        error_msg = sanitize_error_message(e, "request body reading")
+                        print(f"ERROR: Failed to read request body: {error_msg}")
+                        # Set cached_body to empty bytes to prevent retry
+                        self._cached_body = b''
+                        # Raise HTTPException with sanitized error
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Failed to read request body"
+                        )
         
         body = self._cached_body
         

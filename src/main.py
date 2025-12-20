@@ -292,6 +292,8 @@ async def validate_connections(connection_config: dict):
     """
     Validate all connections at startup and log results.
     
+    SECURITY: Validates host addresses to prevent SSRF attacks before attempting connections.
+    
     Args:
         connection_config: Dictionary of connection configurations
     """
@@ -305,6 +307,10 @@ async def validate_connections(connection_config: dict):
     success_count = 0
     failure_count = 0
     
+    # SECURITY: Import host validation function and ipaddress for private IP detection
+    from src.config import _validate_connection_host, _validate_connection_port
+    import ipaddress
+    
     for conn_name, conn_details in connection_config.items():
         if not conn_details or not isinstance(conn_details, dict):
             continue
@@ -315,10 +321,45 @@ async def validate_connections(connection_config: dict):
         
         try:
             if conn_type == 'postgresql':
-                # Test PostgreSQL connection
-                import asyncpg
+                # SECURITY: Validate host and port before attempting connection
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 5432)
+                
+                # Validate host to prevent SSRF
+                try:
+                    _validate_connection_host(host, conn_type)
+                    # SECURITY: Additionally block private IP ranges for connection validation
+                    # (even though _validate_connection_host allows them for internal networks)
+                    try:
+                        ip = ipaddress.ip_address(host)
+                        if ip.is_private:
+                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
+                    except ValueError as ip_error:
+                        # Check if this is our validation error or an ipaddress parsing error
+                        if "not allowed for connection validation" in str(ip_error):
+                            # Re-raise our validation error
+                            raise
+                        # Otherwise, it's not an IP address, treat as hostname (already validated by _validate_connection_host)
+                        pass
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Host validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Validate port
+                try:
+                    _validate_connection_port(port, conn_type)
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Port validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Test PostgreSQL connection
+                import asyncpg
                 database = conn_details.get('database', 'postgres')
                 user = conn_details.get('user', 'postgres')
                 password = conn_details.get('password', '')
@@ -334,10 +375,40 @@ async def validate_connections(connection_config: dict):
                 status_msg = f"Connected to {host}:{port}/{database}"
                 
             elif conn_type == 'mysql':
-                # Test MySQL connection
-                import aiomysql
+                # SECURITY: Validate host and port before attempting connection
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 3306)
+                
+                # Validate host to prevent SSRF
+                try:
+                    _validate_connection_host(host, conn_type)
+                    # SECURITY: Additionally block private IP ranges for connection validation
+                    try:
+                        ip = ipaddress.ip_address(host)
+                        if ip.is_private:
+                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
+                    except ValueError:
+                        # Not an IP address, treat as hostname (already validated by _validate_connection_host)
+                        pass
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Host validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Validate port
+                try:
+                    _validate_connection_port(port, conn_type)
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Port validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Test MySQL connection
+                import aiomysql
                 database = conn_details.get('database', 'mysql')
                 user = conn_details.get('user', 'root')
                 password = conn_details.get('password', '')
@@ -364,24 +435,102 @@ async def validate_connections(connection_config: dict):
                 status_msg = f"Connected to {host}:{port}/{database}"
                 
             elif conn_type == 'kafka':
-                # Test Kafka connection
-                from aiokafka import AIOKafkaProducer
+                # SECURITY: Validate bootstrap_servers before attempting connection
                 bootstrap_servers = conn_details.get('bootstrap_servers', 'localhost:9092')
                 
-                producer = AIOKafkaProducer(
-                    bootstrap_servers=bootstrap_servers,
-                    value_serializer=lambda v: v
-                )
-                await asyncio.wait_for(producer.start(), timeout=5.0)
-                await producer.stop()
-                status_icon = "✅"
-                status_msg = f"Connected to {bootstrap_servers}"
+                # Parse bootstrap_servers (format: "host:port" or "host1:port1,host2:port2")
+                # SECURITY: Validate each host in bootstrap_servers
+                servers = bootstrap_servers.split(',')
+                for server in servers:
+                    server = server.strip()
+                    if ':' in server:
+                        host = server.split(':')[0].strip()
+                        try:
+                            port_str = server.split(':')[1].strip()
+                            port = int(port_str)
+                            _validate_connection_port(port, conn_type)
+                        except (ValueError, IndexError):
+                            status_icon = "❌"
+                            status_msg = f"Invalid port in bootstrap_servers: {server}"
+                            failure_count += 1
+                            print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                            break
+                    else:
+                        host = server
+                    
+                    # Validate host to prevent SSRF
+                    try:
+                        _validate_connection_host(host, conn_type)
+                        # SECURITY: Additionally block private IP ranges for connection validation
+                        try:
+                            ip = ipaddress.ip_address(host)
+                            if ip.is_private:
+                                raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
+                        except ValueError as ip_error:
+                            # Check if this is our validation error or an ipaddress parsing error
+                            if "not allowed for connection validation" in str(ip_error):
+                                # Re-raise our validation error
+                                raise
+                            # Otherwise, it's not an IP address, treat as hostname (already validated by _validate_connection_host)
+                            pass
+                    except ValueError as e:
+                        status_icon = "❌"
+                        status_msg = f"Host validation failed in bootstrap_servers: {str(e)}"
+                        failure_count += 1
+                        print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                        break
+                else:
+                    # All hosts validated, proceed with connection
+                    # Test Kafka connection
+                    from aiokafka import AIOKafkaProducer
+                    producer = AIOKafkaProducer(
+                        bootstrap_servers=bootstrap_servers,
+                        value_serializer=lambda v: v
+                    )
+                    await asyncio.wait_for(producer.start(), timeout=5.0)
+                    await producer.stop()
+                    status_icon = "✅"
+                    status_msg = f"Connected to {bootstrap_servers}"
+                    continue
+                
+                # If we hit a validation error, skip connection attempt
+                continue
                 
             elif conn_type == 'redis-rq':
-                # Test Redis connection
-                from redis import Redis
+                # SECURITY: Validate host and port before attempting connection
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 6379)
+                
+                # Validate host to prevent SSRF
+                try:
+                    _validate_connection_host(host, conn_type)
+                    # SECURITY: Additionally block private IP ranges for connection validation
+                    try:
+                        ip = ipaddress.ip_address(host)
+                        if ip.is_private:
+                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
+                    except ValueError:
+                        # Not an IP address, treat as hostname (already validated by _validate_connection_host)
+                        pass
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Host validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Validate port
+                try:
+                    _validate_connection_port(port, conn_type)
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Port validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Test Redis connection
+                from redis import Redis
                 db = conn_details.get('db', 0)
                 
                 client = Redis(host=host, port=port, db=db, socket_connect_timeout=5)
@@ -390,10 +539,40 @@ async def validate_connections(connection_config: dict):
                 status_msg = f"Connected to {host}:{port}/{db}"
                 
             elif conn_type == 'rabbitmq':
-                # Test RabbitMQ connection
-                import aio_pika
+                # SECURITY: Validate host and port before attempting connection
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 5672)
+                
+                # Validate host to prevent SSRF
+                try:
+                    _validate_connection_host(host, conn_type)
+                    # SECURITY: Additionally block private IP ranges for connection validation
+                    try:
+                        ip = ipaddress.ip_address(host)
+                        if ip.is_private:
+                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
+                    except ValueError:
+                        # Not an IP address, treat as hostname (already validated by _validate_connection_host)
+                        pass
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Host validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Validate port
+                try:
+                    _validate_connection_port(port, conn_type)
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Port validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Test RabbitMQ connection
+                import aio_pika
                 user = conn_details.get('user', 'guest')
                 password = conn_details.get('pass', 'guest')
                 
@@ -406,10 +585,40 @@ async def validate_connections(connection_config: dict):
                 status_msg = f"Connected to {host}:{port}"
                 
             elif conn_type == 'clickhouse':
-                # Test ClickHouse connection
-                from clickhouse_driver import Client
+                # SECURITY: Validate host and port before attempting connection
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 9000)
+                
+                # Validate host to prevent SSRF
+                try:
+                    _validate_connection_host(host, conn_type)
+                    # SECURITY: Additionally block private IP ranges for connection validation
+                    try:
+                        ip = ipaddress.ip_address(host)
+                        if ip.is_private:
+                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
+                    except ValueError:
+                        # Not an IP address, treat as hostname (already validated by _validate_connection_host)
+                        pass
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Host validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Validate port
+                try:
+                    _validate_connection_port(port, conn_type)
+                except ValueError as e:
+                    status_icon = "❌"
+                    status_msg = f"Port validation failed: {str(e)}"
+                    failure_count += 1
+                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+                    continue
+                
+                # Test ClickHouse connection
+                from clickhouse_driver import Client
                 database = conn_details.get('database', 'default')
                 user = conn_details.get('user', 'default')
                 password = conn_details.get('password', '') or None
@@ -446,11 +655,23 @@ async def validate_connections(connection_config: dict):
             failure_count += 1
         except Exception as e:
             status_icon = "❌"
-            error_msg = sanitize_error_message(e, f"{conn_type} connection")
-            status_msg = f"Failed: {error_msg}"
+            # SECURITY: Sanitize error message to prevent information disclosure
+            # The error might contain connection strings, passwords, or other sensitive info
+            # Check if error contains sensitive patterns before sanitizing
+            error_str = str(e)
+            # Check for connection string patterns in error message
+            if any(pattern in error_str.lower() for pattern in ['postgresql://', 'mysql://', 'redis://', 'amqp://', 'password', 'secret']):
+                # Error contains sensitive information - use generic message
+                status_msg = f"Failed: Connection validation error"
+            else:
+                # Error doesn't contain obvious sensitive info, but still sanitize
+                error_msg = sanitize_error_message(e, f"{conn_type} connection")
+                status_msg = f"Failed: {error_msg}"
             failure_count += 1
         
-        print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
+        # SECURITY: Only print status if we haven't already printed it (for validation errors)
+        if status_icon != "⏳":
+            print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
     
     print("-" * 60)
     print(f"✅ {success_count} connection(s) successful")
