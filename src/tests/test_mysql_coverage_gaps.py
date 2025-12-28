@@ -241,7 +241,7 @@ class TestMySQLModuleSetup:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.connection_details = {
+            module.connection_details = {
                 'host': 'localhost',
                 'port': 3306,
                 'database': 'testdb',
@@ -265,7 +265,7 @@ class TestMySQLModuleSetup:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.connection_details = {
+            module.connection_details = {
                 'host': 'localhost',
                 'port': 3306
             }
@@ -300,7 +300,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             with patch('builtins.print'):
                 await module.process({'data': 'test'}, {'Content-Type': 'application/json'})
@@ -335,7 +335,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             with patch('builtins.print'):
                 await module.process({'data': 'test'}, {})
@@ -374,7 +374,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             payload = {
                 'event_id': 123,
@@ -418,7 +418,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             payload = {'event_id': 123}  # Missing event_type
             
@@ -461,7 +461,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             payload = {
                 'event_id': 123,
@@ -507,7 +507,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             payload = {'event_id': 123, 'other_data': 'test'}
             
@@ -549,7 +549,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             payload = {'event_id': 123}
             
@@ -575,7 +575,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             with pytest.raises(ValueError, match="requires schema definition"):
                 await module.process({'data': 'test'}, {})
@@ -603,7 +603,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = None
+            module.pool = None
             module.connection_details = {'host': 'localhost', 'port': 3306}
             
             with patch.object(module, 'setup', return_value=None) as mock_setup, \
@@ -639,7 +639,7 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             with patch('builtins.print'):
                 with pytest.raises(Exception):
@@ -670,7 +670,7 @@ class TestMySQLModuleCreateTable:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             await module._create_table_if_not_exists()
             
@@ -708,7 +708,7 @@ class TestMySQLModuleCreateTable:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             await module._create_table_if_not_exists()
             
@@ -744,7 +744,7 @@ class TestMySQLModuleCreateTable:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             await module._create_table_if_not_exists()
             
@@ -773,7 +773,7 @@ class TestMySQLModuleCreateTable:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             # Should not raise exception (table might already exist)
             await module._create_table_if_not_exists()
@@ -809,7 +809,7 @@ class TestMySQLModuleCreateIndex:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             await module._create_index_if_not_exists('idx_webhook_id', ['webhook_id'])
             
@@ -836,7 +836,7 @@ class TestMySQLModuleCreateIndex:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             # Should not raise exception (index might already exist)
             await module._create_index_if_not_exists('idx_test', ['test_column'])
@@ -859,7 +859,7 @@ class TestMySQLModuleTeardown:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             await module.teardown()
             
@@ -876,7 +876,7 @@ class TestMySQLModuleTeardown:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = None
+            module.pool = None
             
             # Should not raise exception
             await module.teardown()
@@ -895,7 +895,7 @@ class TestMySQLModuleTeardown:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
-        module.pool = mock_pool
+            module.pool = mock_pool
             
             # Should not raise exception
             await module.teardown()

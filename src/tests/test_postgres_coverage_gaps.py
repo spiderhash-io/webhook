@@ -160,14 +160,14 @@ class TestPostgreSQLModuleSetup:
 
         module = PostgreSQLModule(config)
         module.connection_details = {
-                'connection_string': 'postgresql://user:pass@example.com:5432/db'
-            }
+            'connection_string': 'postgresql://user:pass@example.com:5432/db'
+        }
 
-            with patch('asyncpg.create_pool', return_value=mock_pool), \
-                 patch.object(module, '_ensure_table', return_value=None):
-                await module.setup()
+        with patch('asyncpg.create_pool', return_value=mock_pool), \
+             patch.object(module, '_ensure_table', return_value=None):
+            await module.setup()
 
-                assert module.pool is not None
+            assert module.pool is not None
 
     @pytest.mark.asyncio
     async def test_setup_with_individual_params(self):
@@ -187,18 +187,18 @@ class TestPostgreSQLModuleSetup:
 
         module = PostgreSQLModule(config)
         module.connection_details = {
-                'host': 'example.com',
-                'port': 5432,
-                'database': 'testdb',
-                'user': 'testuser',
-                'password': 'testpass'
-            }
+            'host': 'example.com',
+            'port': 5432,
+            'database': 'testdb',
+            'user': 'testuser',
+            'password': 'testpass'
+        }
 
-            with patch('asyncpg.create_pool', return_value=mock_pool), \
-                 patch.object(module, '_ensure_table', return_value=None):
-                await module.setup()
+        with patch('asyncpg.create_pool', return_value=mock_pool), \
+             patch.object(module, '_ensure_table', return_value=None):
+            await module.setup()
 
-                assert module.pool is not None
+            assert module.pool is not None
 
     @pytest.mark.asyncio
     async def test_setup_with_ssl(self):
@@ -218,7 +218,7 @@ class TestPostgreSQLModuleSetup:
 
         module = PostgreSQLModule(config)
         module.connection_details = {
-                'host': 'example.com',
+            'host': 'example.com',
                 'port': 5432,
                 'database': 'testdb',
                 'user': 'testuser',
@@ -229,7 +229,7 @@ class TestPostgreSQLModuleSetup:
                 'ssl_key': '/path/to/key.key'
             }
 
-            with patch('asyncpg.create_pool', return_value=mock_pool), \
+        with patch('asyncpg.create_pool', return_value=mock_pool), \
                  patch.object(module, '_ensure_table', return_value=None):
                 await module.setup()
 
@@ -245,11 +245,11 @@ class TestPostgreSQLModuleSetup:
 
         module = PostgreSQLModule(config)
         module.connection_details = {
-                'connection_string': 'invalid://connection'
-            }
+            'connection_string': 'invalid://connection'
+        }
 
-            with pytest.raises(ValueError, match="Invalid connection string format"):
-                await module.setup()
+        with pytest.raises(ValueError, match="Invalid connection string format"):
+            await module.setup()
 
     @pytest.mark.asyncio
     async def test_setup_invalid_hostname(self):
@@ -261,11 +261,11 @@ class TestPostgreSQLModuleSetup:
 
         module = PostgreSQLModule(config)
         module.connection_details = {
-                'host': 'localhost'  # Should be blocked
+            'host': 'localhost'  # Should be blocked
             }
 
-            with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
-                await module.setup()
+        with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
+            await module.setup()
 
     @pytest.mark.asyncio
     async def test_setup_no_connection_details(self):
@@ -278,8 +278,8 @@ class TestPostgreSQLModuleSetup:
         module = PostgreSQLModule(config)
         module.connection_details = None
 
-            with pytest.raises(Exception, match="connection details not found"):
-                await module.setup()
+        with pytest.raises(Exception, match="connection details not found"):
+            await module.setup()
 
     @pytest.mark.asyncio
     async def test_setup_exception(self):
@@ -291,11 +291,11 @@ class TestPostgreSQLModuleSetup:
 
         module = PostgreSQLModule(config)
         module.connection_details = {
-                'host': 'example.com',
+            'host': 'example.com',
                 'port': 5432
             }
 
-            with patch('asyncpg.create_pool', side_effect=Exception("Connection failed")):
+        with patch('asyncpg.create_pool', side_effect=Exception("Connection failed")):
                 with pytest.raises(Exception):
                     await module.setup()
 
@@ -323,10 +323,10 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            with patch('builtins.print'):
-                await module.process({'data': 'test'}, {'Content-Type': 'application/json'})
+        with patch('builtins.print'):
+            await module.process({'data': 'test'}, {'Content-Type': 'application/json'})
 
-                mock_conn.execute.assert_called_once()
+            mock_conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_json_mode_with_upsert(self):
@@ -354,10 +354,10 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            with patch('builtins.print'):
-                await module.process({'data': 'test'}, {})
+        with patch('builtins.print'):
+            await module.process({'data': 'test'}, {})
 
-                mock_conn.execute.assert_called_once()
+            mock_conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_relational_mode(self):
@@ -389,13 +389,14 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            payload = {
-                'event_id': 123,
-                'event_type': 'test_event'
-            }
+        module.pool = mock_pool
+        payload = {
+            'event_id': 123,
+            'event_type': 'test_event'
+        }
 
-            with patch('builtins.print'):
-                await module.process(payload, {})
+        with patch('builtins.print'):
+            await module.process(payload, {})
 
                 mock_conn.execute.assert_called_once()
 
@@ -429,10 +430,10 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            payload = {'event_id': 123}  # Missing event_type
+        module.pool = mock_pool
 
-            with patch('builtins.print'):
-                await module.process(payload, {})
+        with patch('builtins.print'):
+            await module.process(payload, {})
 
                 mock_conn.execute.assert_called_once()
 
@@ -468,13 +469,14 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            payload = {
-                'event_id': 123,
-                'event_type': 'test_event'
-            }
+        module.pool = mock_pool
+        payload = {
+            'event_id': 123,
+            'event_type': 'test_event'
+        }
 
-            with patch('builtins.print'):
-                await module.process(payload, {})
+        with patch('builtins.print'):
+            await module.process(payload, {})
 
                 mock_conn.execute.assert_called_once()
                 # Should have ON CONFLICT clause
@@ -510,10 +512,10 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            payload = {'event_id': 123, 'other_data': 'test'}
+        module.pool = mock_pool
 
-            with patch('builtins.print'):
-                await module.process(payload, {})
+        with patch('builtins.print'):
+            await module.process(payload, {})
 
                 mock_conn.execute.assert_called_once()
 
@@ -548,10 +550,10 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            payload = {'event_id': 123}
+        module.pool = mock_pool
 
-            with patch('builtins.print'):
-                await module.process(payload, {})
+        with patch('builtins.print'):
+            await module.process(payload, {})
 
                 mock_conn.execute.assert_called_once()
 
@@ -573,7 +575,7 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            with pytest.raises(ValueError, match="requires schema definition"):
+        module.pool = mock_pool
                 await module.process({'data': 'test'}, {})
 
     @pytest.mark.asyncio
@@ -596,15 +598,14 @@ class TestPostgreSQLModuleProcess:
 
         module = PostgreSQLModule(config)
         module.pool = None
-            module.connection_details = {'host': 'example.com', 'port': 5432}
 
-            with patch.object(module, 'setup', return_value=None) as mock_setup, \
+        with patch.object(module, 'setup', return_value=None) as mock_setup, \
                  patch('asyncpg.create_pool', return_value=mock_pool), \
                  patch.object(module, '_ensure_table', return_value=None), \
                  patch('builtins.print'):
 
                 module.pool = mock_pool
-                await module.process({'data': 'test'}, {})
+            await module.process({'data': 'test'}, {})
 
                 mock_conn.execute.assert_called_once()
 
@@ -628,7 +629,7 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            with patch('builtins.print'):
+        module.pool = mock_pool
                 with pytest.raises(Exception):
                     await module.process({'data': 'test'}, {})
 
@@ -655,7 +656,6 @@ class TestPostgreSQLModuleEnsureTable:
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
-            module._table_created = False
 
             await module._ensure_table()
 
@@ -691,7 +691,6 @@ class TestPostgreSQLModuleEnsureTable:
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
-            module._table_created = False
 
             await module._ensure_table()
 
@@ -714,10 +713,9 @@ class TestPostgreSQLModuleEnsureTable:
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
-            module._table_created = False
 
-            with pytest.raises(ValueError, match="requires schema definition"):
-                await module._ensure_table()
+        with pytest.raises(ValueError, match="requires schema definition"):
+            await module._ensure_table()
 
     @pytest.mark.asyncio
     async def test_ensure_table_hybrid_mode(self):
@@ -746,7 +744,6 @@ class TestPostgreSQLModuleEnsureTable:
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
-            module._table_created = False
 
             await module._ensure_table()
 
@@ -781,7 +778,6 @@ class TestPostgreSQLModuleEnsureTable:
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
-            module._table_created = False
 
             await module._ensure_table()
 
@@ -812,7 +808,6 @@ class TestPostgreSQLModuleEnsureTable:
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
-            module._table_created = False
 
             await module._ensure_table()
 
@@ -836,7 +831,6 @@ class TestPostgreSQLModuleEnsureTable:
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
-            module._table_created = True
 
             await module._ensure_table()
 
@@ -862,7 +856,6 @@ class TestPostgreSQLModuleEnsureTable:
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
-            module._table_created = False
 
             # Should not raise exception (table might already exist)
             await module._ensure_table()
@@ -885,7 +878,7 @@ class TestPostgreSQLModuleTeardown:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            await module.teardown()
+        module.pool = mock_pool
 
             mock_pool.close.assert_called_once()
 
@@ -900,7 +893,7 @@ class TestPostgreSQLModuleTeardown:
         module = PostgreSQLModule(config)
         module.pool = None
 
-            # Should not raise exception
+        module.pool = None
             await module.teardown()
 
     @pytest.mark.asyncio
@@ -917,7 +910,7 @@ class TestPostgreSQLModuleTeardown:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            # Should not raise exception
+        module.pool = mock_pool
             await module.teardown()
 
 
