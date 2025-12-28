@@ -887,7 +887,8 @@ class TestPostgreSQLModuleTeardown:
         module = PostgreSQLModule(config)
         module.pool = None
 
-            await module.teardown()
+        # Should not raise exception
+        await module.teardown()
 
     @pytest.mark.asyncio
     async def test_teardown_exception(self):
