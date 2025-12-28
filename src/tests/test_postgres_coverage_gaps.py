@@ -803,9 +803,9 @@ class TestPostgreSQLModuleEnsureTable:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            await module._ensure_table()
+        await module._ensure_table()
 
-            # Should have CREATE TABLE and CREATE INDEX (GIN) calls
+        # Should have CREATE TABLE and CREATE INDEX (GIN) calls
         assert mock_conn.execute.call_count >= 2
             # Check for GIN index
             gin_index_found = any(
