@@ -600,14 +600,14 @@ class TestPostgreSQLModuleProcess:
         module.pool = None
 
         with patch.object(module, 'setup', return_value=None) as mock_setup, \
-                 patch('asyncpg.create_pool', return_value=mock_pool), \
-                 patch.object(module, '_ensure_table', return_value=None), \
-                 patch('builtins.print'):
+             patch('asyncpg.create_pool', return_value=mock_pool), \
+             patch.object(module, '_ensure_table', return_value=None), \
+             patch('builtins.print'):
 
-                module.pool = mock_pool
+            module.pool = mock_pool
             await module.process({'data': 'test'}, {})
 
-                mock_conn.execute.assert_called_once()
+            mock_conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_exception(self):
