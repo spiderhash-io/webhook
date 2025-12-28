@@ -297,7 +297,7 @@ class TestPostgreSQLModuleSetup:
 
         with patch('asyncpg.create_pool', side_effect=Exception("Connection failed")):
             with pytest.raises(Exception):
-            await module.setup()
+                await module.setup()
 
 
 class TestPostgreSQLModuleProcess:
@@ -826,9 +826,9 @@ class TestPostgreSQLModuleEnsureTable:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            await module._ensure_table()
+        await module._ensure_table()
 
-            # Should not call execute
+        # Should not call execute
             mock_pool.acquire.assert_not_called()
 
     @pytest.mark.asyncio
