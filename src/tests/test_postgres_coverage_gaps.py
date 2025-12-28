@@ -297,7 +297,7 @@ class TestPostgreSQLModuleSetup:
 
         with patch('asyncpg.create_pool', side_effect=Exception("Connection failed")):
             with pytest.raises(Exception):
-                await module.setup()
+            await module.setup()
 
 
 class TestPostgreSQLModuleProcess:
@@ -389,7 +389,6 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-        module.pool = mock_pool
         payload = {
             'event_id': 123,
             'event_type': 'test_event'
@@ -430,7 +429,6 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-        module.pool = mock_pool
 
         with patch('builtins.print'):
             await module.process(payload, {})
@@ -469,7 +467,6 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-        module.pool = mock_pool
         payload = {
             'event_id': 123,
             'event_type': 'test_event'
@@ -512,7 +509,6 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-        module.pool = mock_pool
 
         with patch('builtins.print'):
             await module.process(payload, {})
@@ -550,7 +546,6 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-        module.pool = mock_pool
 
         with patch('builtins.print'):
             await module.process(payload, {})
@@ -877,7 +872,6 @@ class TestPostgreSQLModuleTeardown:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-        module.pool = mock_pool
 
             mock_pool.close.assert_called_once()
 
@@ -892,7 +886,6 @@ class TestPostgreSQLModuleTeardown:
         module = PostgreSQLModule(config)
         module.pool = None
 
-        module.pool = None
             await module.teardown()
 
     @pytest.mark.asyncio
@@ -909,7 +902,6 @@ class TestPostgreSQLModuleTeardown:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-        module.pool = mock_pool
             await module.teardown()
 
 
