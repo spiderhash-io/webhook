@@ -398,7 +398,7 @@ class TestPostgreSQLModuleProcess:
         with patch('builtins.print'):
             await module.process(payload, {})
 
-                mock_conn.execute.assert_called_once()
+            mock_conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_relational_mode_with_default(self):
@@ -435,7 +435,7 @@ class TestPostgreSQLModuleProcess:
         with patch('builtins.print'):
             await module.process(payload, {})
 
-                mock_conn.execute.assert_called_once()
+            mock_conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_relational_mode_with_upsert(self):
@@ -478,7 +478,7 @@ class TestPostgreSQLModuleProcess:
         with patch('builtins.print'):
             await module.process(payload, {})
 
-                mock_conn.execute.assert_called_once()
+            mock_conn.execute.assert_called_once()
                 # Should have ON CONFLICT clause
                 call_args = mock_conn.execute.call_args[0][0]
                 assert 'ON CONFLICT' in call_args
@@ -517,7 +517,7 @@ class TestPostgreSQLModuleProcess:
         with patch('builtins.print'):
             await module.process(payload, {})
 
-                mock_conn.execute.assert_called_once()
+            mock_conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_hybrid_mode_with_upsert(self):
@@ -555,7 +555,7 @@ class TestPostgreSQLModuleProcess:
         with patch('builtins.print'):
             await module.process(payload, {})
 
-                mock_conn.execute.assert_called_once()
+            mock_conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_process_relational_mode_missing_schema(self):
