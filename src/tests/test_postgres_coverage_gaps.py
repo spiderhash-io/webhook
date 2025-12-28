@@ -629,8 +629,7 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-        module.pool = mock_pool
-                with pytest.raises(Exception):
+        with pytest.raises(Exception):
             await module.process({'data': 'test'}, {})
 
 
