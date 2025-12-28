@@ -807,10 +807,10 @@ class TestPostgreSQLModuleEnsureTable:
 
         # Should have CREATE TABLE and CREATE INDEX (GIN) calls
         assert mock_conn.execute.call_count >= 2
-            # Check for GIN index
-            gin_index_found = any(
-                'GIN' in str(call[0][0]) for call in mock_conn.execute.call_args_list
-            )
+        # Check for GIN index
+        gin_index_found = any(
+            'GIN' in str(call[0][0]) for call in mock_conn.execute.call_args_list
+        )
         assert gin_index_found
 
     @pytest.mark.asyncio
