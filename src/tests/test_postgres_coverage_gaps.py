@@ -297,8 +297,7 @@ class TestPostgreSQLModuleSetup:
 
         with patch('asyncpg.create_pool', side_effect=Exception("Connection failed")):
             with pytest.raises(Exception):
-            await module.setup()
-            await module.setup()
+                await module.setup()
 
 
 class TestPostgreSQLModuleProcess:
@@ -652,9 +651,9 @@ class TestPostgreSQLModuleEnsureTable:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            await module._ensure_table()
+        await module._ensure_table()
 
-            mock_conn.execute.assert_called()
+        mock_conn.execute.assert_called()
         assert 'CREATE TABLE' in mock_conn.execute.call_args_list[0][0][0]
         assert 'JSONB' in mock_conn.execute.call_args_list[0][0][0]
 
@@ -687,9 +686,9 @@ class TestPostgreSQLModuleEnsureTable:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            await module._ensure_table()
+        await module._ensure_table()
 
-            mock_conn.execute.assert_called()
+        mock_conn.execute.assert_called()
         assert 'CREATE TABLE' in mock_conn.execute.call_args_list[0][0][0]
 
     @pytest.mark.asyncio
@@ -740,9 +739,9 @@ class TestPostgreSQLModuleEnsureTable:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            await module._ensure_table()
+        await module._ensure_table()
 
-            mock_conn.execute.assert_called()
+        mock_conn.execute.assert_called()
         assert 'CREATE TABLE' in mock_conn.execute.call_args_list[0][0][0]
         assert 'JSONB' in mock_conn.execute.call_args_list[0][0][0]  # Should have JSONB column
 
