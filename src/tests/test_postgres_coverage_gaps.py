@@ -773,9 +773,9 @@ class TestPostgreSQLModuleEnsureTable:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            await module._ensure_table()
+        await module._ensure_table()
 
-            # Should have CREATE TABLE and CREATE INDEX calls
+        # Should have CREATE TABLE and CREATE INDEX calls
         assert mock_conn.execute.call_count >= 2
 
     @pytest.mark.asyncio
