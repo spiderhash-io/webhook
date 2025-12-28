@@ -904,7 +904,8 @@ class TestPostgreSQLModuleTeardown:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-            await module.teardown()
+        # Should not raise exception
+        await module.teardown()
 
 
 class TestPostgreSQLModuleHelperMethods:
