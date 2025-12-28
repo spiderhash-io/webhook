@@ -230,10 +230,10 @@ class TestPostgreSQLModuleSetup:
             }
 
         with patch('asyncpg.create_pool', return_value=mock_pool), \
-                 patch.object(module, '_ensure_table', return_value=None):
-                await module.setup()
+             patch.object(module, '_ensure_table', return_value=None):
+            await module.setup()
 
-                assert module.pool is not None
+            assert module.pool is not None
 
     @pytest.mark.asyncio
     async def test_setup_invalid_connection_string(self):
@@ -297,7 +297,7 @@ class TestPostgreSQLModuleSetup:
 
         with patch('asyncpg.create_pool', side_effect=Exception("Connection failed")):
             with pytest.raises(Exception):
-            await module.setup()
+                await module.setup()
 
 
 class TestPostgreSQLModuleProcess:
