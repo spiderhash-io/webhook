@@ -296,8 +296,8 @@ class TestPostgreSQLModuleSetup:
             }
 
         with patch('asyncpg.create_pool', side_effect=Exception("Connection failed")):
-                with pytest.raises(Exception):
-            await module.setup()
+            with pytest.raises(Exception):
+                await module.setup()
 
 
 class TestPostgreSQLModuleProcess:
