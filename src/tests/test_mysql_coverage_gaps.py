@@ -204,10 +204,14 @@ class TestMySQLModuleSetup:
         mock_registry = Mock()
         mock_registry.get_pool = AsyncMock(return_value=mock_pool)
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config, pool_registry=mock_registry)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.connection_details = {
                 'host': 'localhost',
                 'port': 3306,
@@ -240,10 +244,14 @@ class TestMySQLModuleSetup:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.connection_details = {
                 'host': 'localhost',
                 'port': 3306,
@@ -266,10 +274,14 @@ class TestMySQLModuleSetup:
             'module-config': {'table': 'webhook_events'}
         }
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.connection_details = {
                 'host': 'localhost',
                 'port': 3306
@@ -303,10 +315,14 @@ class TestMySQLModuleProcess:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             with patch('builtins.print'):
@@ -340,10 +356,14 @@ class TestMySQLModuleProcess:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             with patch('builtins.print'):
@@ -381,10 +401,14 @@ class TestMySQLModuleProcess:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {
@@ -427,10 +451,14 @@ class TestMySQLModuleProcess:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {'event_id': 123}  # Missing event_type
@@ -472,10 +500,14 @@ class TestMySQLModuleProcess:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {
@@ -520,10 +552,14 @@ class TestMySQLModuleProcess:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {'event_id': 123, 'other_data': 'test'}
@@ -564,10 +600,14 @@ class TestMySQLModuleProcess:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {'event_id': 123}
@@ -592,10 +632,14 @@ class TestMySQLModuleProcess:
         
         mock_pool = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             with pytest.raises(ValueError, match="requires schema definition"):
@@ -660,10 +704,14 @@ class TestMySQLModuleProcess:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             with patch('builtins.print'):
@@ -693,10 +741,14 @@ class TestMySQLModuleCreateTable:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             await module._create_table_if_not_exists()
@@ -733,10 +785,14 @@ class TestMySQLModuleCreateTable:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             await module._create_table_if_not_exists()
@@ -771,10 +827,14 @@ class TestMySQLModuleCreateTable:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             await module._create_table_if_not_exists()
@@ -802,10 +862,14 @@ class TestMySQLModuleCreateTable:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             # Should not raise exception (table might already exist)
@@ -840,10 +904,14 @@ class TestMySQLModuleCreateIndex:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             await module._create_index_if_not_exists('idx_webhook_id', ['webhook_id'])
@@ -869,10 +937,14 @@ class TestMySQLModuleCreateIndex:
         mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_pool.acquire.return_value.__aexit__ = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             # Should not raise exception (index might already exist)
@@ -894,10 +966,14 @@ class TestMySQLModuleTeardown:
         mock_pool.close = Mock()
         mock_pool.wait_closed = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             await module.teardown()
@@ -934,10 +1010,14 @@ class TestMySQLModuleTeardown:
         mock_pool.close = Mock(side_effect=Exception("Close failed"))
         mock_pool.wait_closed = AsyncMock()
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
-            module.config = config
-            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             # Should not raise exception

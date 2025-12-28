@@ -67,6 +67,7 @@ class TestClickHouseAnalyticsConnect:
         mock_client.execute = Mock()
         
         with patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
+             patch('clickhouse_driver.Client', return_value=mock_client), \
              patch('asyncio.get_running_loop') as mock_loop, \
              patch('asyncio.create_task') as mock_create_task, \
              patch('builtins.print'):
@@ -106,6 +107,7 @@ class TestClickHouseAnalyticsConnect:
         mock_client.execute = Mock()
         
         with patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
+             patch('clickhouse_driver.Client', return_value=mock_client), \
              patch('asyncio.get_running_loop') as mock_loop, \
              patch('asyncio.create_task') as mock_create_task, \
              patch('builtins.print'):
@@ -143,6 +145,7 @@ class TestClickHouseAnalyticsConnect:
         mock_client.execute = Mock()
         
         with patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
+             patch('clickhouse_driver.Client', return_value=mock_client), \
              patch('asyncio.get_running_loop') as mock_loop, \
              patch('asyncio.create_task') as mock_create_task, \
              patch('builtins.print'):

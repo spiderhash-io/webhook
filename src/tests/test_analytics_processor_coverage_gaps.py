@@ -64,7 +64,8 @@ class TestAnalyticsProcessorConnect:
         
         with patch('src.analytics_processor._validate_connection_host', return_value='localhost'), \
              patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
-             patch('asyncio.get_running_loop') as mock_loop:
+             patch('asyncio.get_running_loop') as mock_loop, \
+             patch('clickhouse_driver.Client', return_value=mock_client):
             
             async def run_executor_mock(executor, func):
                 if callable(func):
@@ -100,7 +101,8 @@ class TestAnalyticsProcessorConnect:
         
         with patch('src.analytics_processor._validate_connection_host', return_value='localhost'), \
              patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
-             patch('asyncio.get_running_loop') as mock_loop:
+             patch('asyncio.get_running_loop') as mock_loop, \
+             patch('clickhouse_driver.Client', return_value=mock_client):
             
             async def run_executor_mock(executor, func):
                 if callable(func):
@@ -134,7 +136,8 @@ class TestAnalyticsProcessorConnect:
         
         with patch('src.analytics_processor._validate_connection_host', return_value='localhost'), \
              patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
-             patch('asyncio.get_running_loop') as mock_loop:
+             patch('asyncio.get_running_loop') as mock_loop, \
+             patch('clickhouse_driver.Client', return_value=mock_client):
             
             async def run_executor_mock(executor, func):
                 if callable(func):
