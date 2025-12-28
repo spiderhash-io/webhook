@@ -1,0 +1,68 @@
+# Installation
+
+## Local Development (venv)
+
+1. Create a virtual environment (recommended):
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+2. Install development dependencies (includes production deps + testing tools):
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+3. Run the server:
+   ```bash
+   uvicorn src.main:app --reload
+   ```
+
+4. Run the tests:
+   ```bash
+   make test        # or: pytest -v
+   ```
+
+## Production Installation
+
+For production deployments, install only production dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+## Docker (Single Instance)
+
+Use the optimized smaller image (multi-stage build for minimal size) to run a single FastAPI instance in Docker:
+
+```bash
+# Build image using smallest Dockerfile
+docker build -f Dockerfile.smaller -t core-webhook-module:latest .
+
+# Run container (mount configs from host)
+docker run --rm \
+  -p 8000:8000 \
+  -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
+  -v "$(pwd)/connections.json:/app/connections.json:ro" \
+  --env-file .env \
+  core-webhook-module:latest
+```
+
+## Docker (Multi-Instance with Redis & ClickHouse)
+
+For performance testing and a full deployment with multiple webhook instances:
+
+```bash
+# Start all services (5 webhook instances + ClickHouse + Redis + RabbitMQ + Analytics)
+docker compose up -d
+
+# Run performance tests
+./src/tests/run_performance_test.sh
+```
+
+## Access the API
+
+Once running, access:
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
+- **OpenAPI JSON**: `http://localhost:8000/openapi.json`
+

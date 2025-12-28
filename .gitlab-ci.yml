@@ -74,3 +74,30 @@ docker-build:
     - docker
   dependencies:
     - unit-tests
+
+# Docusaurus documentation Docker build job - builds and pushes docs image
+docusaurus-build:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - echo "Building Docusaurus documentation Docker image..."
+    - |
+      docker build \
+        -f docusaurus/Dockerfile \
+        -t $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_REF_SLUG \
+        -t $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_SHORT_SHA \
+        -t $CI_REGISTRY_IMAGE-docs:latest \
+        docusaurus/
+    - echo "Pushing Docusaurus Docker image to registry..."
+    - docker push $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_REF_SLUG
+    - docker push $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE-docs:latest
+  only:
+    - branches
+    - merge_requests
+  tags:
+    - docker
