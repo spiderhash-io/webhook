@@ -829,7 +829,7 @@ class TestPostgreSQLModuleEnsureTable:
         await module._ensure_table()
 
         # Should not call execute
-            mock_pool.acquire.assert_not_called()
+        mock_pool.acquire.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_ensure_table_exception(self):
