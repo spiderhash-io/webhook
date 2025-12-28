@@ -478,10 +478,10 @@ class TestPostgreSQLModuleProcess:
         with patch('builtins.print'):
             await module.process(payload, {})
 
-            mock_conn.execute.assert_called_once()
+                mock_conn.execute.assert_called_once()
                 # Should have ON CONFLICT clause
-                call_args = mock_conn.execute.call_args[0][0]
-                assert 'ON CONFLICT' in call_args
+            call_args = mock_conn.execute.call_args[0][0]
+            assert 'ON CONFLICT' in call_args
 
     @pytest.mark.asyncio
     async def test_process_hybrid_mode(self):
