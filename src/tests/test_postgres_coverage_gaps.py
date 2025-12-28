@@ -575,8 +575,8 @@ class TestPostgreSQLModuleProcess:
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
-        module.pool = mock_pool
-                await module.process({'data': 'test'}, {})
+        with patch('builtins.print'):
+            await module.process({'data': 'test'}, {})
 
     @pytest.mark.asyncio
     async def test_process_auto_setup(self):
