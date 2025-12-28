@@ -50,8 +50,10 @@ def sanitize_error_message(error: Any, context: str = None) -> str:
     ]
     for sensitive_str in sensitive_strings:
         if sensitive_str in error_lower:
+            # SECURITY: Sanitize context if it contains sensitive patterns
             if context:
-                return f"Processing error occurred in {context}"
+                sanitized_context = _sanitize_context(context)
+                return f"Processing error occurred in {sanitized_context}"
             return "An error occurred while processing the request"
     
     # Check for common sensitive patterns (regex)
@@ -69,15 +71,66 @@ def sanitize_error_message(error: Any, context: str = None) -> str:
     # If error contains sensitive patterns, return generic message
     for pattern, pattern_type in sensitive_patterns:
         if re.search(pattern, error_str, re.IGNORECASE):
+            # SECURITY: Sanitize context if it contains sensitive patterns
             if context:
-                return f"Processing error occurred in {context}"
+                sanitized_context = _sanitize_context(context)
+                return f"Processing error occurred in {sanitized_context}"
             return "An error occurred while processing the request"
     
     # For generic errors, return a safe message
     # Don't expose the actual error text
+    # SECURITY: Sanitize context to prevent information disclosure
     if context:
-        return f"Processing error occurred in {context}"
+        sanitized_context = _sanitize_context(context)
+        return f"Processing error occurred in {sanitized_context}"
     return "An error occurred while processing the request"
+
+
+def _sanitize_context(context: str) -> str:
+    """
+    Sanitize context string to prevent information disclosure.
+    
+    This function checks if context contains sensitive patterns (URLs, file paths, etc.)
+    and returns a generic context if sensitive patterns are found.
+    
+    Args:
+        context: The context string to sanitize
+        
+    Returns:
+        Sanitized context string (original if no sensitive patterns found)
+    """
+    if not context or not isinstance(context, str):
+        return "processing"
+    
+    context_lower = context.lower()
+    
+    # Check for sensitive strings
+    sensitive_strings = [
+        'postgresql://', 'mysql://', 'redis://', 'mongodb://',
+        'secret', 'password', '/etc/', 'c:\\', 'traceback', 'stack_trace',
+        'connection_string', 'connection string', 'localhost:', '127.0.0.1',
+        '192.168.', '10.', '172.'
+    ]
+    for sensitive_str in sensitive_strings:
+        if sensitive_str in context_lower:
+            return "processing"  # Return generic context
+    
+    # Check for sensitive patterns (regex)
+    sensitive_patterns = [
+        (r'http[s]?://[^\s]+', 'URL'),
+        (r'file://[^\s]+', 'file path'),
+        (r'/[^\s]+', 'file path'),
+        (r'[a-zA-Z0-9_\-]+://[^\s]+', 'URL'),
+        (r'localhost:\d+', 'service address'),
+        (r'\d+\.\d+\.\d+\.\d+:\d+', 'service address'),
+    ]
+    
+    for pattern, pattern_type in sensitive_patterns:
+        if re.search(pattern, context, re.IGNORECASE):
+            return "processing"  # Return generic context
+    
+    # Context is safe, return as-is
+    return context
 
 
 def detect_encoding_from_content_type(content_type: Optional[str]) -> Optional[str]:

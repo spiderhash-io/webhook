@@ -194,11 +194,16 @@ class TestSanitizeErrorMessageContextInjection:
             error = Exception("Some error")
             sanitized = sanitize_error_message(error, malicious_context)
             
-            # Context is used as-is in response, but should not expose sensitive info
-            # Context is trusted input (from code, not user input)
-            # But we should verify it doesn't leak
-            assert "localhost" not in sanitized.lower() or malicious_context == "http://localhost:6379"
-            assert "6379" not in sanitized or malicious_context == "http://localhost:6379"
+            # SECURITY: Context should be sanitized if it contains sensitive patterns
+            # Context is trusted input (from code, not user input), but we sanitize for defense in depth
+            assert "localhost" not in sanitized.lower()
+            assert "6379" not in sanitized
+            assert "etc" not in sanitized.lower() or "processing" in sanitized.lower()
+            assert "passwd" not in sanitized.lower()
+            assert "192.168" not in sanitized
+            assert "8080" not in sanitized
+            # Should return generic context "processing" for sensitive contexts
+            assert "processing" in sanitized.lower()
     
     def test_context_injection_xss(self):
         """Test that context doesn't allow XSS."""
