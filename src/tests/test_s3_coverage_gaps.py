@@ -25,6 +25,8 @@ class TestS3ModuleInit:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             assert module.s3_client is None
             assert module._validated_prefix == 'webhooks'
             assert module._validated_filename_pattern == 'webhook_{uuid}.json'
@@ -42,6 +44,8 @@ class TestS3ModuleInit:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             assert module._validated_prefix == 'custom/prefix'
     
     def test_init_with_custom_filename_pattern(self):
@@ -57,6 +61,8 @@ class TestS3ModuleInit:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             assert '{timestamp}' in module._validated_filename_pattern
             assert '{uuid}' in module._validated_filename_pattern
     
@@ -107,6 +113,8 @@ class TestS3ModuleSetup:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.connection_details = {
                 'aws_access_key_id': 'test-key',
                 'aws_secret_access_key': 'test-secret',
@@ -140,6 +148,8 @@ class TestS3ModuleSetup:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.connection_details = {
                 'region': 'us-west-2'
             }
@@ -166,6 +176,8 @@ class TestS3ModuleSetup:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.connection_details = {}
             
             with patch('boto3.client') as mock_boto3:
@@ -190,6 +202,8 @@ class TestS3ModuleSetup:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.connection_details = {}
             
             with patch('boto3.client', side_effect=Exception("Boto3 error")):
@@ -213,6 +227,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             module.s3_client.put_object = Mock()
             
@@ -241,6 +257,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             module.s3_client.put_object = Mock()
             
@@ -265,6 +283,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             module.s3_client.put_object = Mock()
             
@@ -290,6 +310,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             module.s3_client.put_object = Mock()
             
@@ -316,6 +338,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             module.s3_client.put_object = Mock()
             
@@ -347,6 +371,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             module.s3_client.put_object = Mock()
             
@@ -374,6 +400,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = None
             module.connection_details = {}
             
@@ -402,6 +430,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             
             with pytest.raises(Exception, match="S3 bucket not specified"):
@@ -420,6 +450,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             
             error_response = {
@@ -448,6 +480,8 @@ class TestS3ModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             module.s3_client.put_object = Mock(side_effect=Exception("Generic error"))
             
@@ -469,6 +503,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             result = module._validate_s3_path_component('valid/path', 'prefix')
             assert result == 'valid/path'
     
@@ -482,6 +518,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             with pytest.raises(ValueError, match="cannot be empty"):
                 module._validate_s3_path_component('', 'prefix')
     
@@ -495,6 +533,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             with pytest.raises(ValueError, match="path traversal"):
                 module._validate_s3_path_component('../invalid', 'prefix')
     
@@ -508,6 +548,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             long_path = 'a' * 300
             with pytest.raises(ValueError, match="too long"):
                 module._validate_s3_path_component(long_path, 'prefix')
@@ -522,6 +564,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             with pytest.raises(ValueError, match="dangerous pattern"):
                 module._validate_s3_path_component('path;with;semicolon', 'prefix')
     
@@ -535,6 +579,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             result = module._validate_filename_pattern('webhook_{uuid}.json')
             assert result == 'webhook_{uuid}.json'
     
@@ -548,6 +594,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             result = module._validate_filename_pattern('webhook_{timestamp}_{uuid}.json')
             assert '{timestamp}' in result
             assert '{uuid}' in result
@@ -562,6 +610,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             result = module._validate_object_key('valid/key/path.json')
             assert result == 'valid/key/path.json'
     
@@ -575,6 +625,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             long_key = 'a' * 2000  # More than 1024 bytes
             with pytest.raises(ValueError, match="too long"):
                 module._validate_object_key(long_key)
@@ -589,6 +641,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             with pytest.raises(ValueError, match="path traversal"):
                 module._validate_object_key('../invalid/key')
     
@@ -602,6 +656,8 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             with pytest.raises(ValueError, match="cannot start with"):
                 module._validate_object_key('/absolute/path')
 
@@ -620,6 +676,8 @@ class TestS3ModuleTeardown:
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = S3Module(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.s3_client = Mock()
             
             # teardown is inherited from BaseModule, but we can test it exists

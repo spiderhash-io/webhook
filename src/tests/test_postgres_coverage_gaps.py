@@ -99,7 +99,7 @@ class TestPostgreSQLModuleValidation:
         """Test _validate_table_name with empty name."""
         config = {'connection_details': {}, 'module-config': {'table': 'webhook_events'}}
         module = PostgreSQLModule(config)
-        with pytest.raises(ValueError, match="cannot be empty"):
+        with pytest.raises(ValueError, match="must be a non-empty string"):
             module._validate_table_name('')
 
     def test_validate_table_name_too_long(self):
@@ -121,7 +121,7 @@ class TestPostgreSQLModuleValidation:
         """Test _validate_table_name with dangerous pattern."""
         config = {'connection_details': {}, 'module-config': {'table': 'webhook_events'}}
         module = PostgreSQLModule(config)
-        with pytest.raises(ValueError, match="dangerous pattern"):
+        with pytest.raises(ValueError, match="Invalid table name format"):
             module._validate_table_name('table;--')
 
     def test_validate_column_name_valid(self):
@@ -315,10 +315,10 @@ class TestPostgreSQLModuleProcess:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
@@ -346,10 +346,10 @@ class TestPostgreSQLModuleProcess:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
@@ -381,10 +381,10 @@ class TestPostgreSQLModuleProcess:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
@@ -421,14 +421,15 @@ class TestPostgreSQLModuleProcess:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
+        payload = {'event_id': 123, 'event_type': 'test'}
 
         with patch('builtins.print'):
             await module.process(payload, {})
@@ -459,10 +460,10 @@ class TestPostgreSQLModuleProcess:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
@@ -501,14 +502,15 @@ class TestPostgreSQLModuleProcess:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
+        payload = {'event_id': 123, 'event_type': 'test'}
 
         with patch('builtins.print'):
             await module.process(payload, {})
@@ -538,14 +540,15 @@ class TestPostgreSQLModuleProcess:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
 
+        payload = {'event_id': 123, 'event_type': 'test'}
 
         with patch('builtins.print'):
             await module.process(payload, {})
@@ -586,10 +589,10 @@ class TestPostgreSQLModuleProcess:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = None
@@ -643,10 +646,10 @@ class TestPostgreSQLModuleEnsureTable:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
@@ -678,10 +681,10 @@ class TestPostgreSQLModuleEnsureTable:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
@@ -731,10 +734,10 @@ class TestPostgreSQLModuleEnsureTable:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
@@ -765,10 +768,10 @@ class TestPostgreSQLModuleEnsureTable:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool
@@ -795,10 +798,10 @@ class TestPostgreSQLModuleEnsureTable:
         mock_pool = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = AsyncMock(return_value=mock_acquire_context)
 
         module = PostgreSQLModule(config)
         module.pool = mock_pool

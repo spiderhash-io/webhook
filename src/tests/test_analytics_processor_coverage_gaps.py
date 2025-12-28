@@ -62,7 +62,8 @@ class TestAnalyticsProcessorConnect:
         mock_analytics = AsyncMock()
         mock_analytics.connect = AsyncMock()
         
-        with patch('src.config._validate_connection_host', return_value='localhost'), \
+        with patch('src.analytics_processor._validate_connection_host', return_value='localhost'), \
+             patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
              patch('asyncio.get_running_loop') as mock_loop:
             
             async def run_executor_mock(executor, func):
@@ -97,7 +98,8 @@ class TestAnalyticsProcessorConnect:
         mock_analytics = AsyncMock()
         mock_analytics.connect = AsyncMock()
         
-        with patch('src.config._validate_connection_host', return_value='localhost'), \
+        with patch('src.analytics_processor._validate_connection_host', return_value='localhost'), \
+             patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
              patch('asyncio.get_running_loop') as mock_loop:
             
             async def run_executor_mock(executor, func):
@@ -130,7 +132,8 @@ class TestAnalyticsProcessorConnect:
         mock_analytics = AsyncMock()
         mock_analytics.connect = AsyncMock()
         
-        with patch('src.config._validate_connection_host', return_value='localhost'), \
+        with patch('src.analytics_processor._validate_connection_host', return_value='localhost'), \
+             patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
              patch('asyncio.get_running_loop') as mock_loop:
             
             async def run_executor_mock(executor, func):
@@ -157,7 +160,7 @@ class TestAnalyticsProcessorConnect:
         }
         processor = AnalyticsProcessor(config)
         
-        with patch('src.config._validate_connection_host', side_effect=ValueError("Invalid host")):
+        with patch('src.analytics_processor._validate_connection_host', side_effect=ValueError("Invalid host")):
             with pytest.raises(ValueError, match="Host validation failed"):
                 await processor.connect()
     

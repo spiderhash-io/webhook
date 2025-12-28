@@ -581,8 +581,8 @@ class TestConfigManagerValidateConnectionConfig:
             }
         }
         
-        with patch('src.config._validate_connection_host', return_value=None), \
-             patch('src.config._validate_connection_port', return_value=None):
+        with patch('src.config_manager._validate_connection_host', return_value='example.com'), \
+             patch('src.config_manager._validate_connection_port', return_value=5432):
             
             error = await manager._validate_connection_config(config)
             
@@ -658,7 +658,7 @@ class TestConfigManagerValidateConnectionConfig:
             }
         }
         
-        with patch('src.config._validate_connection_host', side_effect=ValueError("Invalid host")):
+        with patch('src.config_manager._validate_connection_host', side_effect=ValueError("Invalid host")):
             error = await manager._validate_connection_config(config)
             
             assert error is not None
@@ -676,8 +676,8 @@ class TestConfigManagerValidateConnectionConfig:
             }
         }
         
-        with patch('src.config._validate_connection_host', return_value=None), \
-             patch('src.config._validate_connection_port', side_effect=ValueError("Invalid port")):
+        with patch('src.config_manager._validate_connection_host', return_value='example.com'), \
+             patch('src.config_manager._validate_connection_port', side_effect=ValueError("Invalid port")):
             
             error = await manager._validate_connection_config(config)
             

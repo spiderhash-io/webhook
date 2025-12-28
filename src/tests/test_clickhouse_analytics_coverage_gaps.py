@@ -66,7 +66,7 @@ class TestClickHouseAnalyticsConnect:
         mock_client = Mock()
         mock_client.execute = Mock()
         
-        with patch('src.config._validate_connection_host', return_value='localhost'), \
+        with patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
              patch('asyncio.get_running_loop') as mock_loop, \
              patch('asyncio.create_task') as mock_create_task, \
              patch('builtins.print'):
@@ -105,7 +105,7 @@ class TestClickHouseAnalyticsConnect:
         mock_client = Mock()
         mock_client.execute = Mock()
         
-        with patch('src.config._validate_connection_host', return_value='localhost'), \
+        with patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
              patch('asyncio.get_running_loop') as mock_loop, \
              patch('asyncio.create_task') as mock_create_task, \
              patch('builtins.print'):
@@ -142,7 +142,7 @@ class TestClickHouseAnalyticsConnect:
         mock_client = Mock()
         mock_client.execute = Mock()
         
-        with patch('src.config._validate_connection_host', return_value='localhost'), \
+        with patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
              patch('asyncio.get_running_loop') as mock_loop, \
              patch('asyncio.create_task') as mock_create_task, \
              patch('builtins.print'):
@@ -181,7 +181,7 @@ class TestClickHouseAnalyticsConnect:
         }
         analytics = ClickHouseAnalytics(config)
         
-        with patch('src.config._validate_connection_host', side_effect=ValueError("Invalid host")):
+        with patch('src.clickhouse_analytics._validate_connection_host', side_effect=ValueError("Invalid host")):
             with pytest.raises(ValueError, match="Host validation failed"):
                 await analytics.connect()
     
@@ -194,7 +194,7 @@ class TestClickHouseAnalyticsConnect:
         }
         analytics = ClickHouseAnalytics(config)
         
-        with patch('src.config._validate_connection_host', return_value='localhost'), \
+        with patch('src.clickhouse_analytics._validate_connection_host', return_value='localhost'), \
              patch('asyncio.get_running_loop') as mock_loop:
             
             mock_loop.return_value.run_in_executor = AsyncMock(side_effect=Exception("Connection failed"))
