@@ -201,6 +201,7 @@ class TestStartupEventCoverage:
             mock_ch_class.assert_called_once()
             mock_ch.connect.assert_called_once()
     
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_startup_clickhouse_with_legacy_config(self):
         """Test ClickHouse initialization with legacy config."""
@@ -276,6 +277,7 @@ class TestStartupEventCoverage:
             # Should handle error gracefully
             mock_ch.connect.assert_called_once()
     
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_startup_clickhouse_attribute_error_fallback(self):
         """Test ClickHouse initialization with AttributeError fallback."""

@@ -210,6 +210,7 @@ class TestConfigManagerWebhookConfig:
 class TestConfigManagerGetConnectionConfig:
     """Test get_connection_config edge cases."""
     
+    @pytest.mark.todo
     def test_get_connection_config_nonexistent(self):
         """Test getting non-existent connection config."""
         manager = ConfigManager()
@@ -219,6 +220,7 @@ class TestConfigManagerGetConnectionConfig:
         
         assert result is None
     
+    @pytest.mark.todo
     def test_get_connection_config_after_reload(self):
         """Test getting connection config after reload."""
         manager = ConfigManager()

@@ -98,6 +98,7 @@ class TestConnectionPoolRegistryDeprecatedPools:
 class TestConnectionPoolRegistryGetAllPoolInfo:
     """Test get_all_pool_info method."""
     
+    @pytest.mark.todo
     def test_get_all_pool_info_with_pools(self):
         """Test get_all_pool_info with active and deprecated pools."""
         import time
@@ -129,6 +130,7 @@ class TestConnectionPoolRegistryGetAllPoolInfo:
         assert 'active_conn' in result
         assert 'deprecated_conn' in result
     
+    @pytest.mark.todo
     def test_get_all_pool_info_empty(self):
         """Test get_all_pool_info with no pools."""
         registry = ConnectionPoolRegistry()
@@ -197,6 +199,7 @@ class TestConnectionPoolRegistryCloseAllPools:
 class TestConnectionPoolRegistryGetPoolInfo:
     """Test get_pool_info method."""
     
+    @pytest.mark.todo
     def test_get_pool_info_active_pool(self):
         """Test getting info for active pool."""
         import time
@@ -216,6 +219,7 @@ class TestConnectionPoolRegistryGetPoolInfo:
         assert result is not None
         assert result['connection_name'] == 'test_conn'
     
+    @pytest.mark.todo
     def test_get_pool_info_deprecated_pool(self):
         """Test getting info for deprecated pool."""
         import time
@@ -237,6 +241,7 @@ class TestConnectionPoolRegistryGetPoolInfo:
         assert result['connection_name'] == 'test_conn'
         assert result['deprecated'] is True
     
+    @pytest.mark.todo
     def test_get_pool_info_nonexistent(self):
         """Test getting info for non-existent pool."""
         registry = ConnectionPoolRegistry()

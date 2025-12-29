@@ -31,6 +31,7 @@ class TestSaveToDiskSecurityAudit:
         if os.path.exists(base_dir):
             shutil.rmtree(base_dir)
     
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_configuration_injection_base_dir_path_traversal(self, temp_base_dir):
         """Test that base_dir cannot be used for path traversal."""

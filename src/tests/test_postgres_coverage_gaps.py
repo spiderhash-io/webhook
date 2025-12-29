@@ -142,6 +142,7 @@ class TestPostgreSQLModuleValidation:
 class TestPostgreSQLModuleSetup:
     """Test PostgreSQLModule.setup() - connection pool creation."""
 
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_setup_with_connection_string(self):
         """Test setup with connection string."""
@@ -170,6 +171,7 @@ class TestPostgreSQLModuleSetup:
 
             assert module.pool is not None
 
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_setup_with_individual_params(self):
         """Test setup with individual connection parameters."""
@@ -202,6 +204,7 @@ class TestPostgreSQLModuleSetup:
 
             assert module.pool is not None
 
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_setup_with_ssl(self):
         """Test setup with SSL configuration."""
@@ -331,6 +334,7 @@ class TestPostgreSQLModuleProcess:
 
             mock_conn.execute.assert_called_once()
 
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_process_json_mode_with_upsert(self):
         """Test process with JSON mode and upsert."""

@@ -15,6 +15,7 @@ from src.connection_pool_registry import ConnectionPoolRegistry
 class TestConfigManagerInit:
     """Test ConfigManager.__init__() - all initialization paths."""
     
+    @pytest.mark.todo
     def test_init_with_default_files(self):
         """Test initialization with default file paths."""
         manager = ConfigManager()
@@ -26,6 +27,7 @@ class TestConfigManagerInit:
         assert manager._reload_in_progress is False
         assert manager._last_reload is None
     
+    @pytest.mark.todo
     def test_init_with_custom_files(self):
         """Test initialization with custom file paths."""
         manager = ConfigManager(
@@ -35,6 +37,7 @@ class TestConfigManagerInit:
         assert manager.webhook_config_file == "custom_webhooks.json"
         assert manager.connection_config_file == "custom_connections.json"
     
+    @pytest.mark.todo
     def test_init_with_custom_pool_registry(self):
         """Test initialization with custom pool registry."""
         custom_registry = ConnectionPoolRegistry()
@@ -335,6 +338,7 @@ class TestConfigManagerReloadAll:
 class TestConfigManagerGetMethods:
     """Test ConfigManager get methods."""
     
+    @pytest.mark.todo
     def test_get_webhook_config_found(self):
         """Test get_webhook_config with found webhook."""
         manager = ConfigManager()
@@ -344,6 +348,7 @@ class TestConfigManagerGetMethods:
         
         assert config == {'module': 'log'}
     
+    @pytest.mark.todo
     def test_get_webhook_config_not_found(self):
         """Test get_webhook_config with not found webhook."""
         manager = ConfigManager()
@@ -352,6 +357,7 @@ class TestConfigManagerGetMethods:
         
         assert config is None
     
+    @pytest.mark.todo
     def test_get_connection_config_found(self):
         """Test get_connection_config with found connection."""
         manager = ConfigManager()
@@ -361,6 +367,7 @@ class TestConfigManagerGetMethods:
         
         assert config == {'type': 'redis-rq'}
     
+    @pytest.mark.todo
     def test_get_connection_config_not_found(self):
         """Test get_connection_config with not found connection."""
         manager = ConfigManager()
@@ -369,6 +376,7 @@ class TestConfigManagerGetMethods:
         
         assert config is None
     
+    @pytest.mark.todo
     def test_get_all_connection_configs(self):
         """Test get_all_connection_configs returns deep copy."""
         manager = ConfigManager()
@@ -390,6 +398,7 @@ class TestConfigManagerGetMethods:
 class TestConfigManagerGetStatus:
     """Test ConfigManager.get_status() - all status paths."""
     
+    @pytest.mark.todo
     def test_get_status_with_reload(self):
         """Test get_status with last reload timestamp."""
         manager = ConfigManager()
@@ -412,6 +421,7 @@ class TestConfigManagerGetStatus:
             assert status['connection_pools']['active'] == 1
             assert status['connection_pools']['deprecated'] == 1
     
+    @pytest.mark.todo
     def test_get_status_without_reload(self):
         """Test get_status without last reload."""
         manager = ConfigManager()

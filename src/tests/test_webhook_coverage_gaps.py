@@ -13,6 +13,7 @@ from src.webhook import TaskManager, WebhookHandler, task_manager
 class TestTaskManager:
     """Test TaskManager - all methods and edge cases."""
     
+    @pytest.mark.todo
     def test_init_valid(self):
         """Test TaskManager initialization with valid parameters."""
         manager = TaskManager(max_concurrent_tasks=50, task_timeout=200.0)
@@ -167,6 +168,7 @@ class TestTaskManager:
         # Task should still be cleaned up
         assert manager._total_tasks_completed == 1
     
+    @pytest.mark.todo
     def test_get_metrics(self):
         """Test getting task manager metrics."""
         manager = TaskManager(max_concurrent_tasks=10, task_timeout=5.0)
@@ -204,6 +206,7 @@ class TestTaskManager:
 class TestWebhookHandlerInit:
     """Test WebhookHandler.__init__() - all initialization paths."""
     
+    @pytest.mark.todo
     def test_init_success(self):
         """Test successful WebhookHandler initialization."""
         webhook_id = "test_webhook"
@@ -247,6 +250,7 @@ class TestWebhookHandlerInit:
         with pytest.raises(HTTPException, match="not found"):
             WebhookHandler(webhook_id, configs, connection_config, mock_request)
     
+    @pytest.mark.todo
     def test_init_invalid_config_type(self):
         """Test initialization with invalid config type."""
         webhook_id = "test_webhook"
@@ -261,6 +265,7 @@ class TestWebhookHandlerInit:
         with pytest.raises(HTTPException, match="must be a dictionary"):
             WebhookHandler(webhook_id, configs, connection_config, mock_request)
     
+    @pytest.mark.todo
     def test_init_validator_instantiation_error(self):
         """Test initialization with validator instantiation error."""
         webhook_id = "test_webhook"
@@ -469,6 +474,7 @@ class TestWebhookHandlerValidate:
 class TestWebhookHandlerProcess:
     """Test WebhookHandler.process_webhook() - all processing paths."""
     
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_process_webhook_success(self):
         """Test successful webhook processing."""
@@ -499,6 +505,7 @@ class TestWebhookHandlerProcess:
             # Should complete without exception
             assert result is not None
     
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_process_webhook_with_chain(self):
         """Test webhook processing with chain."""

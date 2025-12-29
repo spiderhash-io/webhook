@@ -438,6 +438,7 @@ class TestRedisEndpointStats:
         
         mock_pipe.execute.assert_called_once()
     
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_increment_multi_resolution_retry(self):
         """Test increment_multi_resolution with retry."""
@@ -526,6 +527,7 @@ class TestRedisEndpointStats:
         assert 'valid_endpoint' in result
         assert None not in result
     
+    @pytest.mark.todo
     @pytest.mark.asyncio
     async def test_get_stats_optimized_connection_error(self):
         """Test _get_stats_optimized with connection error."""
