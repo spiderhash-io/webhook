@@ -469,7 +469,11 @@ class TestAnalyticsProcessorCalculateStats:
         with patch('asyncio.get_running_loop') as mock_loop:
             async def run_executor_mock(executor, func):
                 if callable(func):
-                    return func()
+                    result = func()
+                    # If it's the execute call, return the mock_result
+                    if isinstance(result, Mock):
+                        return mock_result
+                    return result
                 return mock_result
             
             mock_loop.return_value.run_in_executor = AsyncMock(side_effect=run_executor_mock)

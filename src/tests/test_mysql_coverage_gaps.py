@@ -210,8 +210,11 @@ class TestMySQLModuleSetup:
             self.module_config = config.get('module-config', {})
             self.pool_registry = pool_registry
         
-        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init), \
+             patch.object(MySQLModule, '_validate_hostname', return_value=True):
             module = MySQLModule(config, pool_registry=mock_registry)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.connection_details = {
                 'host': 'localhost',
                 'port': 3306,
@@ -250,8 +253,11 @@ class TestMySQLModuleSetup:
             self.module_config = config.get('module-config', {})
             self.pool_registry = pool_registry
         
-        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init), \
+             patch.object(MySQLModule, '_validate_hostname', return_value=True):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.connection_details = {
                 'host': 'localhost',
                 'port': 3306,
@@ -310,10 +316,12 @@ class TestMySQLModuleProcess:
         mock_cur.execute = AsyncMock()
         mock_conn.cursor = AsyncMock(return_value=mock_cur)
         mock_conn.commit = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -323,6 +331,8 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             with patch('builtins.print'):
@@ -353,8 +363,11 @@ class TestMySQLModuleProcess:
         mock_conn.commit = AsyncMock()
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -364,6 +377,8 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             with patch('builtins.print'):
@@ -398,8 +413,11 @@ class TestMySQLModuleProcess:
         mock_conn.commit = AsyncMock()
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -409,6 +427,8 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {
@@ -448,8 +468,11 @@ class TestMySQLModuleProcess:
         mock_conn.commit = AsyncMock()
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -459,6 +482,8 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {'event_id': 123}  # Missing event_type
@@ -497,8 +522,11 @@ class TestMySQLModuleProcess:
         mock_conn.commit = AsyncMock()
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -508,6 +536,8 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {
@@ -549,8 +579,11 @@ class TestMySQLModuleProcess:
         mock_conn.commit = AsyncMock()
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -560,6 +593,8 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {'event_id': 123, 'other_data': 'test'}
@@ -597,8 +632,11 @@ class TestMySQLModuleProcess:
         mock_conn.commit = AsyncMock()
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -608,6 +646,8 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             payload = {'event_id': 123}
@@ -663,8 +703,11 @@ class TestMySQLModuleProcess:
         mock_conn.commit = AsyncMock()
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         with patch('src.modules.base.BaseModule.__init__'):
             module = MySQLModule(config)
@@ -701,8 +744,11 @@ class TestMySQLModuleProcess:
         mock_conn.cursor = AsyncMock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -712,6 +758,8 @@ class TestMySQLModuleProcess:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             with patch('builtins.print'):
@@ -738,8 +786,11 @@ class TestMySQLModuleCreateTable:
         mock_conn.cursor = AsyncMock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -749,9 +800,11 @@ class TestMySQLModuleCreateTable:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
-            await module._create_table_if_not_exists()
+            await module._ensure_table()
             
             mock_cur.execute.assert_called_once()
             assert 'CREATE TABLE' in mock_cur.execute.call_args[0][0]
@@ -782,8 +835,11 @@ class TestMySQLModuleCreateTable:
         mock_conn.cursor = AsyncMock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -793,9 +849,11 @@ class TestMySQLModuleCreateTable:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
-            await module._create_table_if_not_exists()
+            await module._ensure_table()
             
             mock_cur.execute.assert_called_once()
             assert 'CREATE TABLE' in mock_cur.execute.call_args[0][0]
@@ -824,8 +882,11 @@ class TestMySQLModuleCreateTable:
         mock_conn.cursor = AsyncMock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -835,9 +896,11 @@ class TestMySQLModuleCreateTable:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
-            await module._create_table_if_not_exists()
+            await module._ensure_table()
             
             mock_cur.execute.assert_called_once()
             assert 'CREATE TABLE' in mock_cur.execute.call_args[0][0]
@@ -859,8 +922,11 @@ class TestMySQLModuleCreateTable:
         mock_conn.cursor = AsyncMock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -870,10 +936,12 @@ class TestMySQLModuleCreateTable:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             # Should not raise exception (table might already exist)
-            await module._create_table_if_not_exists()
+            await module._ensure_table()
 
 
 class TestMySQLModuleCreateIndex:
@@ -901,8 +969,11 @@ class TestMySQLModuleCreateIndex:
         mock_conn.cursor = AsyncMock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -912,9 +983,11 @@ class TestMySQLModuleCreateIndex:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
-            await module._create_index_if_not_exists('idx_webhook_id', ['webhook_id'])
+            await module._ensure_index('idx_webhook_id', ['webhook_id'])
             
             mock_cur.execute.assert_called_once()
             assert 'CREATE INDEX' in mock_cur.execute.call_args[0][0]
@@ -934,8 +1007,11 @@ class TestMySQLModuleCreateIndex:
         mock_conn.cursor = AsyncMock(return_value=mock_cur)
         mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
         mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         def mock_base_init(self, config, pool_registry=None):
             self.config = config
@@ -945,6 +1021,8 @@ class TestMySQLModuleCreateIndex:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             # Should not raise exception (index might already exist)
@@ -974,6 +1052,8 @@ class TestMySQLModuleTeardown:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = MySQLModule(config)
+            module.config = config
+            module.module_config = config.get('module-config', {})
             module.pool = mock_pool
             
             await module.teardown()

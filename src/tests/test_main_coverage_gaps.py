@@ -206,10 +206,13 @@ class TestStartupEventCoverage:
         """Test ClickHouse initialization with legacy config."""
         import src.main
         
+        legacy_connection_config = {
+            'clickhouse1': {'type': 'clickhouse', 'host': 'localhost', 'port': 9000}
+        }
+        
         with patch('src.main.webhook_config_data', {}), \
-             patch('src.main.connection_config', {
-                 'clickhouse1': {'type': 'clickhouse', 'host': 'localhost', 'port': 9000}
-             }), \
+             patch('src.config.connection_config', legacy_connection_config), \
+             patch('src.main.connection_config', legacy_connection_config), \
              patch('src.main.clickhouse_logger', None), \
              patch('src.main.config_watcher', None), \
              patch('src.main.validate_connections', AsyncMock()), \
@@ -233,11 +236,14 @@ class TestStartupEventCoverage:
                 mock_ch.connect = AsyncMock()
                 mock_ch_class.return_value = mock_ch
                 
-                await startup_event()
-                
-                # ClickHouse should be initialized from legacy config
-                assert mock_ch_class.called
-                assert mock_ch.connect.called
+                # Patch connection_config at the module level where it's imported
+                with patch.object(src.main, 'connection_config', legacy_connection_config):
+                    await startup_event()
+                    
+                    # ClickHouse should be initialized from legacy config
+                    # The code creates ClickHouseAnalytics instance and calls connect
+                    mock_ch_class.assert_called_once()
+                    mock_ch.connect.assert_called_once()
             finally:
                 src.main.config_manager = original_cm
     
@@ -275,9 +281,11 @@ class TestStartupEventCoverage:
         """Test ClickHouse initialization with AttributeError fallback."""
         with patch('src.main.config_manager', None), \
              patch('src.main.webhook_config_data', {}), \
+             patch('src.main.connection_config', {}), \
              patch('src.main.clickhouse_logger', None), \
              patch('src.main.config_watcher', None), \
              patch('src.main.validate_connections', AsyncMock()), \
+             patch('src.main.inject_connection_details', AsyncMock(return_value={})), \
              patch('src.main.asyncio.create_task'), \
              patch('src.main.ConfigManager') as mock_cm_class:
             

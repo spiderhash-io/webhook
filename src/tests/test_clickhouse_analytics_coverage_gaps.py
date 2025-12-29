@@ -354,7 +354,8 @@ class TestClickHouseAnalyticsSaveLog:
         log_data = item[1]
         payload_str = log_data[3]
         # Should contain error message about recursion
-        assert 'error' in json.loads(payload_str).lower() or 'too deeply nested' in payload_str.lower()
+        payload_lower = payload_str.lower() if isinstance(payload_str, str) else str(payload_str).lower()
+        assert 'error' in payload_lower or 'too deeply nested' in payload_lower
     
     @pytest.mark.asyncio
     async def test_save_log_auto_connect(self):

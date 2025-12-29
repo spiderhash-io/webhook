@@ -5,6 +5,7 @@ Target: 100% coverage for S3Module class.
 import pytest
 import json
 import uuid
+import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from botocore.exceptions import ClientError
 from src.modules.s3 import S3Module
@@ -89,9 +90,17 @@ class TestS3ModuleInit:
             'connection': 's3-connection'
         }
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             with pytest.raises(ValueError, match="path traversal"):
-                S3Module(config)
+                module = S3Module(config)
+                module.config = config
+                module.module_config = config.get('module-config', {})
     
     def test_init_with_invalid_filename_pattern(self):
         """Test initialization with invalid filename pattern."""
@@ -104,9 +113,17 @@ class TestS3ModuleInit:
             'connection': 's3-connection'
         }
         
-        with patch('src.modules.base.BaseModule.__init__'):
+        def mock_base_init(self, config, pool_registry=None):
+            self.config = config
+            self.connection_details = config.get('connection_details', {})
+            self.module_config = config.get('module-config', {})
+            self.pool_registry = pool_registry
+        
+        with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             with pytest.raises(ValueError, match="path traversal"):
-                S3Module(config)
+                module = S3Module(config)
+                module.config = config
+                module.module_config = config.get('module-config', {})
 
 
 class TestS3ModuleSetup:
@@ -596,7 +613,7 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = S3Module(config)
-            with pytest.raises(ValueError, match="cannot be empty"):
+            with pytest.raises(ValueError, match="must be a non-empty string"):
                 module._validate_s3_path_component('', 'prefix')
     
     def test_validate_s3_path_component_path_traversal(self):
@@ -654,7 +671,7 @@ class TestS3ModuleValidation:
         
         with patch('src.modules.base.BaseModule.__init__', mock_base_init):
             module = S3Module(config)
-            with pytest.raises(ValueError, match="dangerous pattern"):
+            with pytest.raises(ValueError, match="Invalid prefix format"):
                 module._validate_s3_path_component('path;with;semicolon', 'prefix')
     
     def test_validate_filename_pattern_valid(self):
