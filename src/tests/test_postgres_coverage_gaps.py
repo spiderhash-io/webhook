@@ -358,7 +358,8 @@ class TestPostgreSQLModuleProcess:
         module.pool = mock_pool
 
         with patch('builtins.print'):
-            await module.process({'data': 'test'}, {})
+            with pytest.raises(ValueError, match="Relational mode requires schema"):
+                await module.process({'data': 'test'}, {})
 
             mock_conn.execute.assert_called_once()
 
@@ -577,7 +578,8 @@ class TestPostgreSQLModuleProcess:
         module.pool = mock_pool
 
         with patch('builtins.print'):
-            await module.process({'data': 'test'}, {})
+            with pytest.raises(ValueError, match="Relational mode requires schema"):
+                await module.process({'data': 'test'}, {})
 
     @pytest.mark.asyncio
     async def test_process_auto_setup(self):
