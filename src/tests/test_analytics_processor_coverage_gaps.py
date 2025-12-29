@@ -57,7 +57,7 @@ class TestAnalyticsProcessorConnect:
         processor = AnalyticsProcessor(config)
         
         mock_client = Mock()
-        mock_client.execute = Mock()
+        mock_client.execute = Mock(return_value=None)  # Mock execute to return None
         
         mock_analytics = AsyncMock()
         mock_analytics.connect = AsyncMock()
@@ -69,12 +69,16 @@ class TestAnalyticsProcessorConnect:
             
             async def run_executor_mock(executor, func):
                 if callable(func):
-                    return func()
+                    result = func()
+                    # If result is a Client instance, return mock_client instead
+                    if hasattr(result, 'execute'):
+                        return mock_client
+                    return result
                 return mock_client
             
             mock_loop.return_value.run_in_executor = AsyncMock(side_effect=run_executor_mock)
             
-            with patch('src.clickhouse_analytics.ClickHouseAnalytics', return_value=mock_analytics):
+            with patch('src.analytics_processor.ClickHouseAnalytics', return_value=mock_analytics):
                 await processor.connect()
             
             assert processor.client is not None
@@ -94,7 +98,7 @@ class TestAnalyticsProcessorConnect:
         processor = AnalyticsProcessor(config)
         
         mock_client = Mock()
-        mock_client.execute = Mock()
+        mock_client.execute = Mock(return_value=None)  # Mock execute to return None
         
         mock_analytics = AsyncMock()
         mock_analytics.connect = AsyncMock()
@@ -106,7 +110,11 @@ class TestAnalyticsProcessorConnect:
             
             async def run_executor_mock(executor, func):
                 if callable(func):
-                    return func()
+                    result = func()
+                    # If result is a Client instance, return mock_client instead
+                    if hasattr(result, 'execute'):
+                        return mock_client
+                    return result
                 return mock_client
             
             mock_loop.return_value.run_in_executor = AsyncMock(side_effect=run_executor_mock)
@@ -129,7 +137,7 @@ class TestAnalyticsProcessorConnect:
         processor = AnalyticsProcessor(config)
         
         mock_client = Mock()
-        mock_client.execute = Mock()
+        mock_client.execute = Mock(return_value=None)  # Mock execute to return None
         
         mock_analytics = AsyncMock()
         mock_analytics.connect = AsyncMock()
@@ -141,7 +149,11 @@ class TestAnalyticsProcessorConnect:
             
             async def run_executor_mock(executor, func):
                 if callable(func):
-                    return func()
+                    result = func()
+                    # If result is a Client instance, return mock_client instead
+                    if hasattr(result, 'execute'):
+                        return mock_client
+                    return result
                 return mock_client
             
             mock_loop.return_value.run_in_executor = AsyncMock(side_effect=run_executor_mock)
@@ -405,7 +417,11 @@ class TestAnalyticsProcessorGetAllWebhookIds:
         with patch('asyncio.get_running_loop') as mock_loop:
             async def run_executor_mock(executor, func):
                 if callable(func):
-                    return func()
+                    result = func()
+                    # If the function returns a Mock, return the actual data
+                    if isinstance(result, Mock):
+                        return invalid_ids
+                    return result
                 return invalid_ids
             
             mock_loop.return_value.run_in_executor = AsyncMock(side_effect=run_executor_mock)
