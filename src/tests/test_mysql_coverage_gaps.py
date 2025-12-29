@@ -191,15 +191,22 @@ class TestMySQLModuleSetup:
         }
         
         mock_pool = AsyncMock()
-        mock_pool.acquire = AsyncMock()
         mock_conn = AsyncMock()
         mock_cur = AsyncMock()
         mock_cur.execute = AsyncMock()
-        mock_conn.cursor = AsyncMock(return_value=mock_cur)
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock()
+        mock_cur.fetchone = AsyncMock(return_value=(1,))
+        
+        # Create proper async context manager for conn.cursor()
+        mock_cursor_context = AsyncMock()
+        mock_cursor_context.__aenter__ = AsyncMock(return_value=mock_cur)
+        mock_cursor_context.__aexit__ = AsyncMock(return_value=None)
+        mock_conn.cursor = Mock(return_value=mock_cursor_context)
+        
+        # Create proper async context manager for pool.acquire()
+        mock_acquire_context = AsyncMock()
+        mock_acquire_context.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acquire_context.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = Mock(return_value=mock_acquire_context)
         
         mock_registry = Mock()
         mock_registry.get_pool = AsyncMock(return_value=mock_pool)
@@ -266,7 +273,7 @@ class TestMySQLModuleSetup:
                 'password': 'testpass'
             }
             
-            with patch('aiomysql.create_pool', return_value=mock_pool), \
+            with patch('aiomysql.create_pool', AsyncMock(return_value=mock_pool)), \
                  patch.object(module, '_ensure_table', return_value=None):
                 await module.setup()
                 

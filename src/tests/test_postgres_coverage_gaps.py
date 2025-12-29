@@ -165,7 +165,7 @@ class TestPostgreSQLModuleSetup:
 
         with patch('asyncpg.create_pool', return_value=mock_pool), \
              patch.object(module, '_ensure_table', return_value=None), \
-             patch('src.modules.postgres._validate_connection_host', return_value='example.com'):
+             patch.object(module, '_validate_hostname', return_value=True):
             await module.setup()
 
             assert module.pool is not None
@@ -197,7 +197,7 @@ class TestPostgreSQLModuleSetup:
 
         with patch('asyncpg.create_pool', return_value=mock_pool), \
              patch.object(module, '_ensure_table', return_value=None), \
-             patch('src.modules.postgres._validate_connection_host', return_value='example.com'):
+             patch.object(module, '_validate_hostname', return_value=True):
             await module.setup()
 
             assert module.pool is not None
@@ -233,7 +233,7 @@ class TestPostgreSQLModuleSetup:
 
         with patch('asyncpg.create_pool', return_value=mock_pool), \
              patch.object(module, '_ensure_table', return_value=None), \
-             patch('src.modules.postgres._validate_connection_host', return_value='example.com'):
+             patch.object(module, '_validate_hostname', return_value=True):
             await module.setup()
 
             assert module.pool is not None
