@@ -75,6 +75,7 @@ const sidebars = {
         'features/json-schema',
         'features/credential-cleanup',
         'features/live-config-reload',
+        'features/connection-pooling',
         'features/statistics',
         'features/clickhouse-analytics',
       ],

@@ -211,11 +211,14 @@ Generate coverage reports:
 
 ```bash
 # Terminal coverage report
-venv/bin/python -m pytest --cov=src --cov-report=term -m "not longrunning"
+venv/bin/python -m pytest --cov=src --cov-report=term -m "not longrunning and not todo"
 
 # HTML coverage report
-venv/bin/python -m pytest --cov=src --cov-report=html -m "not longrunning"
+venv/bin/python -m pytest --cov=src --cov-report=html -m "not longrunning and not todo"
 # Then open htmlcov/index.html in a browser
+
+# Both terminal and HTML reports
+venv/bin/python -m pytest --cov=src --cov-report=html --cov-report=term -m "not longrunning and not todo"
 ```
 
 ## Running Specific Tests

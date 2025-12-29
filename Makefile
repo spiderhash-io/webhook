@@ -72,8 +72,8 @@ test-all: ## Run all tests (unit + integration, excludes longrunning)
 test-longrunning: ## Run long-running tests (use with caution, these tests take a long time)
 	$(PYTEST) -v -m longrunning
 
-test-cov: ## Run tests with coverage (excludes longrunning)
-	$(PYTEST) --cov=src --cov-report=html --cov-report=term -m "not longrunning"
+test-cov: ## Run tests with coverage (excludes longrunning and todo)
+	$(PYTEST) --cov=src --cov-report=html --cov-report=term -m "not longrunning and not todo"
 
 format: ## Format code with black
 	$(VENV_PYTHON) -m black src/ tests/
