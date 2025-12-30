@@ -82,6 +82,9 @@ docusaurus-build:
   services:
     - docker:24-dind
   before_script:
+    - echo "Logging into GitLab Container Registry..."
+    - echo "Registry: $CI_REGISTRY"
+    - echo "Image: $CI_REGISTRY_IMAGE-docs"
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
   script:
     - echo "Building Docusaurus documentation Docker image..."
@@ -96,8 +99,12 @@ docusaurus-build:
     - docker push $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_REF_SLUG
     - docker push $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_SHORT_SHA
     - docker push $CI_REGISTRY_IMAGE-docs:latest
-  only:
-    - branches
-    - merge_requests
+  rules:
+    # Only push on branch pipelines (not merge requests) to avoid permission issues
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH
+      when: on_success
   tags:
     - docker
