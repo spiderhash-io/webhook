@@ -1,5 +1,6 @@
 ---
 slug: /
+id: intro
 ---
 
 # Introduction
