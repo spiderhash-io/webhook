@@ -88,14 +88,14 @@ docusaurus-build:
     - |
       docker build \
         -f docusaurus/Dockerfile \
-        -t $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_REF_SLUG \
-        -t $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_SHORT_SHA \
-        -t $CI_REGISTRY_IMAGE-docs:latest \
+        -t $CI_REGISTRY_IMAGE:docs-$CI_COMMIT_REF_SLUG \
+        -t $CI_REGISTRY_IMAGE:docs-$CI_COMMIT_SHORT_SHA \
+        -t $CI_REGISTRY_IMAGE:docs-latest \
         docusaurus/
     - echo "Pushing Docusaurus Docker image to registry..."
-    - docker push $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_REF_SLUG
-    - docker push $CI_REGISTRY_IMAGE-docs:$CI_COMMIT_SHORT_SHA
-    - docker push $CI_REGISTRY_IMAGE-docs:latest
+    - docker push $CI_REGISTRY_IMAGE:docs-$CI_COMMIT_REF_SLUG
+    - docker push $CI_REGISTRY_IMAGE:docs-$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE:docs-latest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: manual
