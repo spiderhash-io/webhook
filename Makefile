@@ -97,13 +97,13 @@ run-prod: ## Run production server
 	uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 4
 
 docker-build: ## Build Docker image
-	docker-compose build
+	docker-compose -f docker/compose/docker-compose.yaml build
 
 docker-up: ## Start Docker services
-	docker-compose up -d
+	docker-compose -f docker/compose/docker-compose.yaml up -d
 
 docker-down: ## Stop Docker services
-	docker-compose down
+	docker-compose -f docker/compose/docker-compose.yaml down
 
 docker-logs: ## View Docker logs
-	docker-compose logs -f
+	docker-compose -f docker/compose/docker-compose.yaml logs -f

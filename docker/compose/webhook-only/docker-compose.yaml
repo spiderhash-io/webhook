@@ -1,0 +1,18 @@
+# Docker Compose for single webhook instance
+# Usage: docker-compose -f docker/compose/webhook-only/docker-compose.yaml up -d
+
+services:
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ../../../config/development/connections.json:/app/connections.json
+      - ../../../config/development/webhooks.json:/app/webhooks.json
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+

@@ -12,13 +12,15 @@
 services:
   # Multiple webhook instances for load testing
   webhook-1:
-    build: .
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
+      - ../../src:/app/src
+      - ../../config/development/connections.docker.json:/app/connections.json
+      - ../../config/examples/webhooks.performance.json:/app/webhooks.json
     environment:
       - REDIS_HOST=redis
       - RABBITMQ_HOST=rabbitmq
@@ -35,13 +37,15 @@ services:
     restart: unless-stopped
 
   webhook-2:
-    build: .
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
     ports:
       - "8001:8000"
     volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
+      - ../../src:/app/src
+      - ../../config/development/connections.docker.json:/app/connections.json
+      - ../../config/examples/webhooks.performance.json:/app/webhooks.json
     environment:
       - REDIS_HOST=redis
       - RABBITMQ_HOST=rabbitmq
@@ -58,13 +62,15 @@ services:
     restart: unless-stopped
 
   webhook-3:
-    build: .
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
     ports:
       - "8002:8000"
     volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
+      - ../../src:/app/src
+      - ../../config/development/connections.docker.json:/app/connections.json
+      - ../../config/examples/webhooks.performance.json:/app/webhooks.json
     environment:
       - REDIS_HOST=redis
       - RABBITMQ_HOST=rabbitmq
@@ -81,13 +87,15 @@ services:
     restart: unless-stopped
 
   webhook-4:
-    build: .
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
     ports:
       - "8003:8000"
     volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
+      - ../../src:/app/src
+      - ../../config/development/connections.docker.json:/app/connections.json
+      - ../../config/examples/webhooks.performance.json:/app/webhooks.json
     environment:
       - REDIS_HOST=redis
       - RABBITMQ_HOST=rabbitmq
@@ -104,13 +112,15 @@ services:
     restart: unless-stopped
 
   webhook-5:
-    build: .
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
     ports:
       - "8004:8000"
     volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
-      - ./webhooks.performance.json:/app/webhooks.json
+      - ../../src:/app/src
+      - ../../config/development/connections.docker.json:/app/connections.json
+      - ../../config/examples/webhooks.performance.json:/app/webhooks.json
     environment:
       - REDIS_HOST=redis
       - RABBITMQ_HOST=rabbitmq
@@ -128,11 +138,13 @@ services:
 
   # Analytics processor service (separate from webhook instances)
   analytics:
-    build: .
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
     command: python -m src.analytics_processor
     volumes:
-      - ./src:/app/src
-      - ./connections.docker.json:/app/connections.json
+      - ../../src:/app/src
+      - ../../config/development/connections.docker.json:/app/connections.json
     environment:
       - CLICKHOUSE_HOST=clickhouse
     depends_on:
@@ -220,14 +232,16 @@ services:
 
   # API server for integration tests
   api-server:
-    build: .
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
     container_name: webhook-api-server
     ports:
       - "8000:8000"
     volumes:
-      - ./src:/app/src
-      - ./connections.json:/app/connections.json
-      - ./webhooks.json:/app/webhooks.json
+      - ../../src:/app/src
+      - ../../config/development/connections.json:/app/connections.json
+      - ../../config/development/webhooks.json:/app/webhooks.json
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379

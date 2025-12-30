@@ -1,0 +1,31 @@
+# Docker Compose for RabbitMQ testing
+# Usage: docker-compose -f docker/compose/rabbitmq/docker-compose.yaml up -d
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  rabbitmq_data:
+

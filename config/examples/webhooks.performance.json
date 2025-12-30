@@ -1,0 +1,8 @@
+{
+    "performance_test_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer test_token"
+    }
+}
+

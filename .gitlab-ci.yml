@@ -28,9 +28,17 @@ unit-tests:
     - pip install -r requirements.txt
     - pip install -r requirements-dev.txt
     - pip install pytest pytest-asyncio pytest-cov
+    # Ensure config files are available (create symlinks if config/development exists)
+    - |
+      if [ -f config/development/webhooks.json ]; then
+        ln -sf config/development/webhooks.json webhooks.json || true
+      fi
+      if [ -f config/development/connections.json ]; then
+        ln -sf config/development/connections.json connections.json || true
+      fi
   script:
     - echo "Running unit tests (excluding integration, longrunning, and todo tests)..."
-    - pytest src/tests/ -v --tb=short -m "not integration and not longrunning and not todo" --cov=src --cov-report=term-missing --cov-report=xml
+    - pytest tests/unit/ -v --tb=short -m "not integration and not longrunning and not todo" --cov=src --cov-report=term-missing --cov-report=xml
   coverage: '/TOTAL.*\s+(\d+%)$/'
   artifacts:
     reports:
@@ -58,7 +66,7 @@ docker-build:
     - echo "Building Docker image using smallest Dockerfile..."
     - |
       docker build \
-        -f Dockerfile.smaller \
+        -f docker/Dockerfile.smaller \
         -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG \
         -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA \
         -t $CI_REGISTRY_IMAGE:latest \

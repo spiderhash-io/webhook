@@ -10,11 +10,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Get config file paths from environment variables or use defaults
+WEBHOOKS_CONFIG_FILE = os.getenv("WEBHOOKS_CONFIG_FILE", "webhooks.json")
+CONNECTIONS_CONFIG_FILE = os.getenv("CONNECTIONS_CONFIG_FILE", "connections.json")
+
 # Load webhooks.json if it exists (optional for analytics service)
 webhook_config_data = {}
-if os.path.exists("webhooks.json"):
+if os.path.exists(WEBHOOKS_CONFIG_FILE):
     try:
-        with open("webhooks.json", 'r') as webhooks_file:
+        with open(WEBHOOKS_CONFIG_FILE, 'r') as webhooks_file:
             webhook_config_data = json.load(webhooks_file)
         # Update the webhook config with environment variables
         webhook_config_data = load_env_vars(webhook_config_data)
@@ -29,7 +33,7 @@ if os.path.exists("webhooks.json"):
 
 # Load connections.json (required)
 try:
-    with open("connections.json", 'r') as connections_file:
+    with open(CONNECTIONS_CONFIG_FILE, 'r') as connections_file:
         connection_config = json.load(connections_file)
     # Update the configuration with environment variables
     connection_config = load_env_vars(connection_config)

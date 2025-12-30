@@ -1,0 +1,102 @@
+{
+    "abcde": {
+        "data_type": "json",
+        "module": "save_to_disk",
+        "module-config": {
+            "path": "webhooks"
+        },
+        "authorization": "secret"
+    },
+    "print": {
+        "data_type": "json",
+        "module": "log"
+    },
+    "test_credential_cleanup": {
+        "data_type": "json",
+        "module": "log",
+        "credential_cleanup": {
+            "enabled": true,
+            "mode": "mask",
+            "fields": ["password", "api_key", "secret"]
+        }
+    },
+    "redis_test": {
+        "data_type": "json",
+        "module": "redis_publish",
+        "redis": {
+            "host": "localhost",
+            "port": 6380,
+            "channel": "webhook_events"
+        },
+        "retry": {
+            "enabled": true,
+            "max_attempts": 5,
+            "initial_delay": 1.0,
+            "max_delay": 10.0,
+            "backoff_multiplier": 2.0
+        }
+    },
+    "performance_test_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer test_token"
+    },
+    "integration_test_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer test_integration_token_12345",
+        "rate_limit": {
+            "enabled": true,
+            "max_requests": 5,
+            "window_seconds": 60
+        }
+    },
+    "integration_test_webhook_clickhouse": {
+        "data_type": "json",
+        "module": "clickhouse",
+        "authorization": "Bearer test_integration_token_12345",
+        "module-config": {
+            "table": "webhook_logs",
+            "include_headers": true,
+            "include_timestamp": true
+        },
+        "connection": "clickhouse_local"
+    },
+    "integration_test_webhook_rabbitmq": {
+        "data_type": "json",
+        "module": "rabbitmq",
+        "authorization": "Bearer test_integration_token_12345",
+        "queue_name": "test_integration_queue",
+        "connection": "rabbitmq_local"
+    },
+    "integration_test_webhook_redis_publish": {
+        "data_type": "json",
+        "module": "redis_publish",
+        "authorization": "Bearer test_integration_token_12345",
+        "redis": {
+            "host": "redis",
+            "port": 6379,
+            "channel": "test:integration:webhook_events"
+        }
+    },
+    "integration_test_webhook_redis_rq": {
+        "data_type": "json",
+        "module": "redis_rq",
+        "authorization": "Bearer test_integration_token_12345",
+        "module-config": {
+            "queue_name": "test_integration",
+            "function": "test_function"
+        },
+        "connection": "redis_local"
+    },
+    "integration_test_webhook_rate_limit": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer test_integration_token_12345",
+        "rate_limit": {
+            "enabled": true,
+            "max_requests": 3,
+            "window_seconds": 60
+        }
+    }
+}

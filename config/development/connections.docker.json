@@ -1,0 +1,32 @@
+{
+    "rabbitmq_local": {
+        "type": "rabbitmq",
+        "host": "rabbitmq",
+        "port": 5672,
+        "user": "guest",
+        "pass": "guest"
+    },
+    "redis_local": {
+        "type": "redis-rq",
+        "host": "redis",
+        "port": 6379,
+        "db": 0
+    },
+    "clickhouse_local": {
+        "type": "clickhouse",
+        "host": "clickhouse",
+        "port": 9000,
+        "database": "default",
+        "user": "default",
+        "password": ""
+    },
+    "clickhouse_analytics": {
+        "type": "clickhouse",
+        "host": "clickhouse",
+        "port": 9000,
+        "database": "default",
+        "user": "default",
+        "password": ""
+    }
+}
+

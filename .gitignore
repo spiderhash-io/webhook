@@ -42,6 +42,7 @@ venv.bak/
 # Testing
 .pytest_cache/
 .coverage
+coverage.json
 htmlcov/
 .tox/
 .nox/
@@ -73,8 +74,10 @@ README_NEW.md
 # Configuration (use examples instead)
 # connections.json
 # webhooks.json
-connections.docker.json
-webhooks.performance.json
+# Note: Config files are now in config/ directory
+# config/development/connections.docker.json
+# config/examples/webhooks.performance.json
+config/production/
 
 # OS
 .DS_Store

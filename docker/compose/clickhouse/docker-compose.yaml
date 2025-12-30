@@ -1,0 +1,50 @@
+# Docker Compose for ClickHouse testing
+# Usage: docker-compose -f docker/compose/clickhouse/docker-compose.yaml up -d
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9000:9000"  # Native interface
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    command:
+      - /bin/bash
+      - -c
+      - |
+        # Allow passwordless access for default user
+        echo '<clickhouse>
+        <users>
+            <default>
+                <password></password>
+                <access_management>1</access_management>
+            </default>
+        </users>
+        </clickhouse>' > /etc/clickhouse-server/users.d/default-password.xml
+        /entrypoint.sh
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  clickhouse_data:
+
