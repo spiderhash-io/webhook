@@ -1,3 +1,7 @@
+---
+slug: /
+---
+
 # Introduction
 
 Welcome to the Core Webhook Module documentation!
