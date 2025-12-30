@@ -101,7 +101,7 @@ class TestCORSConfigurationInjection:
         
         for malicious_value in malicious_values:
             # Use the parsing function directly instead of patching environment
-            from src.tests.test_cors_security import _parse_cors_origins
+            from tests.unit.test_cors_security import _parse_cors_origins
             cors_allowed_origins = _parse_cors_origins(malicious_value)
             # Wildcard and null should not be in allowed origins
             assert "*" not in cors_allowed_origins
@@ -127,7 +127,7 @@ class TestCORSConfigurationInjection:
     def test_cors_env_var_whitespace_handling(self):
         """Test that whitespace in CORS environment variable is handled safely."""
         # Use the parsing function directly instead of patching environment
-        from src.tests.test_cors_security import _parse_cors_origins
+        from tests.unit.test_cors_security import _parse_cors_origins
         cors_allowed_origins = _parse_cors_origins("  https://example.com  ,  https://app.example.com  ")
         # Should strip whitespace
         assert "https://example.com" in cors_allowed_origins
@@ -202,7 +202,7 @@ class TestCORSCredentialsSecurity:
     def test_cors_credentials_only_with_origins(self):
         """Test that credentials are only allowed when origins are configured."""
         # Use the parsing function to test logic
-        from src.tests.test_cors_security import _parse_cors_origins
+        from tests.unit.test_cors_security import _parse_cors_origins
         
         # When no origins configured, credentials should be False
         cors_allowed_origins = _parse_cors_origins("")
@@ -388,7 +388,7 @@ class TestCORSOriginMatching:
     def test_cors_origin_case_sensitivity(self, client):
         """Test that CORS origin matching is case-sensitive."""
         # Test case sensitivity using parsing function
-        from src.tests.test_cors_security import _parse_cors_origins
+        from tests.unit.test_cors_security import _parse_cors_origins
         cors_allowed_origins = _parse_cors_origins("https://Example.com")
         # Should parse and store as provided (case preserved)
         assert len(cors_allowed_origins) > 0
@@ -402,7 +402,7 @@ class TestCORSOriginMatching:
     def test_cors_origin_exact_match_required(self, client):
         """Test that CORS origin matching requires exact match."""
         # Test exact match requirement using parsing function
-        from src.tests.test_cors_security import _parse_cors_origins
+        from tests.unit.test_cors_security import _parse_cors_origins
         cors_allowed_origins = _parse_cors_origins("https://example.com")
         # Should parse correctly
         assert "https://example.com" in cors_allowed_origins
@@ -517,7 +517,7 @@ class TestEnvironmentVariableValidation:
     def test_cors_env_var_empty_string(self):
         """Test that empty CORS environment variable is handled safely."""
         # Use the parsing function directly instead of patching environment
-        from src.tests.test_cors_security import _parse_cors_origins
+        from tests.unit.test_cors_security import _parse_cors_origins
         cors_allowed_origins = _parse_cors_origins("")
         # Empty string should result in empty list
         assert isinstance(cors_allowed_origins, list)
@@ -526,7 +526,7 @@ class TestEnvironmentVariableValidation:
     def test_cors_env_var_whitespace_only(self):
         """Test that whitespace-only CORS environment variable is handled safely."""
         # Use the parsing function directly instead of patching environment
-        from src.tests.test_cors_security import _parse_cors_origins
+        from tests.unit.test_cors_security import _parse_cors_origins
         cors_allowed_origins = _parse_cors_origins("   ")
         # Whitespace-only should result in empty list
         assert isinstance(cors_allowed_origins, list)
