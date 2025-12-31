@@ -114,11 +114,11 @@ black src/
 
 ### Docker (Single Instance)
 
-Use the optimized smaller image (multi-stage build for minimal size) to run a single FastAPI instance in Docker:
+Use the optimized smaller image from Docker Hub to run a single FastAPI instance in Docker:
 
 ```bash
-# Build image using smallest Dockerfile
-docker build -f docker/Dockerfile.smaller -t core-webhook-module:latest .
+# Pull image from Docker Hub
+docker pull spiderhash/webhook:latest
 
 # Run container (mount configs from host)
 # Config files are automatically found in config/development/ if they exist
@@ -126,7 +126,7 @@ docker run --rm \
   -p 8000:8000 \
   -v "$(pwd)/config/development:/app/config/development:ro" \
   --env-file .env \
-  core-webhook-module:latest
+  spiderhash/webhook:latest
 
 # Or mount specific config files (if not using config/development/)
 docker run --rm \
@@ -134,27 +134,27 @@ docker run --rm \
   -v "$(pwd)/config/development/webhooks.json:/app/config/development/webhooks.json:ro" \
   -v "$(pwd)/config/development/connections.json:/app/config/development/connections.json:ro" \
   --env-file .env \
-  core-webhook-module:latest
+  spiderhash/webhook:latest
 ```
 
-**Using GitLab Container Registry:**
+**Using Docker Hub:**
 ```bash
-# Pull from registry
-docker pull registry.gitlab.com/saas-core-platform/core-webhook-module:latest
+# Pull from Docker Hub
+docker pull spiderhash/webhook:latest
 
 # Run container
 # Config files are automatically found in config/development/ if they exist
 docker run --rm \
   -p 8000:8000 \
   -v "$(pwd)/config/development:/app/config/development:ro" \
-  registry.gitlab.com/saas-core-platform/core-webhook-module:latest
+  spiderhash/webhook:latest
 ```
 
 **Docker Compose Example:**
 ```yaml
 services:
   webhook:
-    image: registry.gitlab.com/saas-core-platform/core-webhook-module:latest
+    image: spiderhash/webhook:latest
     container_name: webhook-service
     ports:
       - "8000:8000"

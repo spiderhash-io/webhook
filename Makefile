@@ -1,4 +1,4 @@
-.PHONY: help install install-dev install-prod test format lint clean run
+.PHONY: help install install-dev install-prod test format lint clean run docker-build-multiarch docker-push-multiarch
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -98,6 +98,30 @@ run-prod: ## Run production server
 
 docker-build: ## Build Docker image
 	docker-compose -f docker/compose/docker-compose.yaml build
+
+docker-build-multiarch: DOCKER_TAG ?= latest
+docker-build-multiarch: ## Build multi-architecture Docker image (linux/amd64,linux/arm64) - builds only, use docker-build-multiarch-push to push
+	@echo "Setting up buildx builder..."
+	@docker buildx create --name multiarch --use 2>/dev/null || docker buildx use multiarch
+	@docker buildx inspect --bootstrap > /dev/null 2>&1 || docker buildx inspect --bootstrap
+	@echo "Building multi-architecture image with tag: $(DOCKER_TAG) (build only, not pushed)"
+	@docker buildx build --platform linux/amd64,linux/arm64 \
+		-f docker/Dockerfile.small \
+		-t spiderhash/webhook:$(DOCKER_TAG) \
+		-t spiderhash/webhook:latest \
+		.
+
+docker-build-multiarch-push: DOCKER_TAG ?= latest
+docker-build-multiarch-push: ## Build and push multi-architecture Docker image (use DOCKER_TAG=0.1.0 to specify version)
+	@echo "Setting up buildx builder..."
+	@docker buildx create --name multiarch --use 2>/dev/null || docker buildx use multiarch
+	@docker buildx inspect --bootstrap > /dev/null 2>&1 || docker buildx inspect --bootstrap
+	@echo "Building and pushing multi-architecture image with tag: $(DOCKER_TAG)"
+	@docker buildx build --platform linux/amd64,linux/arm64 \
+		-f docker/Dockerfile.small \
+		-t spiderhash/webhook:$(DOCKER_TAG) \
+		-t spiderhash/webhook:latest \
+		--push .
 
 docker-up: ## Start Docker services
 	docker-compose -f docker/compose/docker-compose.yaml up -d

@@ -198,11 +198,14 @@ This project supports three common workflows:
 
 Use this when you just want the webhook service running in Docker on your machine.
 
-**Step 1 – Build the image (optimized small image):**
+**Step 1 – Pull the image from Docker Hub (or build locally):**
 
 ```bash
-# From project root
-docker build -f docker/Dockerfile.smaller -t core-webhook-module:small .
+# Option 1: Pull from Docker Hub (recommended)
+docker pull spiderhash/webhook:latest
+
+# Option 2: Build locally (for development)
+docker build -f docker/Dockerfile.small -t spiderhash/webhook:latest .
 ```
 
 **Step 2 – Prepare configuration files:**
@@ -228,7 +231,7 @@ docker run --rm \
   -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
   -v "$(pwd)/connections.json:/app/connections.json:ro" \
   --env-file .env \
-  core-webhook-module:small
+  spiderhash/webhook:latest
 ```
 
 Now the service is available at:

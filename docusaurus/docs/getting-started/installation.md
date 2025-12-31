@@ -32,11 +32,11 @@ pip install -r requirements.txt
 
 ## Docker (Single Instance)
 
-Use the optimized smaller image (multi-stage build for minimal size) to run a single FastAPI instance in Docker:
+Use the optimized smaller image from Docker Hub to run a single FastAPI instance in Docker:
 
 ```bash
-# Build image using smallest Dockerfile
-docker build -f Dockerfile.smaller -t core-webhook-module:latest .
+# Pull image from Docker Hub
+docker pull spiderhash/webhook:latest
 
 # Run container (mount configs from host)
 docker run --rm \
@@ -44,7 +44,7 @@ docker run --rm \
   -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
   -v "$(pwd)/connections.json:/app/connections.json:ro" \
   --env-file .env \
-  core-webhook-module:latest
+  spiderhash/webhook:latest
 ```
 
 ## Docker (Multi-Instance with Redis & ClickHouse)
