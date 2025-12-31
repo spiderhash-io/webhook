@@ -11,8 +11,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Get config file paths from environment variables or use defaults
-WEBHOOKS_CONFIG_FILE = os.getenv("WEBHOOKS_CONFIG_FILE", "webhooks.json")
-CONNECTIONS_CONFIG_FILE = os.getenv("CONNECTIONS_CONFIG_FILE", "connections.json")
+# Default to config/development/ if files exist there, otherwise fall back to root
+_default_webhooks = "config/development/webhooks.json" if os.path.exists("config/development/webhooks.json") else "webhooks.json"
+_default_connections = "config/development/connections.json" if os.path.exists("config/development/connections.json") else "connections.json"
+WEBHOOKS_CONFIG_FILE = os.getenv("WEBHOOKS_CONFIG_FILE", _default_webhooks)
+CONNECTIONS_CONFIG_FILE = os.getenv("CONNECTIONS_CONFIG_FILE", _default_connections)
 
 # Load webhooks.json if it exists (optional for analytics service)
 webhook_config_data = {}

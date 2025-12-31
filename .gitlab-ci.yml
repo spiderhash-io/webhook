@@ -28,14 +28,8 @@ unit-tests:
     - pip install -r requirements.txt
     - pip install -r requirements-dev.txt
     - pip install pytest pytest-asyncio pytest-cov
-    # Ensure config files are available (create symlinks if config/development exists)
-    - |
-      if [ -f config/development/webhooks.json ]; then
-        ln -sf config/development/webhooks.json webhooks.json || true
-      fi
-      if [ -f config/development/connections.json ]; then
-        ln -sf config/development/connections.json connections.json || true
-      fi
+    # Config files are now automatically found in config/development/ by default
+    # No symlinks needed - src/config.py checks config/development/ first
   script:
     - echo "Running unit tests (excluding integration, longrunning, and todo tests)..."
     - pytest tests/unit/ -v --tb=short -m "not integration and not longrunning and not todo" --cov=src --cov-report=term-missing --cov-report=xml
