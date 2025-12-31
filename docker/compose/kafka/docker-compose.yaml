@@ -1,7 +1,32 @@
-# Docker Compose for Kafka (Redpanda) testing
+# Docker Compose for Kafka module testing (using Redpanda)
 # Usage: docker-compose -f docker/compose/kafka/docker-compose.yaml up -d
 
 services:
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.1.7
     container_name: redpanda
@@ -41,4 +66,3 @@ networks:
 
 volumes:
   redpanda_data:
-

@@ -1,7 +1,32 @@
-# Docker Compose for ClickHouse testing
+# Docker Compose for ClickHouse module testing
 # Usage: docker-compose -f docker/compose/clickhouse/docker-compose.yaml up -d
 
 services:
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     ports:
@@ -9,10 +34,9 @@ services:
       - "9000:9000"  # Native interface
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+    env_file:
+      - .env
     environment:
-      CLICKHOUSE_DB: default
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: ""
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     networks:
       - webhook-network
@@ -47,4 +71,3 @@ networks:
 
 volumes:
   clickhouse_data:
-

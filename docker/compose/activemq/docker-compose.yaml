@@ -1,0 +1,58 @@
+# Docker Compose for ActiveMQ module testing
+# Usage: docker-compose -f docker/compose/activemq/docker-compose.yaml up -d
+
+services:
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
+    depends_on:
+      activemq:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  activemq:
+    image: apache/activemq-artemis:latest
+    ports:
+      - "61616:61616"  # OpenWire
+      - "61613:61613"  # STOMP
+      - "8161:8161"    # Web Console
+      - "5672:5672"    # AMQP
+      - "1883:1883"    # MQTT
+    env_file:
+      - .env
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8161/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - activemq_data:/var/lib/artemis-instance
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  activemq_data:
+

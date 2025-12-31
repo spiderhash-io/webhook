@@ -1,0 +1,72 @@
+# Docker Compose for S3 module testing (using MinIO)
+# Usage: docker-compose -f docker/compose/s3/docker-compose.yaml up -d
+
+services:
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console
+    env_file:
+      - .env
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  # MinIO client to create bucket on startup
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    networks:
+      - webhook-network
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/webhook-test || true;
+      mc anonymous set download myminio/webhook-test || true;
+      exit 0;
+      "
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  minio_data:
+

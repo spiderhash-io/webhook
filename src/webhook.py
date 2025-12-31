@@ -474,6 +474,18 @@ class WebhookHandler:
         # Instantiate and process
         # Add webhook_id to config for modules that need it (e.g., ClickHouse)
         module_config = {**self.config, '_webhook_id': self.webhook_id}
+        
+        # Inject connection_details if connection is specified
+        connection_name = self.config.get('connection')
+        if connection_name and self.connection_config and connection_name in self.connection_config:
+            import copy
+            try:
+                connection_details = copy.deepcopy(self.connection_config[connection_name])
+            except (RecursionError, MemoryError):
+                # Fallback to shallow copy if deep copy fails
+                connection_details = dict(self.connection_config[connection_name])
+            module_config['connection_details'] = connection_details
+        
         try:
             module = module_class(module_config, pool_registry=self.pool_registry)
         except Exception as e:

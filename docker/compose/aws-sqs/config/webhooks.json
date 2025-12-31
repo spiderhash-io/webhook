@@ -1,0 +1,12 @@
+{
+    "test_aws_sqs": {
+        "data_type": "json",
+        "module": "aws_sqs",
+        "authorization": "Bearer test_token_123",
+        "module-config": {
+            "queue_name": "webhook-queue"
+        },
+        "connection": "aws_sqs_local"
+    }
+}
+

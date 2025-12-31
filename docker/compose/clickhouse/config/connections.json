@@ -1,0 +1,11 @@
+{
+    "clickhouse_local": {
+        "type": "clickhouse",
+        "host": "clickhouse",
+        "port": 9000,
+        "database": "default",
+        "user": "default",
+        "password": ""
+    }
+}
+

@@ -1,0 +1,10 @@
+{
+    "mqtt_local": {
+        "type": "mqtt",
+        "host": "mqtt",
+        "port": 1883,
+        "user": "",
+        "password": ""
+    }
+}
+

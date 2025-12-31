@@ -35,7 +35,7 @@ RUN chown -R appuser:appuser /app /home/appuser/.local
 
 # Make sure scripts in .local are usable and Python can find packages
 ENV PATH=/home/appuser/.local/bin:$PATH \
-    PYTHONPATH=/home/appuser/.local/lib/python3.11/site-packages:$PYTHONPATH \
+    PYTHONPATH=/app:/home/appuser/.local/lib/python3.11/site-packages:$PYTHONPATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONWARNINGS=ignore::FutureWarning

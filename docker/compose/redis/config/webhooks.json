@@ -1,0 +1,23 @@
+{
+    "test_redis_rq": {
+        "data_type": "json",
+        "module": "redis_rq",
+        "authorization": "Bearer test_token_123",
+        "module-config": {
+            "queue_name": "test_queue",
+            "function": "process_webhook"
+        },
+        "connection": "redis_local"
+    },
+    "test_redis_publish": {
+        "data_type": "json",
+        "module": "redis_publish",
+        "authorization": "Bearer test_token_123",
+        "redis": {
+            "host": "redis",
+            "port": 6379,
+            "channel": "webhook_events"
+        }
+    }
+}
+

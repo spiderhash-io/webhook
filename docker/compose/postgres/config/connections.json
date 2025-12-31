@@ -1,0 +1,11 @@
+{
+    "postgres_local": {
+        "type": "postgresql",
+        "host": "postgres",
+        "port": 5432,
+        "database": "webhook_test",
+        "user": "webhook_user",
+        "password": "webhook_pass"
+    }
+}
+

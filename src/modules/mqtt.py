@@ -9,8 +9,8 @@ from src.modules.base import BaseModule
 class MQTTModule(BaseModule):
     """Module for publishing webhook payloads to MQTT brokers."""
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], **kwargs):
+        super().__init__(config, **kwargs)
         self.client: Optional[MQTTClient] = None
         # Validate topic name during initialization to fail early
         # Topic should be in module-config, not top-level config

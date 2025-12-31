@@ -1,24 +1,47 @@
-# Docker Compose for PostgreSQL testing
+# Docker Compose for PostgreSQL module testing
 # Usage: docker-compose -f docker/compose/postgres/docker-compose.yaml up -d
 
 services:
-  postgres:
-    image: postgres:15-alpine
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
     ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: webhook_test
-      POSTGRES_USER: webhook_user
-      POSTGRES_PASSWORD: webhook_pass
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - webhook-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U webhook_user"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  postgres:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    env_file:
+      - .env
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhook_user -d webhook_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -28,4 +51,3 @@ networks:
 
 volumes:
   postgres_data:
-

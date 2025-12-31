@@ -1,15 +1,39 @@
-# Docker Compose for RabbitMQ testing
+# Docker Compose for RabbitMQ module testing
 # Usage: docker-compose -f docker/compose/rabbitmq/docker-compose.yaml up -d
 
 services:
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
   rabbitmq:
     image: rabbitmq:3-management
     ports:
       - "5672:5672"   # AMQP port
       - "15672:15672" # Management UI
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+    env_file:
+      - .env
     networks:
       - webhook-network
     restart: unless-stopped
@@ -28,4 +52,3 @@ networks:
 
 volumes:
   rabbitmq_data:
-

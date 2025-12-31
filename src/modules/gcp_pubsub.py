@@ -20,8 +20,8 @@ except ImportError:
 class GCPPubSubModule(BaseModule):
     """Module for publishing webhook payloads to Google Cloud Pub/Sub topics."""
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], **kwargs):
+        super().__init__(config, **kwargs)
         if not GCP_PUBSUB_AVAILABLE:
             raise ImportError("google-cloud-pubsub library is required for GCP Pub/Sub module. Install with: pip install google-cloud-pubsub")
         
@@ -191,10 +191,34 @@ class GCPPubSubModule(BaseModule):
                         attributes[key] = value
             
             # Publish message (Pub/Sub publish is synchronous but returns a future)
-            future = self.publisher.publish(topic_path, message_data, **attributes)
-            # Wait for publish to complete (run in executor to avoid blocking)
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, lambda: future.result(timeout=10.0))
+            try:
+                future = self.publisher.publish(topic_path, message_data, **attributes)
+                # Wait for publish to complete (run in executor to avoid blocking)
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: future.result(timeout=10.0))
+            except exceptions.NotFound:
+                # Topic doesn't exist - try to create it (for development/testing with emulator)
+                try:
+                    print(f"Topic '{self._validated_topic}' not found, attempting to create it...")
+                    # Create topic using the publisher client
+                    def create_topic():
+                        self.publisher.create_topic(request={"name": topic_path})
+                    
+                    await loop.run_in_executor(None, create_topic)
+                    print(f"Created topic '{self._validated_topic}' in project '{self.project_id}'")
+                    
+                    # Retry publishing after topic creation
+                    future = self.publisher.publish(topic_path, message_data, **attributes)
+                    await loop.run_in_executor(None, lambda: future.result(timeout=10.0))
+                    print(f"Published message to GCP Pub/Sub topic '{self._validated_topic}'")
+                except Exception as create_error:
+                    # If creation fails, raise original NotFound error
+                    sanitized_error = sanitize_error_message(create_error, "GCP Pub/Sub topic creation")
+                    print(f"ERROR [GCP Pub/Sub topic creation]: {sanitized_error}")
+                    raise Exception(f"Topic '{self._validated_topic}' not found in project '{self.project_id}' and could not be created: {sanitized_error}")
         except Exception as e:
+            # Check if it's already a sanitized error from above
+            if "Topic" in str(e) and "not found" in str(e):
+                raise e
             raise Exception(sanitize_error_message(e, "GCP Pub/Sub message publishing"))
 

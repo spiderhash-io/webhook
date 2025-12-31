@@ -24,8 +24,8 @@ class ClickHouseModule(BaseModule):
     ```
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], **kwargs):
+        super().__init__(config, **kwargs)
         self.client = None
         raw_table_name = self.module_config.get('table', 'webhook_logs')
         self.table_name = self._validate_table_name(raw_table_name)

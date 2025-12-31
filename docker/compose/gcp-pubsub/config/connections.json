@@ -1,0 +1,8 @@
+{
+    "gcp_pubsub_local": {
+        "type": "gcp_pubsub",
+        "project_id": "test-project",
+        "credentials": {}
+    }
+}
+

@@ -1,0 +1,14 @@
+{
+    "test_postgres": {
+        "data_type": "json",
+        "module": "postgresql",
+        "authorization": "Bearer test_token_123",
+        "module-config": {
+            "table": "webhook_events",
+            "storage_mode": "json",
+            "include_headers": true
+        },
+        "connection": "postgres_local"
+    }
+}
+

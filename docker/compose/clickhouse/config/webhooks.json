@@ -1,0 +1,14 @@
+{
+    "test_clickhouse": {
+        "data_type": "json",
+        "module": "clickhouse",
+        "authorization": "Bearer test_token_123",
+        "module-config": {
+            "table": "webhook_logs",
+            "include_headers": true,
+            "include_timestamp": true
+        },
+        "connection": "clickhouse_local"
+    }
+}
+

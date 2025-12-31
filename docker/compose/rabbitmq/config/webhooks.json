@@ -1,0 +1,10 @@
+{
+    "test_rabbitmq": {
+        "data_type": "json",
+        "module": "rabbitmq",
+        "authorization": "Bearer test_token_123",
+        "queue_name": "test_queue",
+        "connection": "rabbitmq_local"
+    }
+}
+

@@ -706,6 +706,7 @@ async def startup_event():
     print("=" * 60 + "\n")
     
     # Initialize ConfigManager for live reload
+    global config_manager
     print("📋 Initializing configuration manager...")
     config_manager = ConfigManager()
     try:

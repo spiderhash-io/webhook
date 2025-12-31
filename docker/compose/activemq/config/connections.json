@@ -1,0 +1,10 @@
+{
+    "activemq_local": {
+        "type": "activemq",
+        "host": "activemq",
+        "port": 61613,
+        "user": "artemis",
+        "password": "artemis"
+    }
+}
+

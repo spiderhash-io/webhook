@@ -1,0 +1,7 @@
+{
+    "kafka_local": {
+        "type": "kafka",
+        "bootstrap_servers": "redpanda:9092"
+    }
+}
+

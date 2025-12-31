@@ -1,0 +1,10 @@
+{
+    "test_mqtt": {
+        "data_type": "json",
+        "module": "mqtt",
+        "authorization": "Bearer test_token_123",
+        "topic": "webhook/events",
+        "connection": "mqtt_local"
+    }
+}
+

@@ -1,0 +1,13 @@
+{
+    "test_activemq": {
+        "data_type": "json",
+        "module": "activemq",
+        "authorization": "Bearer test_token_123",
+        "module-config": {
+            "destination": "webhook.events",
+            "destination_type": "queue"
+        },
+        "connection": "activemq_local"
+    }
+}
+

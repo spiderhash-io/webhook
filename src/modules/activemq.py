@@ -19,8 +19,8 @@ except ImportError:
 class ActiveMQModule(BaseModule):
     """Module for publishing webhook payloads to Apache ActiveMQ."""
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], **kwargs):
+        super().__init__(config, **kwargs)
         if not ACTIVEMQ_AVAILABLE:
             raise ImportError("stomp.py library is required for ActiveMQ module. Install with: pip install stomp.py")
         
@@ -186,7 +186,9 @@ class ActiveMQModule(BaseModule):
             
             self.client = await loop.run_in_executor(None, create_connection)
         except Exception as e:
-            raise Exception(sanitize_error_message(e, "ActiveMQ connection"))
+            error_msg = sanitize_error_message(e, "ActiveMQ connection")
+            print(f"ERROR [ActiveMQ connection]: {error_msg}")
+            raise Exception(error_msg)
     
     async def teardown(self) -> None:
         """Close ActiveMQ connection."""

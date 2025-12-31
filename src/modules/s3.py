@@ -12,8 +12,8 @@ from src.modules.base import BaseModule
 class S3Module(BaseModule):
     """Module for saving webhook payloads to AWS S3."""
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], **kwargs):
+        super().__init__(config, **kwargs)
         self.s3_client = None
         # Validate prefix and filename_pattern during initialization
         raw_prefix = self.module_config.get('prefix', 'webhooks')

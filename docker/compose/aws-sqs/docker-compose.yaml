@@ -1,0 +1,60 @@
+# Docker Compose for AWS SQS module testing (using LocalStack)
+# Usage: docker-compose -f docker/compose/aws-sqs/docker-compose.yaml up -d
+
+services:
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
+    depends_on:
+      localstack:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"   # LocalStack Gateway
+      - "4510-4559:4510-4559"  # External services port range
+    environment:
+      - SERVICES=sqs
+      - DEBUG=1
+      - DATA_DIR=/var/lib/localstack/data
+      - TMPDIR=/var/lib/localstack/tmp
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4566/_localstack/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 25
+      start_period: 60s
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  localstack_data:
+

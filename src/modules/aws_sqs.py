@@ -19,8 +19,8 @@ except ImportError:
 class AWSSQSModule(BaseModule):
     """Module for publishing webhook payloads to Amazon SQS queues."""
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], **kwargs):
+        super().__init__(config, **kwargs)
         if not AWS_SQS_AVAILABLE:
             raise ImportError("boto3 library is required for AWS SQS module. Install with: pip install boto3")
         
@@ -161,9 +161,40 @@ class AWSSQSModule(BaseModule):
                         response = self.sqs_client.get_queue_url(QueueName=self._validated_queue)
                         return response['QueueUrl']
                     except ClientError as e:
+                        error_code = e.response.get('Error', {}).get('Code', '')
+                        if error_code == 'AWS.SimpleQueueService.NonExistentQueue':
+                            # Queue doesn't exist - raise to handle in outer try-except
+                            raise
                         raise Exception(sanitize_error_message(e, "SQS queue URL retrieval"))
                 
-                queue_url = await loop.run_in_executor(None, get_queue_url)
+                try:
+                    queue_url = await loop.run_in_executor(None, get_queue_url)
+                except ClientError as e:
+                    # Check if it's a NonExistentQueue error
+                    error_code = e.response.get('Error', {}).get('Code', '')
+                    if error_code == 'AWS.SimpleQueueService.NonExistentQueue':
+                        # Queue doesn't exist - try to create it (for development/testing with LocalStack)
+                        try:
+                            print(f"Queue '{self._validated_queue}' not found, attempting to create it...")
+                            
+                            def create_queue():
+                                # Create queue with default attributes
+                                response = self.sqs_client.create_queue(QueueName=self._validated_queue)
+                                return response['QueueUrl']
+                            
+                            queue_url = await loop.run_in_executor(None, create_queue)
+                            print(f"Created queue '{self._validated_queue}'")
+                        except Exception as create_error:
+                            # If creation fails, raise original error
+                            sanitized_error = sanitize_error_message(create_error, "SQS queue creation")
+                            print(f"ERROR [SQS queue creation]: {sanitized_error}")
+                            raise Exception(f"Queue '{self._validated_queue}' not found and could not be created: {sanitized_error}")
+                    else:
+                        # Re-raise other ClientError
+                        raise Exception(sanitize_error_message(e, "SQS queue URL retrieval"))
+                except Exception as e:
+                    # Re-raise other errors
+                    raise Exception(sanitize_error_message(e, "SQS queue URL retrieval"))
             
             # Send message (boto3 is synchronous, wrap in executor)
             message_attributes = {}

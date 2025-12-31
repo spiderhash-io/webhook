@@ -1,0 +1,10 @@
+{
+    "test_kafka": {
+        "data_type": "json",
+        "module": "kafka",
+        "authorization": "Bearer test_token_123",
+        "topic": "webhook_events",
+        "connection": "kafka_local"
+    }
+}
+

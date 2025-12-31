@@ -1,0 +1,14 @@
+{
+    "test_mysql": {
+        "data_type": "json",
+        "module": "mysql",
+        "authorization": "Bearer test_token_123",
+        "module-config": {
+            "table": "webhook_events",
+            "storage_mode": "json",
+            "include_headers": true
+        },
+        "connection": "mysql_local"
+    }
+}
+

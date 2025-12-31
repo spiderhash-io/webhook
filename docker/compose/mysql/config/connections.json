@@ -1,0 +1,11 @@
+{
+    "mysql_local": {
+        "type": "mysql",
+        "host": "mysql",
+        "port": 3306,
+        "database": "webhook_test",
+        "user": "webhook_user",
+        "password": "webhook_pass"
+    }
+}
+

@@ -51,6 +51,8 @@ htmlcov/
 .env
 .env.local
 .env.*.local
+# Allow .env files in docker/compose directories (they contain example/test values, not secrets)
+!docker/compose/*/.env
 
 # Logs
 *.log

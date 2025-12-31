@@ -1,0 +1,14 @@
+{
+    "test_s3": {
+        "data_type": "json",
+        "module": "s3",
+        "authorization": "Bearer test_token_123",
+        "module-config": {
+            "bucket": "webhook-test",
+            "prefix": "webhooks",
+            "filename_pattern": "webhook_{timestamp}_{uuid}.json"
+        },
+        "connection": "s3_local"
+    }
+}
+

@@ -25,8 +25,8 @@ class RedisPublishModule(BaseModule):
     }
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
+    def __init__(self, config: Dict[str, Any], **kwargs):
+        super().__init__(config, **kwargs)
         # Validate channel name during initialization to fail early
         redis_cfg = self.config.get("redis", {})
         raw_channel = redis_cfg.get("channel", "webhook_events")

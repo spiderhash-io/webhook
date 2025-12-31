@@ -1,0 +1,16 @@
+{
+    "test_log": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer test_token_123"
+    },
+    "test_save_to_disk": {
+        "data_type": "json",
+        "module": "save_to_disk",
+        "authorization": "Bearer test_token_123",
+        "module-config": {
+            "path": "webhooks"
+        }
+    }
+}
+

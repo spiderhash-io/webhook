@@ -1,18 +1,23 @@
-# Docker Compose for single webhook instance
+# Docker Compose for webhook-only (no external services - log, save_to_disk, http_webhook modules)
 # Usage: docker-compose -f docker/compose/webhook-only/docker-compose.yaml up -d
 
 services:
   webhook:
     build:
       context: ../../..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.smaller
     ports:
       - "8000:8000"
     volumes:
       - ../../../src:/app/src
-      - ../../../config/development/connections.json:/app/connections.json
-      - ../../../config/development/webhooks.json:/app/webhooks.json
-    environment:
-      - PYTHONUNBUFFERED=1
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
     restart: unless-stopped
-
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s

@@ -1,0 +1,12 @@
+{
+    "test_gcp_pubsub": {
+        "data_type": "json",
+        "module": "gcp_pubsub",
+        "authorization": "Bearer test_token_123",
+        "module-config": {
+            "topic": "webhook-events"
+        },
+        "connection": "gcp_pubsub_local"
+    }
+}
+

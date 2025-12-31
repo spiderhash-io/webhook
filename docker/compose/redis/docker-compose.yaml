@@ -1,7 +1,32 @@
-# Docker Compose for Redis testing
+# Docker Compose for Redis module testing (redis_rq, redis_publish)
 # Usage: docker-compose -f docker/compose/redis/docker-compose.yaml up -d
 
 services:
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
   redis:
     image: redis:alpine
     ports:
@@ -25,4 +50,3 @@ networks:
 
 volumes:
   redis_data:
-
