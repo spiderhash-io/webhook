@@ -17,6 +17,7 @@ Tests cover:
 import pytest
 import json
 import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 from src.modules.mysql import MySQLModule
 
@@ -178,43 +179,61 @@ class TestSSRFPrevention:
     @pytest.mark.asyncio
     async def test_ssrf_localhost_blocked(self):
         """Test that localhost connections are blocked."""
-        config = {
-            'connection_details': {
-                'host': '127.0.0.1',
-                'port': 3306,
-                'database': 'test_db',
-                'user': 'test_user',
-                'password': 'test_pass'
-            },
-            'module-config': {'table': 'test_table'},
-            '_webhook_id': 'test_webhook'
-        }
-        
-        module = MySQLModule(config)
-        with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
-            await module.setup()
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            config = {
+                'connection_details': {
+                    'host': '127.0.0.1',
+                    'port': 3306,
+                    'database': 'test_db',
+                    'user': 'test_user',
+                    'password': 'test_pass'
+                },
+                'module-config': {'table': 'test_table'},
+                '_webhook_id': 'test_webhook'
+            }
+            
+            module = MySQLModule(config)
+            with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
+                await module.setup()
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     @pytest.mark.asyncio
     async def test_ssrf_private_ip_blocked(self):
         """Test that localhost and metadata service are blocked (private IPs are now allowed for internal networks)."""
-        # Localhost is still blocked
-        localhost_config = {
-            'connection_details': {
-                'host': '127.0.0.1',
-                'port': 3306,
-                'database': 'test_db',
-                'user': 'test_user',
-                'password': 'test_pass'
-            },
-            'module-config': {'table': 'test_table'},
-            '_webhook_id': 'test_webhook'
-        }
-        module = MySQLModule(localhost_config)
-        with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
-            await module.setup()
-        
-        # Link-local/metadata service is still blocked
-        metadata_config = {
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            # Localhost is still blocked
+            localhost_config = {
+                'connection_details': {
+                    'host': '127.0.0.1',
+                    'port': 3306,
+                    'database': 'test_db',
+                    'user': 'test_user',
+                    'password': 'test_pass'
+                },
+                'module-config': {'table': 'test_table'},
+                '_webhook_id': 'test_webhook'
+            }
+            module = MySQLModule(localhost_config)
+            with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
+                await module.setup()
+            
+            # Link-local/metadata service is still blocked
+            metadata_config = {
             'connection_details': {
                 'host': '169.254.169.254',  # AWS metadata service
                 'port': 3306,
@@ -224,10 +243,16 @@ class TestSSRFPrevention:
             },
             'module-config': {'table': 'test_table'},
             '_webhook_id': 'test_webhook'
-        }
-        module = MySQLModule(metadata_config)
-        with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
-            await module.setup()
+            }
+            module = MySQLModule(metadata_config)
+            with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
+                await module.setup()
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
         
         # Private IPs are now allowed for internal network usage
         # (matching the policy change in config.py and module hostname validation)

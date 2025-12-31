@@ -16,6 +16,7 @@ Tests cover:
 import pytest
 import json
 import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 from src.modules.postgres import PostgreSQLModule
 
@@ -391,62 +392,86 @@ class TestConnectionStringInjection:
     @pytest.mark.asyncio
     async def test_connection_string_ssrf_localhost(self):
         """Test that connection strings with localhost are blocked."""
-        config = {
-            'connection_details': {
-                'connection_string': 'postgresql://user:pass@localhost:5432/db'
-            },
-            'module-config': {'table': 'test_table'}
-        }
-        
-        module = PostgreSQLModule(config)
-        with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
-            await module.setup()
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            config = {
+                'connection_details': {
+                    'connection_string': 'postgresql://user:pass@localhost:5432/db'
+                },
+                'module-config': {'table': 'test_table'}
+            }
+            
+            module = PostgreSQLModule(config)
+            with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
+                await module.setup()
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     @pytest.mark.asyncio
     async def test_connection_string_ssrf_private_ip(self):
         """Test that connection strings with localhost are blocked (private IPs are now allowed for internal networks)."""
-        # Localhost is still blocked
-        localhost_conn_str = 'postgresql://user:pass@127.0.0.1:5432/db'
-        config = {
-            'connection_details': {'connection_string': localhost_conn_str},
-            'module-config': {'table': 'test_table'}
-        }
-        module = PostgreSQLModule(config)
-        with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
-            await module.setup()
-        
-        # Private IPs are now allowed for internal network usage
-        # (matching the policy change in config.py and module hostname validation)
-        private_ips = [
-            'postgresql://user:pass@192.168.1.1:5432/db',
-            'postgresql://user:pass@10.0.0.1:5432/db',
-            'postgresql://user:pass@172.16.0.1:5432/db',
-        ]
-        
-        for conn_str in private_ips:
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            # Localhost is still blocked
+            localhost_conn_str = 'postgresql://user:pass@127.0.0.1:5432/db'
             config = {
-                'connection_details': {'connection_string': conn_str},
+                'connection_details': {'connection_string': localhost_conn_str},
                 'module-config': {'table': 'test_table'}
             }
             module = PostgreSQLModule(config)
-            # Should not raise ValueError for private IPs (they're allowed now)
-            # Mock the pool creation to avoid actual connection attempts
-            mock_pool = AsyncMock()
-            conn = AsyncMock()
-            conn.fetchval = AsyncMock(return_value=1)
-            acquire_ctx = MagicMock()
-            acquire_ctx.__aenter__ = AsyncMock(return_value=conn)
-            acquire_ctx.__aexit__ = AsyncMock(return_value=None)
-            mock_pool.acquire = MagicMock(return_value=acquire_ctx)
-            
-            async def mock_create_pool_func(*args, **kwargs):
-                return mock_pool
-            
-            with patch('asyncpg.create_pool', side_effect=mock_create_pool_func):
-                # Should not raise ValueError for private IPs (they're allowed now)
-                # Connection will succeed with mocked pool
+            with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
                 await module.setup()
-                assert module.pool is not None
+            
+            # Private IPs are now allowed for internal network usage
+            # (matching the policy change in config.py and module hostname validation)
+            private_ips = [
+                'postgresql://user:pass@192.168.1.1:5432/db',
+                'postgresql://user:pass@10.0.0.1:5432/db',
+                'postgresql://user:pass@172.16.0.1:5432/db',
+            ]
+            
+            for conn_str in private_ips:
+                config = {
+                    'connection_details': {'connection_string': conn_str},
+                    'module-config': {'table': 'test_table'}
+                }
+                module = PostgreSQLModule(config)
+                # Should not raise ValueError for private IPs (they're allowed now)
+                # Mock the pool creation to avoid actual connection attempts
+                mock_pool = AsyncMock()
+                conn = AsyncMock()
+                conn.fetchval = AsyncMock(return_value=1)
+                acquire_ctx = MagicMock()
+                acquire_ctx.__aenter__ = AsyncMock(return_value=conn)
+                acquire_ctx.__aexit__ = AsyncMock(return_value=None)
+                mock_pool.acquire = MagicMock(return_value=acquire_ctx)
+                
+                async def mock_create_pool_func(*args, **kwargs):
+                    return mock_pool
+                
+                with patch('asyncpg.create_pool', side_effect=mock_create_pool_func):
+                    # Should not raise ValueError for private IPs (they're allowed now)
+                    # Connection will succeed with mocked pool
+                    await module.setup()
+                    assert module.pool is not None
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     @pytest.mark.asyncio
     async def test_connection_string_metadata_service(self):
@@ -534,33 +559,45 @@ class TestConnectionStringInjection:
     @pytest.mark.asyncio
     async def test_hostname_ssrf_prevention(self):
         """Test that hostname SSRF prevention works (localhost blocked, private IPs allowed for internal networks)."""
-        config = {
-            'connection_details': {},
-            'module-config': {'table': 'test_table'}
-        }
-        module = PostgreSQLModule(config)
-        
-        # Localhost and metadata service are still blocked
-        unsafe_hosts = [
-            'localhost',
-            '127.0.0.1',
-            '169.254.169.254',
-            'metadata.google.internal',
-        ]
-        
-        for unsafe_host in unsafe_hosts:
-            assert module._validate_hostname(unsafe_host) is False
-        
-        # Private IPs are now allowed for internal network usage
-        # (matching the policy change in config.py and module hostname validation)
-        allowed_private_ips = [
-            '10.0.0.1',
-            '172.16.0.1',
-            '192.168.1.1',
-        ]
-        
-        for private_ip in allowed_private_ips:
-            assert module._validate_hostname(private_ip) is True
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            config = {
+                'connection_details': {},
+                'module-config': {'table': 'test_table'}
+            }
+            module = PostgreSQLModule(config)
+            
+            # Localhost and metadata service are still blocked
+            unsafe_hosts = [
+                'localhost',
+                '127.0.0.1',
+                '169.254.169.254',
+                'metadata.google.internal',
+            ]
+            
+            for unsafe_host in unsafe_hosts:
+                assert module._validate_hostname(unsafe_host) is False
+            
+            # Private IPs are now allowed for internal network usage
+            # (matching the policy change in config.py and module hostname validation)
+            allowed_private_ips = [
+                '10.0.0.1',
+                '172.16.0.1',
+                '192.168.1.1',
+            ]
+            
+            for private_ip in allowed_private_ips:
+                assert module._validate_hostname(private_ip) is True
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     @pytest.mark.asyncio
     async def test_hostname_allows_public(self):

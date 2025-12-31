@@ -3,6 +3,7 @@ Security tests for SSRF prevention in connection configuration.
 Tests that connection host/port validation prevents SSRF attacks.
 """
 import pytest
+import os
 from unittest.mock import Mock, patch, AsyncMock
 from src.config import _validate_connection_host, _validate_connection_port, inject_connection_details
 
@@ -28,17 +29,30 @@ class TestConfigSSRFPrevention:
     
     def test_localhost_blocked(self):
         """Test that localhost is blocked."""
-        localhost_variants = [
-            'localhost',
-            '127.0.0.1',
-            '0.0.0.0',
-            '::1',
-            '[::1]',
-        ]
-        
-        for host in localhost_variants:
-            with pytest.raises(ValueError, match=r'localhost|not allowed'):
-                _validate_connection_host(host, "Test")
+        # Save original value and ensure localhost is blocked for this test
+        # (integration tests may set ALLOW_LOCALHOST_FOR_TESTS=true)
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            localhost_variants = [
+                'localhost',
+                '127.0.0.1',
+                '0.0.0.0',
+                '::1',
+                '[::1]',
+            ]
+            
+            for host in localhost_variants:
+                with pytest.raises(ValueError, match=r'localhost|not allowed'):
+                    _validate_connection_host(host, "Test")
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     def test_link_local_blocked(self):
         """Test that link-local addresses are blocked."""
@@ -106,10 +120,22 @@ class TestConfigSSRFPrevention:
     
     def test_ipv6_localhost_blocked(self):
         """Test that IPv6 localhost in brackets is blocked."""
-        # IPv6 localhost should be blocked even in brackets
-        ipv6_localhost = '[::1]'
-        with pytest.raises(ValueError, match=r'localhost|not allowed'):
-            _validate_connection_host(ipv6_localhost, "Test")
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            # IPv6 localhost should be blocked even in brackets
+            ipv6_localhost = '[::1]'
+            with pytest.raises(ValueError, match=r'localhost|not allowed'):
+                _validate_connection_host(ipv6_localhost, "Test")
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     def test_null_byte_blocked(self):
         """Test that null bytes are blocked."""
@@ -219,26 +245,38 @@ class TestConfigSSRFPrevention:
     @pytest.mark.asyncio
     async def test_rabbitmq_connection_validation(self):
         """Test that RabbitMQ connections are validated."""
-        webhook_config = {
-            "test_webhook": {
-                "module": "rabbitmq",
-                "connection": "rabbitmq_test"
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            webhook_config = {
+                "test_webhook": {
+                    "module": "rabbitmq",
+                    "connection": "rabbitmq_test"
+                }
             }
-        }
-        
-        connection_config = {
-            "rabbitmq_test": {
-                "type": "rabbitmq",
-                "host": "127.0.0.1",  # Localhost - should be blocked
-                "port": 5672,
-                "user": "guest",
-                "pass": "guest"
+            
+            connection_config = {
+                "rabbitmq_test": {
+                    "type": "rabbitmq",
+                    "host": "127.0.0.1",  # Localhost - should be blocked
+                    "port": 5672,
+                    "user": "guest",
+                    "pass": "guest"
+                }
             }
-        }
-        
-        # Should raise ValueError due to localhost
-        with pytest.raises(ValueError, match=r'localhost|not allowed'):
-            await inject_connection_details(webhook_config, connection_config)
+            
+            # Should raise ValueError due to localhost
+            with pytest.raises(ValueError, match=r'localhost|not allowed'):
+                await inject_connection_details(webhook_config, connection_config)
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     @pytest.mark.asyncio
     async def test_rabbitmq_public_host_allowed(self):
@@ -294,9 +332,21 @@ class TestConfigSSRFPrevention:
     
     def test_loopback_ip_blocked(self):
         """Test that loopback IPs are blocked."""
-        loopback_ips = ['127.0.0.1', '127.1.1.1', '::1']
-        
-        for ip in loopback_ips:
-            with pytest.raises(ValueError, match=r'loopback|localhost|not allowed'):
-                _validate_connection_host(ip, "Test")
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            loopback_ips = ['127.0.0.1', '127.1.1.1', '::1']
+            
+            for ip in loopback_ips:
+                with pytest.raises(ValueError, match=r'loopback|localhost|not allowed'):
+                    _validate_connection_host(ip, "Test")
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
 

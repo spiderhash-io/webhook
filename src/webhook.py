@@ -58,12 +58,41 @@ class TaskManager:
         
         self.max_concurrent_tasks = max_concurrent_tasks
         self.task_timeout = float(task_timeout)
-        self.semaphore = asyncio.Semaphore(max_concurrent_tasks)
+        self._semaphore: Optional[asyncio.Semaphore] = None  # Lazy initialization
+        self._lock: Optional[asyncio.Lock] = None  # Lazy initialization
         self.active_tasks = set()
         self._total_tasks_created = 0
         self._total_tasks_completed = 0
         self._total_tasks_timeout = 0
-        self._lock = asyncio.Lock()
+    
+    def _get_semaphore(self) -> asyncio.Semaphore:
+        """Get or create the async semaphore (lazy initialization)."""
+        if self._semaphore is None:
+            try:
+                self._semaphore = asyncio.Semaphore(self.max_concurrent_tasks)
+            except RuntimeError:
+                # If no event loop exists, create a new one (for testing scenarios)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._semaphore = asyncio.Semaphore(self.max_concurrent_tasks)
+        return self._semaphore
+    
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock (lazy initialization)."""
+        if self._lock is None:
+            try:
+                self._lock = asyncio.Lock()
+            except RuntimeError:
+                # If no event loop exists, create a new one (for testing scenarios)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._lock = asyncio.Lock()
+        return self._lock
+    
+    @property
+    def semaphore(self) -> asyncio.Semaphore:
+        """Property to access semaphore (for backward compatibility)."""
+        return self._get_semaphore()
     
     async def create_task(self, coro, timeout: Optional[float] = None) -> asyncio.Task:
         """
@@ -95,7 +124,7 @@ class TaskManager:
         
         # Acquire semaphore (will block if limit reached)
         # This provides natural backpressure - tasks will wait if queue is full
-        await self.semaphore.acquire()
+        await self._get_semaphore().acquire()
         
         # Create task first, then reference it in wrapper to avoid closure issues
         # We'll set the task reference after creation so the wrapper can access it
@@ -109,13 +138,13 @@ class TaskManager:
                 # Execute with timeout
                 return await asyncio.wait_for(coro, timeout=timeout)
             except asyncio.TimeoutError:
-                async with self._lock:
+                async with self._get_lock():
                     self._total_tasks_timeout += 1
                 raise Exception(f"Task exceeded timeout of {timeout}s")
             finally:
                 # Release semaphore and remove from active tasks
-                self.semaphore.release()
-                async with self._lock:
+                self._get_semaphore().release()
+                async with self._get_lock():
                     if current_task:
                         self.active_tasks.discard(current_task)
                     self._total_tasks_completed += 1
@@ -127,7 +156,7 @@ class TaskManager:
         task = asyncio.create_task(task_wrapper())
         task_ref['task'] = task  # Set reference for wrapper
         
-        async with self._lock:
+        async with self._get_lock():
             self.active_tasks.add(task)
             self._total_tasks_created += 1
         
@@ -189,7 +218,7 @@ class WebhookHandler:
         self.pool_registry = pool_registry
         self.headers = self.request.headers
         self._cached_body = None  # Cache request body after first read
-        self._body_reading_lock = asyncio.Lock()  # SECURITY: Lock to prevent race conditions when reading body
+        self._body_reading_lock: Optional[asyncio.Lock] = None  # Lazy initialization - SECURITY: Lock to prevent race conditions when reading body
         
         # SECURITY: Validate config type before validator instantiation to prevent type confusion
         if not isinstance(self.config, dict):
@@ -233,6 +262,18 @@ class WebhookHandler:
                 status_code=500,
                 detail=sanitize_error_message(e, "validator instantiation")
             )
+    
+    def _get_body_reading_lock(self) -> asyncio.Lock:
+        """Get or create the body reading lock (lazy initialization)."""
+        if self._body_reading_lock is None:
+            try:
+                self._body_reading_lock = asyncio.Lock()
+            except RuntimeError:
+                # If no event loop exists, create a new one (for testing scenarios)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._body_reading_lock = asyncio.Lock()
+        return self._body_reading_lock
 
     async def validate_webhook(self):
         """Validate webhook using all configured validators."""
@@ -240,7 +281,7 @@ class WebhookHandler:
         # Cache body after first read since FastAPI Request.body() can only be read once
         # SECURITY: Use lock to prevent race conditions when reading body concurrently
         if self._cached_body is None:
-            async with self._body_reading_lock:
+            async with self._get_body_reading_lock():
                 # Double-check after acquiring lock (another coroutine might have read it)
                 if self._cached_body is None:
                     # SECURITY: Wrap body reading in try-except to handle exceptions gracefully
@@ -338,7 +379,7 @@ class WebhookHandler:
         # Reuse cached body from validate_webhook() since FastAPI Request.body() can only be read once
         # SECURITY: Use lock to prevent race conditions when reading body concurrently
         if self._cached_body is None:
-            async with self._body_reading_lock:
+            async with self._get_body_reading_lock():
                 # Double-check after acquiring lock (another coroutine might have read it)
                 if self._cached_body is None:
                     # If validate_webhook() wasn't called, read body now (shouldn't happen in normal flow)

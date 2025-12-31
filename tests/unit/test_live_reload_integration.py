@@ -11,7 +11,6 @@ from src.connection_pool_registry import ConnectionPoolRegistry
 
 class TestLiveReloadIntegration:
     """Integration tests for live reload feature."""
-    pytestmark = pytest.mark.todo
     
     @pytest.fixture
     def temp_webhook_config(self, tmp_path):

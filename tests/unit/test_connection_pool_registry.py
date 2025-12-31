@@ -7,7 +7,6 @@ from src.connection_pool_registry import ConnectionPoolRegistry
 
 class TestConnectionPoolRegistry:
     """Test suite for ConnectionPoolRegistry."""
-    pytestmark = pytest.mark.todo
     
     @pytest.fixture
     def pool_registry(self):

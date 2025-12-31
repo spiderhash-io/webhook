@@ -1,16 +1,16 @@
 # Core Webhook Module
 
-A flexible and configurable webhook receiver and processor built with FastAPI. It receives webhooks, validates them, and forwards the payloads to various destinations such as RabbitMQ, Redis, MQTT, disk, or stdout.
+A webhook receiver and processor built with FastAPI. Receives HTTP webhook requests, validates them using authentication and validation rules, and forwards payloads to destinations including RabbitMQ, Redis, MQTT, databases, object storage, message queues, and local filesystem.
 
-**Status**: Production-ready with comprehensive security features, 2,493 passing tests, and support for multiple output destinations. All 11 authentication methods implemented!
+**Status**: 2,493 passing tests. Supports 11 authentication methods and 17 output modules.
 
 ## Features
 
 ### Core Functionality
-- **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, WebSocket, PostgreSQL, MySQL/MariaDB, S3, Kafka, ActiveMQ, AWS SQS, GCP Pub/Sub, ZeroMQ, or stdout.
+- **Output Modules**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, WebSocket, PostgreSQL, MySQL/MariaDB, S3, Kafka, ActiveMQ, AWS SQS, GCP Pub/Sub, ZeroMQ, or stdout.
 - **Webhook Chaining**: Send webhook payloads to multiple destinations in sequence or parallel (e.g., save to S3 then Redis, save to DB and RabbitMQ simultaneously).
-- **Plugin Architecture**: Easy to extend with new modules without modifying core code.
-- **Configuration-Driven**: Easy configuration via JSON files (`webhooks.json`, `connections.json`) and environment variables.
+- **Plugin Architecture**: Extensible module system. New output modules can be added without modifying core code.
+- **Configuration-Driven**: Configuration via JSON files (`webhooks.json`, `connections.json`) located in `config/development/` (or root directory) and environment variables.
 - **Live Config Reload**: Hot-reload webhook and connection configurations without restarting the application (via ConfigManager and ConfigFileWatcher).
 - **Connection Pool Management**: Centralized connection pool registry with automatic pool lifecycle management and versioning.
 - **Statistics**: Tracks webhook usage statistics (requests per minute, hour, day, etc.) via `/stats`.
@@ -18,17 +18,17 @@ A flexible and configurable webhook receiver and processor built with FastAPI. I
 - **Distributed Architecture**: Support for multiple webhook instances with centralized analytics processing.
 
 ### Security Features
-- **Authorization**: Supports Authorization header validation (including Bearer tokens).
-- **Basic Authentication**: HTTP Basic Auth support with secure credential validation.
-- **JWT Authentication**: Full JWT token validation with issuer, audience, and expiration checks.
-- **HMAC Verification**: Validates webhook signatures using HMAC-SHA256/SHA1/SHA512.
+- **Authorization**: Authorization header validation (Bearer tokens).
+- **Basic Authentication**: HTTP Basic Auth with credential validation.
+- **JWT Authentication**: JWT token validation with issuer, audience, and expiration checks.
+- **HMAC Verification**: Webhook signature validation using HMAC-SHA256/SHA1/SHA512.
 - **IP Whitelisting**: Restrict webhooks to specific IP addresses.
 - **Google reCAPTCHA**: Backend validation for Google reCAPTCHA v2 and v3 tokens with score threshold support.
-- **Rate Limiting**: Per-webhook rate limiting with configurable windows.
+- **Rate Limiting**: Per-webhook rate limiting with configurable time windows.
 - **Multi-Layer Validation**: Combine multiple validators (Authorization + HMAC + IP whitelist + reCAPTCHA).
-- **Payload Validation**: Validates JSON payloads with size, depth, and string length checks.
-- **JSON Schema Validation**: Validate incoming payloads against defined JSON schemas.
-- **Credential Cleanup**: Automatically masks or removes credentials from payloads and headers before logging or storing to prevent credential exposure.
+- **Payload Validation**: JSON payload validation with size, depth, and string length checks.
+- **JSON Schema Validation**: Validate incoming payloads against JSON schemas.
+- **Credential Cleanup**: Masks or removes credentials from payloads and headers before logging or storing.
 
 ## Project Structure
 - `src/main.py`: Entry point, FastAPI app, and route definitions.
@@ -118,13 +118,21 @@ Use the optimized smaller image (multi-stage build for minimal size) to run a si
 
 ```bash
 # Build image using smallest Dockerfile
-docker build -f Dockerfile.smaller -t core-webhook-module:latest .
+docker build -f docker/Dockerfile.smaller -t core-webhook-module:latest .
 
 # Run container (mount configs from host)
+# Config files are automatically found in config/development/ if they exist
 docker run --rm \
   -p 8000:8000 \
-  -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
-  -v "$(pwd)/connections.json:/app/connections.json:ro" \
+  -v "$(pwd)/config/development:/app/config/development:ro" \
+  --env-file .env \
+  core-webhook-module:latest
+
+# Or mount specific config files (if not using config/development/)
+docker run --rm \
+  -p 8000:8000 \
+  -v "$(pwd)/config/development/webhooks.json:/app/config/development/webhooks.json:ro" \
+  -v "$(pwd)/config/development/connections.json:/app/config/development/connections.json:ro" \
   --env-file .env \
   core-webhook-module:latest
 ```
@@ -135,10 +143,10 @@ docker run --rm \
 docker pull registry.gitlab.com/saas-core-platform/core-webhook-module:latest
 
 # Run container
+# Config files are automatically found in config/development/ if they exist
 docker run --rm \
   -p 8000:8000 \
-  -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
-  -v "$(pwd)/connections.json:/app/connections.json:ro" \
+  -v "$(pwd)/config/development:/app/config/development:ro" \
   registry.gitlab.com/saas-core-platform/core-webhook-module:latest
 ```
 
@@ -151,8 +159,11 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./webhooks.json:/app/webhooks.json:ro
-      - ./connections.json:/app/connections.json:ro
+      # Mount config directory (application auto-detects config/development/)
+      - ./config/development:/app/config/development:ro
+      # Or use environment variables to specify custom paths
+      # - WEBHOOKS_CONFIG_FILE=/app/config/development/webhooks.json
+      # - CONNECTIONS_CONFIG_FILE=/app/config/development/connections.json
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
@@ -168,12 +179,13 @@ For performance testing and a full deployment with multiple webhook instances:
 
 ```bash
 # Start all services (5 webhook instances + ClickHouse + Redis + RabbitMQ + Analytics)
+cd docker/compose
 docker compose up -d
 
 # Run performance tests
-./src/tests/run_performance_test.sh
+./scripts/run_performance_test.sh
 # Or manually:
-python3 src/tests/performance_test_multi_instance.py
+python3 tests/unit/performance_test_multi_instance.py
 ```
 
 See `docs/PERFORMANCE_TEST.md` and `DEVELOPMENT.md` for detailed multi-instance and performance testing documentation.
@@ -210,6 +222,22 @@ curl -X POST http://localhost:8000/admin/reload-connections \
 See `docs/LIVE_CONFIG_RELOAD_FEATURE.md` for detailed documentation.
 
 ## Configuration
+
+### Configuration File Locations
+
+Configuration files are automatically located in the following order:
+1. **`config/development/webhooks.json`** and **`config/development/connections.json`** (default if they exist)
+2. **`webhooks.json`** and **`connections.json`** in the root directory (fallback)
+
+You can override these defaults using environment variables:
+- `WEBHOOKS_CONFIG_FILE` - Path to webhooks configuration file
+- `CONNECTIONS_CONFIG_FILE` - Path to connections configuration file
+
+**Example:**
+```bash
+export WEBHOOKS_CONFIG_FILE=/app/config/production/webhooks.json
+export CONNECTIONS_CONFIG_FILE=/app/config/production/connections.json
+```
 
 ### Environment Variables
 
@@ -385,8 +413,10 @@ The application includes CORS middleware enabled by default, allowing webhooks t
     "fully_secured": {
         "data_type": "json",
         "module": "rabbitmq",
-        "queue_name": "secure_queue",
         "connection": "rabbitmq_local",
+        "module-config": {
+            "queue_name": "secure_queue"
+        },
         "authorization": "Bearer super_secret",
         "hmac": {
             "secret": "hmac_secret_key",
@@ -423,6 +453,10 @@ Automatically clean credentials from webhook payloads and headers before logging
     "secure_webhook": {
         "data_type": "json",
         "module": "postgresql",
+        "connection": "postgres_local",
+        "module-config": {
+            "table": "webhook_events"
+        },
         "credential_cleanup": {
             "enabled": true,
             "mode": "mask",
@@ -833,6 +867,9 @@ Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submiss
     "secure_webhook_with_recaptcha": {
         "data_type": "json",
         "module": "save_to_disk",
+        "module-config": {
+            "path": "webhooks/secure"
+        },
         "authorization": "Bearer token_123",
         "recaptcha": {
             "secret_key": "your_recaptcha_secret_key",
@@ -851,9 +888,9 @@ Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submiss
     "kafka_events": {
         "data_type": "json",
         "module": "kafka",
-        "topic": "webhook_events",
         "connection": "kafka_local",
         "module-config": {
+            "topic": "webhook_events",
             "key": "event_key",
             "forward_headers": true
         },
@@ -886,9 +923,9 @@ Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submiss
     "mqtt_events": {
         "data_type": "json",
         "module": "mqtt",
-        "topic": "webhook/events",
         "connection": "mqtt_local",
         "module-config": {
+            "topic": "webhook/events",
             "qos": 1,
             "retained": false,
             "format": "json",
@@ -914,9 +951,9 @@ Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submiss
     "shelly_webhook": {
         "data_type": "json",
         "module": "mqtt",
-        "topic": "shellies/device123/status",
         "connection": "mqtt_shelly",
         "module-config": {
+            "topic": "shellies/device123/status",
             "shelly_gen2_format": true,
             "device_id": "device123",
             "qos": 1
@@ -931,9 +968,9 @@ Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submiss
     "tasmota_webhook": {
         "data_type": "json",
         "module": "mqtt",
-        "topic": "cmnd/device_name/POWER",
         "connection": "mqtt_sonoff",
         "module-config": {
+            "topic": "cmnd/device_name/POWER",
             "tasmota_format": true,
             "tasmota_type": "cmnd",
             "device_name": "device_name",
@@ -1034,10 +1071,98 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 - `relational`: Map payload fields to table columns with schema validation
 - `hybrid`: Store mapped fields in columns + full payload in JSON
 
+#### Redis RQ (Task Queue)
+```json
+{
+    "redis_rq_webhook": {
+        "data_type": "json",
+        "module": "redis_rq",
+        "connection": "redis_local",
+        "module-config": {
+            "queue_name": "webhook_tasks",
+            "function": "process_webhook"
+        },
+        "authorization": "Bearer redis_secret"
+    }
+}
+```
+
+#### Redis Publish (Pub/Sub)
+```json
+{
+    "redis_publish_webhook": {
+        "data_type": "json",
+        "module": "redis_publish",
+        "redis": {
+            "host": "redis",
+            "port": 6379,
+            "channel": "webhook_events"
+        },
+        "authorization": "Bearer redis_secret"
+    }
+}
+```
+
+**Note**: `redis_publish` module uses a legacy configuration format with top-level `redis` object instead of `connection` + `module-config`. This is for backward compatibility.
+
+#### ActiveMQ
+```json
+{
+    "activemq_webhook": {
+        "data_type": "json",
+        "module": "activemq",
+        "connection": "activemq_local",
+        "module-config": {
+            "destination": "webhook.events",
+            "destination_type": "queue"
+        },
+        "authorization": "Bearer activemq_secret"
+    }
+}
+```
+
+**Destination Types:**
+- `queue`: Publish to ActiveMQ queue
+- `topic`: Publish to ActiveMQ topic
+
+#### AWS SQS
+```json
+{
+    "aws_sqs_webhook": {
+        "data_type": "json",
+        "module": "aws_sqs",
+        "connection": "aws_sqs_local",
+        "module-config": {
+            "queue_name": "webhook-queue"
+        },
+        "authorization": "Bearer aws_secret"
+    }
+}
+```
+
+**Note**: Queue is automatically created if it doesn't exist (useful for LocalStack development).
+
+#### GCP Pub/Sub
+```json
+{
+    "gcp_pubsub_webhook": {
+        "data_type": "json",
+        "module": "gcp_pubsub",
+        "connection": "gcp_pubsub_local",
+        "module-config": {
+            "topic": "webhook-events"
+        },
+        "authorization": "Bearer gcp_secret"
+    }
+}
+```
+
+**Note**: Topic is automatically created if it doesn't exist (useful for Pub/Sub Emulator development).
+
 #### Webhook Chaining (Multiple Destinations)
 Send webhook payloads to multiple destinations in sequence or parallel. This feature allows you to create complex workflows where a single webhook triggers multiple actions.
 
-**Simple Array Format:**
+**Simple Array Format (requires connections in `connections.json`):**
 ```json
 {
     "chained_webhook": {
@@ -1051,6 +1176,8 @@ Send webhook payloads to multiple destinations in sequence or parallel. This fea
     }
 }
 ```
+
+**Note**: The simple array format requires connections to be defined in `connections.json` with names matching the module names (e.g., `"s3"` and `"redis_rq"`). For clarity and explicit configuration, use the detailed format below.
 
 **Detailed Format with Per-Module Config:**
 ```json
@@ -1074,7 +1201,8 @@ Send webhook payloads to multiple destinations in sequence or parallel. This fea
                 "module": "redis_rq",
                 "connection": "redis_local",
                 "module-config": {
-                    "queue_name": "process_events"
+                    "queue_name": "process_events",
+                    "function": "process_webhook"
                 }
             }
         ],
@@ -1117,7 +1245,8 @@ Send webhook payloads to multiple destinations in sequence or parallel. This fea
                 "module": "redis_rq",
                 "connection": "redis_local",
                 "module-config": {
-                    "queue_name": "process_events"
+                    "queue_name": "process_events",
+                    "function": "process_webhook"
                 }
             }
         ],

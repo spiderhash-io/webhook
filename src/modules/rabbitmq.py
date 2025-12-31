@@ -28,7 +28,7 @@ class RabbitMQConnectionPool:
         self.max_size = max_size
         self.acquisition_timeout = acquisition_timeout
         self.circuit_breaker_threshold = circuit_breaker_threshold
-        self.connections = asyncio.Queue(maxsize=max_size)
+        self._connections: Optional[asyncio.Queue] = None  # Lazy initialization to avoid event loop requirement
         
         # Monitoring metrics
         self._total_requests = 0
@@ -38,7 +38,36 @@ class RabbitMQConnectionPool:
         self._last_exhaustion_time = None
         
         # Lock for metrics updates
-        self._metrics_lock = asyncio.Lock()
+        self._metrics_lock: Optional[asyncio.Lock] = None  # Lazy initialization to avoid event loop requirement
+    
+    def _get_connections(self) -> asyncio.Queue:
+        """Get or create the connections queue (lazy initialization)."""
+        if self._connections is None:
+            try:
+                self._connections = asyncio.Queue(maxsize=self.max_size)
+            except RuntimeError:
+                # If no event loop exists, create a new one (for testing scenarios)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._connections = asyncio.Queue(maxsize=self.max_size)
+        return self._connections
+    
+    def _get_metrics_lock(self) -> asyncio.Lock:
+        """Get or create the metrics lock (lazy initialization)."""
+        if self._metrics_lock is None:
+            try:
+                self._metrics_lock = asyncio.Lock()
+            except RuntimeError:
+                # If no event loop exists, create a new one (for testing scenarios)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._metrics_lock = asyncio.Lock()
+        return self._metrics_lock
+    
+    @property
+    def connections(self) -> asyncio.Queue:
+        """Property to access connections queue (for backward compatibility)."""
+        return self._get_connections()
 
     async def create_pool(self, host='localhost', port=5672, login='guest', password='guest'):
         """Initialize connections and put them in the queue."""
@@ -47,7 +76,7 @@ class RabbitMQConnectionPool:
                 f"amqp://{login}:{password}@{host}:{port}/",
                 # loop=self.loop
             )
-            await self.connections.put(connection)
+            await self._get_connections().put(connection)
 
     async def get_connection(self, timeout: Optional[float] = None) -> Optional[aio_pika.Connection]:
         """
@@ -65,7 +94,7 @@ class RabbitMQConnectionPool:
         """
         timeout = timeout or self.acquisition_timeout
         
-        async with self._metrics_lock:
+        async with self._get_metrics_lock():
             self._total_requests += 1
             
             # Check circuit breaker (only block if already triggered)
@@ -84,7 +113,7 @@ class RabbitMQConnectionPool:
                         )
             
             # Check pool usage (connections in use / max_size) - just log warning, don't block
-            available = self.connections.qsize()
+            available = self._get_connections().qsize()
             pool_usage = (self.max_size - available) / self.max_size if self.max_size > 0 else 0.0
             if pool_usage >= self.circuit_breaker_threshold and not self._circuit_breaker_triggered:
                 # Log warning but don't block - let the actual timeout trigger circuit breaker
@@ -97,17 +126,17 @@ class RabbitMQConnectionPool:
         try:
             # Try to get connection with timeout
             connection = await asyncio.wait_for(
-                self.connections.get(),
+                self._get_connections().get(),
                 timeout=timeout
             )
             
-            async with self._metrics_lock:
+            async with self._get_metrics_lock():
                 self._successful_acquisitions += 1
             
             return connection
             
         except asyncio.TimeoutError:
-            async with self._metrics_lock:
+            async with self._get_metrics_lock():
                 self._timeout_errors += 1
                 self._last_exhaustion_time = time.time()
                 
@@ -140,7 +169,7 @@ class RabbitMQConnectionPool:
         # Put connection back - this should not block if we're releasing correctly
         # (pool should have space since we got the connection from it)
         try:
-            await self.connections.put(connection)
+            await self._get_connections().put(connection)
         except Exception as e:
             # If there's an error (e.g., pool is full), log and close connection
             print(
@@ -154,8 +183,9 @@ class RabbitMQConnectionPool:
 
     async def close_all(self):
         """Close all connections when shutting down the pool."""
-        while not self.connections.empty():
-            connection = await self.connections.get()
+        connections_queue = self._get_connections()
+        while not connections_queue.empty():
+            connection = await connections_queue.get()
             try:
                 await connection.close()
             except Exception:
@@ -170,7 +200,7 @@ class RabbitMQConnectionPool:
         """
         # Use a synchronous approach to get metrics (no async lock needed for reading)
         # Note: qsize() is not async, so we can call it directly
-        current_size = self.connections.qsize()
+        current_size = self._get_connections().qsize()
         # Pool usage = (connections in use) / max_size
         # connections in use = max_size - available = max_size - current_size
         pool_usage = (self.max_size - current_size) / self.max_size if self.max_size > 0 else 0.0

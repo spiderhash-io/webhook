@@ -6,7 +6,7 @@ This document describes how to run performance tests with multiple webhook insta
 
 The setup includes:
 - **5 Webhook Instances** (ports 8000-8004) - Handle incoming webhook requests
-- **Redis** (port 6379) - For rate limiting and caching
+- **Redis** (port 6380) - For rate limiting and caching
 - **ClickHouse** (ports 8123, 9000) - For storing webhook events and analytics
 - **Analytics Service** - Separate service that processes events from ClickHouse
 
@@ -21,20 +21,20 @@ The setup includes:
 ### Option 1: Using the automated script
 
 ```bash
-./run_performance_test.sh
+./scripts/run_performance_test.sh
 ```
 
 ### Option 2: Manual steps
 
 1. **Start all services:**
    ```bash
-   docker-compose up -d
+   docker compose -f docker/compose/docker-compose.yaml up -d
    ```
 
 2. **Wait for services to be ready** (about 30 seconds):
    ```bash
    # Check ClickHouse
-   docker-compose exec clickhouse wget --spider -q http://localhost:8123/ping
+   docker compose -f docker/compose/docker-compose.yaml exec clickhouse wget --spider -q http://localhost:8123/ping
    
    # Check webhook instances
    curl http://localhost:8000/
@@ -43,12 +43,12 @@ The setup includes:
 
 3. **Run the performance test:**
    ```bash
-   python3 src/tests/performance_test_multi_instance.py
+   python3 tests/unit/performance_test_multi_instance.py
    ```
 
 ## Test Configuration
 
-The performance test is configured in `src/tests/performance_test_multi_instance.py`:
+The performance test is configured in `tests/unit/performance_test_multi_instance.py`:
 
 - **Total Requests**: 10,000
 - **Concurrency**: 200 requests per instance
@@ -82,13 +82,13 @@ After running the test, verify that data was written to ClickHouse:
 
 ```bash
 # Check webhook_logs table
-docker-compose exec clickhouse clickhouse-client --query 'SELECT count() FROM webhook_logs'
+docker compose -f docker/compose/docker-compose.yaml exec clickhouse clickhouse-client --query 'SELECT count() FROM webhook_logs'
 
 # View recent events
-docker-compose exec clickhouse clickhouse-client --query 'SELECT webhook_id, count() as count FROM webhook_logs GROUP BY webhook_id'
+docker compose -f docker/compose/docker-compose.yaml exec clickhouse clickhouse-client --query 'SELECT webhook_id, count() as count FROM webhook_logs GROUP BY webhook_id'
 
 # View sample events
-docker-compose exec clickhouse clickhouse-client --query 'SELECT * FROM webhook_logs LIMIT 5'
+docker compose -f docker/compose/docker-compose.yaml exec clickhouse clickhouse-client --query 'SELECT * FROM webhook_logs LIMIT 5'
 ```
 
 ## Monitoring Services
@@ -97,34 +97,34 @@ docker-compose exec clickhouse clickhouse-client --query 'SELECT * FROM webhook_
 
 ```bash
 # All webhook instances
-docker-compose logs -f webhook-1 webhook-2 webhook-3 webhook-4 webhook-5
+docker compose -f docker/compose/docker-compose.yaml logs -f webhook-1 webhook-2 webhook-3 webhook-4 webhook-5
 
 # Analytics service
-docker-compose logs -f analytics
+docker compose -f docker/compose/docker-compose.yaml logs -f analytics
 
 # ClickHouse
-docker-compose logs -f clickhouse
+docker compose -f docker/compose/docker-compose.yaml logs -f clickhouse
 
 # Redis
-docker-compose logs -f redis
+docker compose -f docker/compose/docker-compose.yaml logs -f redis
 ```
 
 ### Check service status:
 
 ```bash
-docker-compose ps
+docker compose -f docker/compose/docker-compose.yaml ps
 ```
 
 ## Stopping Services
 
 ```bash
-docker-compose down
+docker compose -f docker/compose/docker-compose.yaml down
 ```
 
 To also remove volumes (including ClickHouse data):
 
 ```bash
-docker-compose down -v
+docker compose -f docker/compose/docker-compose.yaml down -v
 ```
 
 ## Troubleshooting
@@ -133,12 +133,12 @@ docker-compose down -v
 
 1. Check Docker is running: `docker info`
 2. Check ports are available: `lsof -i :8000-8004`
-3. View logs: `docker-compose logs`
+3. View logs: `docker compose -f docker/compose/docker-compose.yaml logs`
 
 ### ClickHouse connection errors
 
 1. Wait longer for ClickHouse to initialize (can take 30-60 seconds)
-2. Check ClickHouse logs: `docker-compose logs clickhouse`
+2. Check ClickHouse logs: `docker compose -f docker/compose/docker-compose.yaml logs clickhouse`
 3. Verify ClickHouse is accessible: `curl http://localhost:8123/ping`
 
 ### Performance test failures
@@ -158,7 +158,7 @@ docker-compose down -v
 
 ## Customizing the Test
 
-Edit `src/tests/performance_test_multi_instance.py` to customize:
+Edit `tests/unit/performance_test_multi_instance.py` to customize:
 
 - `TOTAL_REQUESTS`: Total number of requests to send
 - `CONCURRENCY`: Number of concurrent requests

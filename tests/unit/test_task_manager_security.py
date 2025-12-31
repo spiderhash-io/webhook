@@ -20,7 +20,6 @@ from src.webhook import TaskManager, task_manager
 
 class TestTaskManagerSecurity:
     """Security-focused tests for Task Manager."""
-    pytestmark = pytest.mark.todo
     
     @pytest.fixture
     def small_task_manager(self):

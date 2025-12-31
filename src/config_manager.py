@@ -71,9 +71,21 @@ class ConfigManager:
         # Async-safe config storage
         self._webhook_config: Dict[str, Any] = {}
         self._connection_config: Dict[str, Any] = {}
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None  # Lazy initialization to avoid event loop requirement
         self._reload_in_progress = False
         self._last_reload: Optional[datetime] = None
+    
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock (lazy initialization)."""
+        if self._lock is None:
+            try:
+                self._lock = asyncio.Lock()
+            except RuntimeError:
+                # If no event loop exists, create a new one (for testing scenarios)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._lock = asyncio.Lock()
+        return self._lock
     
     async def initialize(self) -> ReloadResult:
         """
@@ -115,7 +127,7 @@ class ConfigManager:
         Returns:
             ReloadResult with reload status and statistics
         """
-        async with self._lock:
+        async with self._get_lock():
             if self._reload_in_progress:
                 return ReloadResult(
                     success=False,
@@ -144,7 +156,7 @@ class ConfigManager:
             modified = {k for k in new_keys & old_keys if self._webhook_config[k] != new_config[k]}
             
             # Apply new config (atomic update)
-            async with self._lock:
+            async with self._get_lock():
                 self._webhook_config = new_config
                 self._last_reload = datetime.now(timezone.utc)
                 self._reload_in_progress = False
@@ -160,14 +172,14 @@ class ConfigManager:
             )
         except FileNotFoundError:
             # If file doesn't exist, keep current config
-            async with self._lock:
+            async with self._get_lock():
                 self._reload_in_progress = False
             return ReloadResult(
                 success=False,
                 error="webhooks.json file not found"
             )
         except json.JSONDecodeError as e:
-            async with self._lock:
+            async with self._get_lock():
                 self._reload_in_progress = False
             # SECURITY: Sanitize error message to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "ConfigManager.reload_webhooks")
@@ -176,7 +188,7 @@ class ConfigManager:
                 error=f"Invalid JSON in webhooks.json: {sanitized_error}"
             )
         except Exception as e:
-            async with self._lock:
+            async with self._get_lock():
                 self._reload_in_progress = False
             # SECURITY: Sanitize error message to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "ConfigManager.reload_webhooks")
@@ -192,7 +204,7 @@ class ConfigManager:
         Returns:
             ReloadResult with reload status and statistics
         """
-        async with self._lock:
+        async with self._get_lock():
             if self._reload_in_progress:
                 return ReloadResult(
                     success=False,
@@ -226,7 +238,7 @@ class ConfigManager:
                 await self._update_connection_pool(conn_name, conn_config)
             
             # Apply new config (atomic update)
-            async with self._lock:
+            async with self._get_lock():
                 self._connection_config = new_config
                 self._last_reload = datetime.now(timezone.utc)
                 self._reload_in_progress = False
@@ -241,14 +253,14 @@ class ConfigManager:
                 }
             )
         except FileNotFoundError:
-            async with self._lock:
+            async with self._get_lock():
                 self._reload_in_progress = False
             return ReloadResult(
                 success=False,
                 error="connections.json file not found"
             )
         except json.JSONDecodeError as e:
-            async with self._lock:
+            async with self._get_lock():
                 self._reload_in_progress = False
             # SECURITY: Sanitize error message to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "ConfigManager.reload_connections")
@@ -257,7 +269,7 @@ class ConfigManager:
                 error=f"Invalid JSON in connections.json: {sanitized_error}"
             )
         except Exception as e:
-            async with self._lock:
+            async with self._get_lock():
                 self._reload_in_progress = False
             # SECURITY: Sanitize error message to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "ConfigManager.reload_connections")

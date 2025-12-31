@@ -93,6 +93,19 @@ Each module inherits from `BaseModule` and implements specific functionality:
 - **SaveToDiskModule**: Saves to file system
 - **RabbitMQModule**: Publishes to RabbitMQ
 - **RedisRQModule**: Queues to Redis RQ
+- **RedisPublishModule**: Publishes to Redis Pub/Sub channels
+- **HTTPWebhookModule**: Forwards to HTTP endpoints
+- **KafkaModule**: Publishes to Kafka topics
+- **S3Module**: Stores to AWS S3
+- **WebSocketModule**: Sends to WebSocket connections
+- **ClickHouseModule**: Stores to ClickHouse database
+- **MQTTModule**: Publishes to MQTT brokers
+- **ZeroMQModule**: Publishes via ZeroMQ
+- **ActiveMQModule**: Publishes to ActiveMQ
+- **AWSSQSModule**: Sends to AWS SQS queues
+- **GCPPubSubModule**: Publishes to GCP Pub/Sub topics
+- **PostgreSQLModule**: Stores to PostgreSQL database
+- **MySQLModule**: Stores to MySQL/MariaDB database
 
 ## Adding a New Module
 
@@ -150,7 +163,7 @@ class ModuleRegistry:
 ```json
 {
     "webhook_id": {
-        "data_type": "json|blob|text",
+        "data_type": "json|blob",
         "module": "module_name",
         "module-config": {
             "module_specific_options": "value"
@@ -185,13 +198,16 @@ class ModuleRegistry:
 
 ## Future Enhancements
 
+### Implemented Features
+1. **Module Chaining**: ✅ Multiple modules per webhook (sequential or parallel execution)
+2. **Error Handling**: ✅ Retry logic with per-module retry configuration
+3. **Hot Reload**: ✅ Live configuration reload without restart (ConfigManager + ConfigFileWatcher)
+
 ### Planned Features
 1. **Middleware System**: Add pre/post processing hooks
-2. **Module Chaining**: Allow multiple modules per webhook
-3. **Conditional Routing**: Route based on payload content
-4. **Error Handling**: Retry logic and dead letter queues
-5. **Metrics**: Per-module performance tracking
-6. **Hot Reload**: Update modules without restart
+2. **Conditional Routing**: Route based on payload content
+3. **Metrics**: Per-module performance tracking
+4. **Module Hot Reload**: Update module code without restart (currently requires restart)
 
 ### Example: Middleware System
 ```python
@@ -211,19 +227,35 @@ class RateLimitMiddleware(BaseMiddleware):
         pass
 ```
 
-### Example: Module Chaining
+### Example: Module Chaining (Implemented)
 ```json
 {
     "webhook_id": {
         "data_type": "json",
-        "modules": [
-            {"name": "log", "config": {}},
-            {"name": "save_to_disk", "config": {"path": "archive"}},
-            {"name": "rabbitmq", "config": {"queue": "processing"}}
-        ]
+        "chain": [
+            {
+                "module": "log",
+                "module-config": {}
+            },
+            {
+                "module": "save_to_disk",
+                "module-config": {"path": "archive"}
+            },
+            {
+                "module": "rabbitmq",
+                "connection": "rabbitmq_local",
+                "module-config": {"queue_name": "processing"}
+            }
+        ],
+        "chain-config": {
+            "execution": "sequential",
+            "continue_on_error": true
+        }
     }
 }
 ```
+
+See `docs/WEBHOOK_CHAINING_FEATURE.md` for detailed documentation.
 
 ## Testing Strategy
 

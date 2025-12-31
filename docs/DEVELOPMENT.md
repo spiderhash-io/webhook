@@ -99,8 +99,10 @@ core-webhook-module/
 │   ├── webhook.py         # Webhook processing logic
 │   ├── config.py          # Configuration loading
 │   ├── modules/           # Output modules
-│   ├── validators.py      # Validation logic
-│   └── tests/             # Test files
+│   └── validators.py      # Validation logic
+├── tests/                  # Test files
+│   ├── unit/              # Unit tests
+│   └── integration/       # Integration tests
 ├── requirements.txt       # Production dependencies
 ├── requirements-dev.txt   # Development dependencies
 ├── Makefile              # Development commands
@@ -158,7 +160,7 @@ See `README.md` for more details on environment variable usage in configuration 
 pytest
 
 # Specific test file
-pytest src/tests/test_env_vars.py
+pytest tests/unit/test_env_vars.py
 
 # With verbose output
 pytest -v
@@ -169,7 +171,8 @@ pytest --cov=src --cov-report=html
 
 ### Writing Tests
 
-- Place test files in `src/tests/`
+- Place unit test files in `tests/unit/`
+- Place integration test files in `tests/integration/`
 - Test files should start with `test_`
 - Use pytest fixtures for setup/teardown
 - Mock external dependencies (Redis, HTTP calls, etc.)
@@ -199,7 +202,7 @@ Use this when you just want the webhook service running in Docker on your machin
 
 ```bash
 # From project root
-docker build -f Dockerfile.small -t core-webhook-module:small .
+docker build -f docker/Dockerfile.smaller -t core-webhook-module:small .
 ```
 
 **Step 2 – Prepare configuration files:**
@@ -241,7 +244,7 @@ Use this for **load/performance testing** and for seeing the complete architectu
 **Step 1 – Start all services with Docker Compose:**
 
 ```bash
-docker-compose up -d
+docker compose -f docker/compose/docker-compose.yaml up -d
 ```
 
 This starts:
@@ -254,7 +257,7 @@ This starts:
 **Step 2 – Verify services are up:**
 
 ```bash
-docker-compose ps
+docker compose -f docker/compose/docker-compose.yaml ps
 
 # Check a webhook instance
 curl http://localhost:8000/
@@ -267,10 +270,10 @@ curl http://localhost:8000/docs
 
 ```bash
 # Quick automated run
-./src/tests/run_performance_test.sh
+./scripts/run_performance_test.sh
 
 # Or manual:
-python3 src/tests/performance_test_multi_instance.py
+python3 tests/unit/performance_test_multi_instance.py
 ```
 
 See `docs/PERFORMANCE_TEST.md` for detailed performance test options and how to inspect ClickHouse data.
@@ -279,13 +282,13 @@ See `docs/PERFORMANCE_TEST.md` for detailed performance test options and how to 
 
 ```bash
 # Logs
-docker-compose logs -f
+docker compose -f docker/compose/docker-compose.yaml logs -f
 
 # Stop and remove services
-docker-compose down
+docker compose -f docker/compose/docker-compose.yaml down
 
 # Stop and also remove volumes (including ClickHouse data)
-docker-compose down -v
+docker compose -f docker/compose/docker-compose.yaml down -v
 ```
 
 ## Common Tasks
@@ -309,7 +312,7 @@ docker-compose down -v
 
 - Use `print()` statements or logging
 - Run with `--reload` flag for auto-restart on changes
-- Check logs: `docker-compose logs -f webhook-1`
+- Check logs: `docker compose -f docker/compose/docker-compose.yaml logs -f webhook-1`
 - Use pytest with `-v` for verbose output
 
 ## Troubleshooting
@@ -329,8 +332,8 @@ docker-compose down -v
 ### Docker Issues
 
 - Ensure Docker is running
-- Check `docker-compose ps` for service status
-- View logs: `docker-compose logs`
+- Check `docker compose -f docker/compose/docker-compose.yaml ps` for service status
+- View logs: `docker compose -f docker/compose/docker-compose.yaml logs`
 
 ## Resources
 

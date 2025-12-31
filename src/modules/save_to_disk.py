@@ -117,11 +117,33 @@ class SaveToDiskModule(BaseModule):
                 
                 # SECURITY: Reject system directories to prevent writing to sensitive locations
                 # Block common system directories (case-insensitive check for path components)
-                system_dirs = ['/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64', '/sys', '/proc', '/dev', '/root', '/boot']
+                # Check both original and resolved paths to handle symlinks (e.g., /etc -> /private/etc on macOS)
+                # Note: Allow temp directories (/var/tmp, /var/folders, /private/var/tmp, /private/var/folders, /tmp)
                 base_dir_lower = base_dir_real.lower()
-                for sys_dir in system_dirs:
-                    if base_dir_lower == sys_dir or base_dir_lower.startswith(sys_dir + '/'):
-                        raise ValueError(f"base_dir cannot be a system directory: {base_dir_real}")
+                base_dir_abs_lower = base_dir_abs.lower()
+                
+                # Allow temp directories (needed for tests and legitimate use cases)
+                allowed_temp_prefixes = ['/var/tmp/', '/var/folders/', '/private/var/tmp/', '/private/var/folders/', '/tmp/']
+                is_temp_dir = any(base_dir_lower.startswith(prefix) for prefix in allowed_temp_prefixes)
+                
+                if not is_temp_dir:
+                    # Block system directories (excluding temp directories)
+                    system_dirs = ['/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64', '/sys', '/proc', '/dev', '/root', '/boot', '/private/etc']
+                    # Block /var subdirectories except temp directories
+                    var_blocked_subdirs = ['/var/log', '/var/db', '/var/run', '/var/lib', '/var/cache', '/var/spool', '/var/mail', '/var/backups']
+                    # Block /private/var subdirectories except temp directories
+                    private_var_blocked_subdirs = ['/private/var/log', '/private/var/db', '/private/var/run', '/private/var/lib', '/private/var/cache', '/private/var/spool', '/private/var/mail', '/private/var/backups']
+                    
+                    all_blocked = system_dirs + var_blocked_subdirs + private_var_blocked_subdirs
+                    
+                    for sys_dir in all_blocked:
+                        sys_dir_lower = sys_dir.lower()
+                        # Check resolved path
+                        if base_dir_lower == sys_dir_lower or base_dir_lower.startswith(sys_dir_lower + '/'):
+                            raise ValueError(f"base_dir cannot be a system directory: {base_dir_real}")
+                        # Check original absolute path (before symlink resolution)
+                        if base_dir_abs_lower == sys_dir_lower or base_dir_abs_lower.startswith(sys_dir_lower + '/'):
+                            raise ValueError(f"base_dir cannot be a system directory: {base_dir_abs}")
                 
                 # Use validated base_dir
                 base_dir = base_dir_real

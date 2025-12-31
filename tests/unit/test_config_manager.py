@@ -10,7 +10,6 @@ from src.config_manager import ConfigManager, ReloadResult
 
 class TestConfigManager:
     """Test suite for ConfigManager."""
-    pytestmark = pytest.mark.todo
     
     @pytest.fixture
     def temp_webhook_config(self, tmp_path):

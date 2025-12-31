@@ -10,7 +10,6 @@ from src.modules.rabbitmq import RabbitMQConnectionPool
 
 class TestConnectionPoolExhaustion:
     """Test suite for connection pool exhaustion prevention."""
-    pytestmark = pytest.mark.todo
     
     @pytest.fixture
     def pool(self):
@@ -282,14 +281,12 @@ class TestConnectionPoolExhaustion:
         # Connections should have been closed
         mock_connection.close.assert_called_once()
     
-    @pytest.mark.todo
     def test_default_pool_size(self):
         """Test that default pool size is reasonable."""
         pool = RabbitMQConnectionPool()
         assert pool.max_size == 3
         assert pool.acquisition_timeout == 30.0
     
-    @pytest.mark.todo
     def test_custom_pool_size(self):
         """Test that custom pool size is respected."""
         pool = RabbitMQConnectionPool(max_size=10, acquisition_timeout=5.0)

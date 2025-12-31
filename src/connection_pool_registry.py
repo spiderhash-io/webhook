@@ -61,9 +61,21 @@ class ConnectionPoolRegistry:
         
         self._pools: Dict[str, PoolInfo] = {}  # connection_name -> PoolInfo
         self._deprecated_pools: Dict[str, PoolInfo] = {}  # connection_name -> PoolInfo (old version)
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None  # Lazy initialization to avoid event loop requirement
         self.migration_timeout = migration_timeout
         self._version_counter: Dict[str, int] = {}  # connection_name -> version
+    
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock (lazy initialization)."""
+        if self._lock is None:
+            try:
+                self._lock = asyncio.Lock()
+            except RuntimeError:
+                # If no event loop exists, create a new one (for testing scenarios)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._lock = asyncio.Lock()
+        return self._lock
     
     async def get_pool(
         self,
@@ -115,7 +127,7 @@ class ConnectionPoolRegistry:
         # Use full 64-char SHA256 hash to prevent collisions
         config_hash = hashlib.sha256(config_str.encode()).hexdigest()
         
-        async with self._lock:
+        async with self._get_lock():
             # Check if we have an active pool with matching config
             if connection_name in self._pools:
                 pool_info = self._pools[connection_name]
@@ -182,7 +194,7 @@ class ConnectionPoolRegistry:
         if not isinstance(connection_name, str):
             return  # Silently ignore invalid input
         
-        async with self._lock:
+        async with self._get_lock():
             # Security: Only decrement if pool object matches exactly (prevent wrong pool release)
             if connection_name in self._pools:
                 pool_info = self._pools[connection_name]
@@ -199,7 +211,7 @@ class ConnectionPoolRegistry:
         current_time = time.time()
         cleaned = 0
         
-        async with self._lock:
+        async with self._get_lock():
             to_remove = []
             for connection_name, pool_info in self._deprecated_pools.items():
                 if pool_info.deprecated_at:
@@ -283,7 +295,7 @@ class ConnectionPoolRegistry:
     
     async def close_all_pools(self) -> None:
         """Close all pools (active and deprecated)."""
-        async with self._lock:
+        async with self._get_lock():
             all_pools = list(self._pools.values()) + list(self._deprecated_pools.values())
             for pool_info in all_pools:
                 try:

@@ -1394,10 +1394,27 @@ class OAuth1NonceTracker:
             max_age_seconds: Maximum age of nonces to keep (default: 600 = 10 minutes)
         """
         self.nonces: Dict[str, float] = {}  # nonce -> expiration_time
-        self.lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None  # Lazy initialization to avoid event loop requirement
         self.max_age_seconds = max_age_seconds
         self._last_cleanup = time.time()
         self._cleanup_interval = 60  # Cleanup every 60 seconds
+    
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock (lazy initialization)."""
+        if self._lock is None:
+            try:
+                self._lock = asyncio.Lock()
+            except RuntimeError:
+                # If no event loop exists, create a new one (for testing scenarios)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._lock = asyncio.Lock()
+        return self._lock
+    
+    @property
+    def lock(self) -> asyncio.Lock:
+        """Property to access lock (for backward compatibility)."""
+        return self._get_lock()
     
     async def check_and_store_nonce(self, nonce: str, timestamp: int, timestamp_window: int) -> Tuple[bool, str]:
         """

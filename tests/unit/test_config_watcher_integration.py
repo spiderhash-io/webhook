@@ -145,7 +145,6 @@ class TestConfigFileWatcherThreadHandling:
 class TestConfigFileWatcherInitialization:
     """Test config file watcher initialization."""
     
-    @pytest.mark.todo
     def test_init_with_valid_files(self):
         """Test initialization with valid file paths."""
         with NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f1, \
@@ -173,7 +172,6 @@ class TestConfigFileWatcherInitialization:
             os.unlink(temp_webhook)
             os.unlink(temp_conn)
     
-    @pytest.mark.todo
     def test_init_with_relative_paths(self):
         """Test initialization with relative file paths."""
         config_manager = ConfigManager(

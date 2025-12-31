@@ -2,51 +2,56 @@
 
 ## Overview
 
-Currently, webhook configurations (`webhooks.json`) and connection configurations (`connections.json`) are loaded once at application startup. This document outlines a feature to enable dynamic reloading of configuration files without requiring application restart or downtime.
+✅ **IMPLEMENTED** - Webhook configurations (`webhooks.json`) and connection configurations (`connections.json`) can now be reloaded dynamically without requiring application restart or downtime. This feature is implemented using `ConfigManager` and `ConfigFileWatcher`.
 
-## Current Architecture
+## Implementation Status
 
-### Configuration Loading
+✅ **FULLY IMPLEMENTED** - The live config reload feature is implemented and active.
 
-**File**: `src/config.py`
+### Current Architecture
 
-1. **Startup Loading**:
-   - `webhook_config_data` is loaded from `webhooks.json` at module import time
-   - `connection_config` is loaded from `connections.json` at module import time
+**Files**: 
+- `src/config_manager.py` - ConfigManager for async-safe config management
+- `src/config_watcher.py` - ConfigFileWatcher for file system monitoring
+- `src/connection_pool_registry.py` - ConnectionPoolRegistry for pool lifecycle management
+
+1. **Configuration Loading**:
+   - `ConfigManager` loads `webhooks.json` and `connections.json` at startup
    - Environment variable substitution is applied via `load_env_vars()`
-   - Connection pools (RabbitMQ, Redis) are created during `inject_connection_details()` at startup
+   - Connection pools are managed via `ConnectionPoolRegistry` with versioning
 
 2. **Usage**:
-   - Configs are passed as global variables to `WebhookHandler` in `src/main.py`
-   - Each webhook request looks up config from `webhook_config_data` dictionary
-   - Connection details (including pools) are accessed from `connection_config`
+   - Configs are accessed via `ConfigManager` in `src/main.py`
+   - Each webhook request gets config from `ConfigManager.get_webhook_config()`
+   - Connection details are accessed via `ConfigManager.get_all_connection_configs()`
 
 3. **Connection Management**:
-   - **RabbitMQ**: Connection pools are created and stored in `connection_details['connection_pool']`
-   - **Redis RQ**: Redis connections are created and stored in `connection_details['conn']`
-   - **ClickHouse**: Connections are managed by `ClickHouseAnalytics` class
-   - **Other modules**: May have their own connection management
+   - **ConnectionPoolRegistry**: Manages connection pools with versioning and graceful migration
+   - **Pool Versioning**: Old pools remain active during migration period
+   - **Graceful Migration**: New requests use new pools, old requests complete with old pools
 
-### Current Limitations
+### Implemented Features
 
-1. **No Runtime Updates**: Config changes require application restart
-2. **Connection Pool Lifecycle**: Pools are created once and never updated
-3. **No Validation on Reload**: Changes aren't validated until restart
-4. **In-Flight Requests**: No mechanism to handle requests during config changes
+1. ✅ **Runtime Updates**: Config changes applied without restart
+2. ✅ **Connection Pool Lifecycle**: Pools are versioned and migrated gracefully
+3. ✅ **Validation on Reload**: Changes are validated before applying
+4. ✅ **In-Flight Requests**: Requests continue with old config during migration
+5. ✅ **File Watching**: Automatic reload on file changes (with debouncing)
+6. ✅ **API Endpoint**: Manual reload via `/admin/reload-config`
 
-## Feature Requirements
+## Implemented Features
 
 ### Core Functionality
 
-1. **File Watching**: Monitor `webhooks.json` and `connections.json` for changes
-2. **Hot Reload**: Reload configurations without restarting the application
-3. **Connection Pool Management**: 
-   - Create new connection pools for new/modified connections
-   - Gracefully close old connection pools
-   - Handle in-flight requests using old connections
-4. **Validation**: Validate new configurations before applying
-5. **Thread Safety**: Ensure safe concurrent access during reload
-6. **Error Handling**: Rollback on validation/load errors
+1. ✅ **File Watching**: `ConfigFileWatcher` monitors `webhooks.json` and `connections.json` for changes
+2. ✅ **Hot Reload**: Configurations reload without restarting the application
+3. ✅ **Connection Pool Management**: 
+   - `ConnectionPoolRegistry` creates new pools for new/modified connections
+   - Old pools are marked deprecated and closed after migration timeout
+   - In-flight requests continue using old pools
+4. ✅ **Validation**: Configurations validated before applying (module existence, connection validation)
+5. ✅ **Thread Safety**: Read-Copy-Update (RCU) pattern ensures safe concurrent access
+6. ✅ **Error Handling**: On validation failure, old config remains active
 
 ### Design Questions
 
@@ -162,15 +167,19 @@ class ConfigManager:
 
 #### 4. API Endpoint
 
-**Location**: `src/main.py` (new endpoint)
+**Location**: `src/main.py`
 
 **Endpoint**: `POST /admin/reload-config`
 
+**Status**: ✅ **IMPLEMENTED**
+
 **Features**:
-- Authentication required (admin token)
-- Reload webhooks, connections, or both
-- Return reload status and errors
-- Validation before applying
+- ✅ Authentication required (via `CONFIG_RELOAD_ADMIN_TOKEN` environment variable)
+- ✅ Reload webhooks, connections, or both
+- ✅ Return reload status and errors
+- ✅ Validation before applying
+
+**Additional Endpoint**: `GET /admin/config-status` - Returns current config status
 
 ### Implementation Details
 
@@ -478,30 +487,45 @@ CONFIG_RELOAD_ADMIN_TOKEN=your_secret_token_here
    - **Cons**: Additional service, network dependency
    - **Decision**: Keep in-process for now, can extract later
 
-## Questions for Clarification
+## Implementation Details
 
-1. **Reload Trigger**: Should reload be automatic (file watching) or manual (API only), or both?
+### Answers to Design Questions
 
-2. **Connection Pool Strategy**: Should old connection pools be closed immediately or kept for a grace period?
+1. **Reload Trigger**: ✅ Both - Automatic file watching (default) + Manual API endpoint
+2. **Connection Pool Strategy**: ✅ Grace period - Old pools kept for migration timeout (default: 5 minutes)
+3. **Partial Reloads**: ✅ Full file reload - Reload entire `webhooks.json` or `connections.json` file
+4. **Validation Strictness**: ✅ Atomic validation - Invalid config blocks entire reload, old config remains active
+5. **Admin API**: ✅ Authentication required - Uses `CONFIG_RELOAD_ADMIN_TOKEN` environment variable
+6. **Error Notification**: ✅ Logs + API response - Errors logged and returned in API response
+7. **Rollback**: ✅ Automatic - On validation failure, old config remains active (no rollback needed)
+8. **Multi-Instance**: ✅ Per-instance - Each instance watches its own config files independently
 
-3. **Partial Reloads**: Should we support reloading individual webhooks/connections, or always reload entire files?
+## Usage
 
-4. **Validation Strictness**: Should invalid configs block all reloads, or allow partial updates (valid entries only)?
+### Automatic File Watching
 
-5. **Admin API**: Should the reload endpoint require authentication, and what authentication method?
+File watching is enabled by default. Set environment variable to disable:
+```bash
+CONFIG_FILE_WATCHING_ENABLED=false
+```
 
-6. **Error Notification**: How should reload errors be communicated? (logs only, API response, webhook/notification?)
+### Manual Reload via API
 
-7. **Rollback**: Should we support automatic rollback to previous config on validation errors?
+```bash
+curl -X POST http://localhost:8000/admin/reload-config \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reload_webhooks": true, "reload_connections": true}'
+```
 
-8. **Multi-Instance**: How should this work with multiple webhook instances? (shared config, per-instance, coordination?)
+### Configuration
 
-## Next Steps
+Environment variables:
+- `CONFIG_FILE_WATCHING_ENABLED` - Enable/disable file watching (default: true)
+- `CONFIG_RELOAD_DEBOUNCE_SECONDS` - Debounce delay in seconds (default: 3.0)
+- `CONFIG_RELOAD_ADMIN_TOKEN` - Admin token for API endpoint (optional, but recommended)
 
-1. **Review and Answer Questions**: Address the questions above to finalize design
-2. **Create Implementation Plan**: Break down into tasks with dependencies
-3. **Prototype**: Build minimal viable implementation for testing
-4. **Testing**: Comprehensive testing in development environment
-5. **Documentation**: Update README and architecture docs
-6. **Deployment**: Gradual rollout with monitoring
+## Status
+
+✅ **Feature Complete** - All planned functionality has been implemented and is in use.
 

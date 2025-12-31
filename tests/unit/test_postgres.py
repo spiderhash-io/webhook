@@ -1,6 +1,7 @@
 """Tests for PostgreSQL module."""
 import pytest
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 from src.modules.postgres import PostgreSQLModule
 
@@ -92,18 +93,30 @@ class TestPostgreSQLModule:
     
     def test_validate_hostname_blocks_localhost(self):
         """Test hostname validation blocks localhost."""
-        config = {
-            'connection_details': {},
-            'module-config': {'table': 'test_table'}
-        }
-        module = PostgreSQLModule(config)
-        assert module._validate_hostname('localhost') is False
-        assert module._validate_hostname('127.0.0.1') is False
-        # Private IPs are now allowed for internal network usage
-        assert module._validate_hostname('192.168.1.1') is True
-        assert module._validate_hostname('10.0.0.1') is True
-        # Still block link-local addresses
-        assert module._validate_hostname('169.254.1.1') is False
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            config = {
+                'connection_details': {},
+                'module-config': {'table': 'test_table'}
+            }
+            module = PostgreSQLModule(config)
+            assert module._validate_hostname('localhost') is False
+            assert module._validate_hostname('127.0.0.1') is False
+            # Private IPs are now allowed for internal network usage
+            assert module._validate_hostname('192.168.1.1') is True
+            assert module._validate_hostname('10.0.0.1') is True
+            # Still block link-local addresses
+            assert module._validate_hostname('169.254.1.1') is False
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     def test_validate_hostname_allows_public(self):
         """Test hostname validation allows public hostnames."""
@@ -143,10 +156,22 @@ class TestPostgreSQLModule:
     @pytest.mark.asyncio
     async def test_setup_validates_hostname(self, basic_config):
         """Test setup validates hostname for SSRF prevention."""
-        basic_config['connection_details']['host'] = '127.0.0.1'
-        module = PostgreSQLModule(basic_config)
-        with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
-            await module.setup()
+        # Save original value and ensure localhost is blocked for this test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            # Explicitly set to false to ensure localhost is blocked
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            basic_config['connection_details']['host'] = '127.0.0.1'
+            module = PostgreSQLModule(basic_config)
+            with pytest.raises(ValueError, match="Invalid or unsafe hostname"):
+                await module.setup()
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     @pytest.mark.asyncio
     async def test_process_json_mode(self, basic_config, mock_pool):
