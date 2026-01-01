@@ -1,4 +1,4 @@
-# Webhook Configuration Agent Instructions
+'# Webhook Configuration Agent Instructions
 
 **Role**: Expert webhook engineer. Generate exact webhook configurations based on user requirements.
 
@@ -13,6 +13,29 @@
 ## CORE PRINCIPLE: START SIMPLE
 
 Always create the **simplest working configuration first**. Add advanced features (rate limiting, HMAC, chaining, etc.) only when explicitly requested.
+
+## QUICK START
+
+When a user asks to create a webhook, provide a **complete working setup**:
+
+1. **docker-compose.yml** - Ready-to-use Docker Compose configuration
+2. **webhooks.json** - Webhook definitions
+3. **connections.json** - Connection configurations (or empty `{}` if not needed)
+4. **Commands** - How to start (`docker-compose up -d`) and test (curl examples)
+
+All config files should be in the **root directory** (not in subfolders). Volume mounts in Docker Compose are only needed if you want to edit config files without rebuilding the image.
+
+**Important for Database Services**: Always include healthchecks and use `condition: service_healthy` in `depends_on` to prevent connection errors. Ensure passwords match exactly between docker-compose.yml and connections.json.
+
+**Key Patterns to Follow:**
+1. **Config files**: Use root-level `webhooks.json` and `connections.json` (not subfolders)
+2. **Volume mounts**: Mount to `/app/webhooks.json` and `/app/connections.json` (not `/app/config/development/`)
+3. **Field names**: PostgreSQL/MySQL use `password`, RabbitMQ uses `pass`
+4. **Healthchecks**: Always include for database services with `start_period` for initialization time
+5. **Networks**: Use `webhook-network` for service discovery (optional but recommended)
+6. **Secrets**: Use `env_file: - .env` instead of inline `environment` for production
+7. **Service names**: Use docker-compose service names as hostnames (e.g., `host: "postgres"`)
+8. **Stats endpoint**: Requires Redis - set `REDIS_HOST=redis` environment variable if using `/stats` endpoint
 
 ---
 
@@ -30,7 +53,7 @@ Ask the user:
 ## CONFIGURATION FILES
 
 ### Location
-- **Default**: `config/development/webhooks.json` and `config/development/connections.json`
+- **Default**: `webhooks.json` and `connections.json` (in the same directory as the application)
 - **Override via env**: `WEBHOOKS_CONFIG_FILE`, `CONNECTIONS_CONFIG_FILE`
 
 ### Environment Variable Substitution
@@ -131,13 +154,19 @@ curl -X POST http://localhost:8000/webhook/debug \
 {
     "rabbitmq_conn": {
         "type": "rabbitmq",
-        "host": "localhost",
+        "host": "rabbitmq",      // Use service name in docker-compose, "localhost" for local
         "port": 5672,
         "user": "guest",
-        "pass": "guest"
+        "pass": "guest"          // Note: RabbitMQ uses "pass" (not "password")
     }
 }
 ```
+
+**Important**: Connection field names vary by type:
+- **RabbitMQ**: uses `pass` (not `password`)
+- **PostgreSQL**: uses `password` (not `pass`)
+- **MySQL**: uses `password` (not `pass`)
+- **Redis**: no password field needed (or use `password` if auth enabled)
 
 **Redis RQ**
 ```json
@@ -199,14 +228,20 @@ curl -X POST http://localhost:8000/webhook/debug \
 {
     "pg_conn": {
         "type": "postgresql",
-        "host": "localhost",
+        "host": "postgres",        // Use service name in docker-compose, "localhost" for local
         "port": 5432,
         "user": "postgres",
-        "pass": "postgres",
+        "password": "postgres",    // Note: use "password" not "pass" for PostgreSQL
         "database": "webhooks"
     }
 }
 ```
+
+**Note**: When using PostgreSQL in docker-compose.yml, ensure:
+- Healthcheck is configured (see Database Services Setup section)
+- `depends_on` uses `condition: service_healthy`
+- Password in connections.json matches POSTGRES_PASSWORD exactly
+- Use `password` field (not `pass`) for PostgreSQL connections
 
 **MySQL**
 ```json
@@ -214,14 +249,20 @@ curl -X POST http://localhost:8000/webhook/debug \
 {
     "mysql_conn": {
         "type": "mysql",
-        "host": "localhost",
+        "host": "mysql",          // Use service name in docker-compose, "localhost" for local
         "port": 3306,
         "user": "root",
-        "pass": "password",
+        "password": "password",    // Note: use "password" not "pass" for MySQL
         "database": "webhooks"
     }
 }
 ```
+
+**Note**: When using MySQL in docker-compose.yml, ensure:
+- Healthcheck is configured (see Database Services Setup section)
+- `depends_on` uses `condition: service_healthy`
+- Password in connections.json matches MYSQL_PASSWORD/MYSQL_ROOT_PASSWORD exactly
+- Use `password` field (not `pass`) for MySQL connections
 
 **S3**
 ```json
@@ -537,12 +578,16 @@ Usage: `POST /webhook/id?api_key=secret_key_123`
 
 ### Stripe Webhooks
 ```json
+// webhooks.json
 {
     "stripe": {
         "data_type": "json",
         "module": "postgresql",
         "connection": "pg_conn",
-        "module-config": {"table": "stripe_events"},
+        "module-config": {
+            "table": "stripe_events",
+            "storage_mode": "json"
+        },
         "hmac": {
             "secret": "{$STRIPE_WEBHOOK_SECRET}",
             "header": "Stripe-Signature",
@@ -550,6 +595,62 @@ Usage: `POST /webhook/id?api_key=secret_key_123`
         }
     }
 }
+
+// connections.json
+{
+    "pg_conn": {
+        "type": "postgresql",
+        "host": "postgres",
+        "port": 5432,
+        "user": "webhook_user",
+        "password": "webhook_pass",
+        "database": "webhooks"
+    }
+}
+```
+
+**Complete docker-compose.yml for Stripe:**
+```yaml
+services:
+  webhook:
+    image: spiderhash/webhook:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./webhooks.json:/app/webhooks.json:ro
+      - ./connections.json:/app/connections.json:ro
+    env_file:
+      - .env  # Contains STRIPE_WEBHOOK_SECRET
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=webhook_user
+      - POSTGRES_PASSWORD=webhook_pass
+      - POSTGRES_DB=webhooks
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - webhook-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhook_user -d webhooks"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
 ```
 
 ### Shopify Webhooks
@@ -573,30 +674,205 @@ Usage: `POST /webhook/id?api_key=secret_key_123`
 
 ## DEPLOYMENT
 
-### Docker (Single Instance)
-```bash
-docker pull spiderhash/webhook:latest
+### Complete Setup (Recommended)
 
-docker run --rm \
-  -p 8000:8000 \
-  -v "$(pwd)/config/development:/app/config/development:ro" \
-  --env-file .env \
-  spiderhash/webhook:latest
-```
+When creating a webhook configuration, always provide:
 
-### Docker Compose
+1. **docker-compose.yml** - Complete Docker Compose setup
+2. **webhooks.json** - Webhook configuration
+3. **connections.json** - Connection configuration (if needed)
+4. **Start commands** - How to start the service
+5. **Test commands** - How to test the webhook
+
+**Example Complete Setup:**
+
 ```yaml
+# docker-compose.yml
 services:
   webhook:
     image: spiderhash/webhook:latest
     ports:
       - "8000:8000"
     volumes:
-      - ./config/development:/app/config/development:ro
+      - ./webhooks.json:/app/webhooks.json:ro
+      - ./connections.json:/app/connections.json:ro
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 ```
+
+```json
+// webhooks.json
+{
+    "my_webhook": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer my_secret_token"
+    }
+}
+```
+
+```json
+// connections.json
+{}
+```
+
+**Start and Test:**
+```bash
+# Start the service
+docker-compose up -d
+
+# Test the webhook
+curl -X POST http://localhost:8000/webhook/my_webhook \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer my_secret_token" \
+  -d '{"event": "test", "data": {"key": "value"}}'
+
+# Check logs
+docker-compose logs -f webhook
+
+# Check stats (requires Redis - see Stats Endpoint section)
+curl http://localhost:8000/stats
+```
+
+### Database Services Setup
+
+When including database services (PostgreSQL, MySQL, etc.), **always add healthchecks** and use `condition: service_healthy` in `depends_on`:
+
+**PostgreSQL Example:**
+```yaml
+# docker-compose.yml
+services:
+  webhook:
+    image: spiderhash/webhook:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./webhooks.json:/app/webhooks.json:ro
+      - ./connections.json:/app/connections.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=webhook_user
+      - POSTGRES_PASSWORD=webhook_pass
+      - POSTGRES_DB=webhooks
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - webhook-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhook_user -d webhooks"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+```
+
+**Critical**: Ensure passwords match exactly between `docker-compose.yml` and `connections.json`:
+
+```json
+// connections.json
+{
+    "pg_conn": {
+        "type": "postgresql",
+        "host": "postgres",           // Use service name from docker-compose.yml
+        "port": 5432,
+        "user": "webhook_user",       // Must match POSTGRES_USER
+        "password": "webhook_pass",   // Must match POSTGRES_PASSWORD exactly (use "password" not "pass")
+        "database": "webhooks"         // Must match POSTGRES_DB
+    }
+}
+```
+
+**MySQL Example:**
+```yaml
+  mysql:
+    image: mariadb:10.11
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpass
+      - MYSQL_DATABASE=webhooks
+      - MYSQL_USER=webhook_user
+      - MYSQL_PASSWORD=webhook_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    networks:
+      - webhook-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "webhook_user", "-pwebhook_pass"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+```
+
+**Note**: For MySQL connections, use `password` field (not `pass`) in connections.json. RabbitMQ uses `pass`.
+
+### Docker (Single Instance)
+```bash
+docker pull spiderhash/webhook:latest
+
+docker run --rm \
+  -p 8000:8000 \
+  -v "$(pwd)/webhooks.json:/app/webhooks.json:ro" \
+  -v "$(pwd)/connections.json:/app/connections.json:ro" \
+  --env-file .env \
+  spiderhash/webhook:latest
+```
+
+**Note on Volume Mounts**: 
+- **Development**: Use volume mounts to edit config files without rebuilding
+- **Production**: Either copy config files into the image during build, or use environment variables via `WEBHOOKS_CONFIG_FILE` and `CONNECTIONS_CONFIG_FILE`
+- **No volume mount needed**: If configs are baked into the image or you're using environment variables only
+
+**Using Environment Variables for Secrets:**
+For production, use `env_file` instead of inline `environment` for secrets:
+
+```yaml
+services:
+  webhook:
+    image: spiderhash/webhook:latest
+    env_file:
+      - .env  # Contains STRIPE_WEBHOOK_SECRET, database passwords, etc.
+    volumes:
+      - ./webhooks.json:/app/webhooks.json:ro
+      - ./connections.json:/app/connections.json:ro
+```
+
+Then reference them in config files using `{$VAR_NAME}` syntax.
 
 ### Live Config Reload
 ```bash
@@ -621,9 +897,72 @@ curl -X POST http://localhost:8000/webhook/WEBHOOK_ID \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{"event": "test", "data": {"key": "value"}}'
 
-# Check stats
+# Check stats (requires Redis - see Stats Endpoint section below)
 curl http://localhost:8000/stats
 ```
+
+## STATS ENDPOINT
+
+The `/stats` endpoint provides webhook usage statistics but **requires Redis** to be running.
+
+**Important**: 
+- If you don't need statistics, you can skip Redis setup
+- If you want to use `/stats`, you must include Redis in docker-compose.yml and configure `REDIS_HOST` environment variable
+
+**Complete Setup with Stats:**
+
+```yaml
+# docker-compose.yml
+services:
+  webhook:
+    image: spiderhash/webhook:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./webhooks.json:/app/webhooks.json:ro
+      - ./connections.json:/app/connections.json:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_HOST=redis        # Required for /stats endpoint
+      - REDIS_PORT=6379         # Optional, defaults to 6379
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - redis_data:/data
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+```
+
+**Note**: The `REDIS_HOST` environment variable must match the Redis service name in docker-compose.yml (e.g., `redis`). If Redis is running on the host machine, use `localhost` or the actual hostname.
 
 ---
 
@@ -631,11 +970,18 @@ curl http://localhost:8000/stats
 
 When generating configs, always provide:
 
-1. **webhooks.json** - Complete configuration
-2. **connections.json** - If external services needed
-3. **Environment variables** - Any secrets to set
-4. **Test command** - curl example to test
-5. **Comments** - Explain non-obvious settings
+1. **docker-compose.yml** - Complete Docker Compose setup with:
+   - Volume mounts for config files
+   - **Healthchecks for all database services** (PostgreSQL, MySQL, etc.)
+   - `depends_on` with `condition: service_healthy` for webhook service
+   - Matching credentials between docker-compose.yml and connections.json
+2. **webhooks.json** - Complete webhook configuration
+3. **connections.json** - Connection configuration (use `{}` if no external services needed)
+   - **Critical**: Passwords must match exactly with docker-compose.yml environment variables
+4. **Start commands** - `docker-compose up -d` and how to check logs
+5. **Test commands** - Complete curl examples to test the webhook
+6. **Environment variables** - Any secrets to set (if needed)
+7. **Comments** - Explain non-obvious settings, especially password matching requirements
 
 ---
 
@@ -663,3 +1009,4 @@ curl -X POST http://localhost:8000/webhook/anything \
   -d '{"test": "data"}'
 ```
 
+'

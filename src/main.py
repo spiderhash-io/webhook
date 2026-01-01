@@ -766,8 +766,8 @@ async def startup_event():
                 break
     
     # Initialize ClickHouse logger for automatic event logging
-    print("📊 Checking ClickHouse connection...")
     if clickhouse_config:
+        print("📊 Checking ClickHouse connection...")
         try:
             clickhouse_logger = ClickHouseAnalytics(clickhouse_config)
             await clickhouse_logger.connect()
@@ -779,7 +779,6 @@ async def startup_event():
             print("   Continuing without ClickHouse logging...")
             clickhouse_logger = None  # Ensure it's None if connection failed
     else:
-        print("ℹ️  ClickHouse not configured - webhook events will not be logged to ClickHouse")
         clickhouse_logger = None  # Explicitly set to None
     
     # Start file watcher if enabled

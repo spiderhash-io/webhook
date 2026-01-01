@@ -74,6 +74,8 @@ const sidebars = {
         'features/rate-limiting',
         'features/json-schema',
         'features/credential-cleanup',
+        'features/ip-whitelisting',
+        'features/retry-handling',
         'features/live-config-reload',
         'features/connection-pooling',
         'features/statistics',
