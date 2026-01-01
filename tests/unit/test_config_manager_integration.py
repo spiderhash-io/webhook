@@ -23,10 +23,11 @@ class TestConfigManagerReloadWebhooks:
         
         result = await manager.reload_webhooks()
         
-        # When file doesn't exist, _load_webhook_config returns {} (empty dict)
-        # So reload succeeds with empty config
+        # When file doesn't exist, _load_webhook_config returns default logging webhook
+        # So reload succeeds with 1 webhook (the default)
         assert result.success is True
-        assert result.details['total_webhooks'] == 0
+        assert result.details['total_webhooks'] == 1
+        assert manager.get_webhook_config("default") is not None
         assert manager._reload_in_progress is False
     
     @pytest.mark.asyncio

@@ -860,12 +860,8 @@ async def read_webhook(webhook_id: str,  request: Request):
     
     # Get configs from ConfigManager if available, otherwise use fallback
     if config_manager:
-        webhook_configs = {}
-        # Build webhook configs dict from ConfigManager
-        # For now, we'll get the specific webhook config
-        webhook_config = config_manager.get_webhook_config(webhook_id)
-        if webhook_config:
-            webhook_configs[webhook_id] = webhook_config
+        # Get all webhook configs to support default fallback
+        webhook_configs = config_manager.get_all_webhook_configs()
         # Pass connection_config for chain processor to inject connection_details
         # ConfigManager already has environment variables substituted
         conn_configs = config_manager.get_all_connection_configs() if config_manager else {}

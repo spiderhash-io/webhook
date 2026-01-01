@@ -324,6 +324,16 @@ class ConfigManager:
         """
         return self._webhook_config.get(webhook_id)
     
+    def get_all_webhook_configs(self) -> Dict[str, Any]:
+        """
+        Get all webhook configurations (async-safe read).
+        
+        Returns:
+            Dictionary of all webhook configurations (deep copy to prevent external modification)
+        """
+        import copy
+        return copy.deepcopy(self._webhook_config)
+    
     def get_connection_config(self, connection_name: str) -> Optional[Dict[str, Any]]:
         """
         Get connection configuration by name (async-safe read).
@@ -370,7 +380,20 @@ class ConfigManager:
     async def _load_webhook_config(self) -> Dict[str, Any]:
         """Load webhook config from file with environment variable substitution."""
         if not os.path.exists(self.webhook_config_file):
-            return {}
+            # Default logging webhook when webhooks.json is not provided
+            print("INFO: webhooks.json not found. Using default logging webhook with pretty print to console.")
+            print("INFO: Default logging endpoint enabled. All webhook requests will be logged to console.")
+            print("INFO: Sensitive data redaction is DISABLED for debugging. Set 'redact_sensitive: true' in module-config to enable.")
+            return {
+                "default": {
+                    "data_type": "json",
+                    "module": "log",
+                    "module-config": {
+                        "pretty_print": True,
+                        "redact_sensitive": False  # Default: show everything for debugging
+                    }
+                }
+            }
         
         with open(self.webhook_config_file, 'r') as f:
             config = json.load(f)

@@ -33,6 +33,21 @@ if os.path.exists(WEBHOOKS_CONFIG_FILE):
         # SECURITY: Sanitize file loading errors to prevent information disclosure
         print(f"ERROR: Failed to load webhooks.json: {e}")
         raise ValueError("Failed to load webhooks.json configuration file")
+else:
+    # Default logging webhook when webhooks.json is not provided
+    print("INFO: webhooks.json not found. Using default logging webhook with pretty print to console.")
+    print("INFO: Default logging endpoint enabled. All webhook requests will be logged to console.")
+    print("INFO: Sensitive data redaction is DISABLED for debugging. Set 'redact_sensitive: true' in module-config to enable.")
+    webhook_config_data = {
+        "default": {
+            "data_type": "json",
+            "module": "log",
+            "module-config": {
+                "pretty_print": True,
+                "redact_sensitive": False  # Default: show everything for debugging
+            }
+        }
+    }
 
 # Load connections.json (required)
 try:

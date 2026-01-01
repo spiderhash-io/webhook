@@ -211,7 +211,12 @@ class WebhookHandler:
         
         self.webhook_id = webhook_id
         self.config = configs.get(webhook_id)
-        if not self.config:
+        # Fallback to default webhook if requested webhook_id not found and default exists
+        if not self.config and "default" in configs:
+            self.config = configs.get("default")
+            # Log that we're using the default webhook
+            print(f"INFO: Webhook ID '{webhook_id}' not found, using default logging webhook")
+        elif not self.config:
             raise HTTPException(status_code=404, detail="Webhook ID not found")
         self.connection_config = connection_config
         self.request = request
