@@ -1,0 +1,11 @@
+# Logs directory
+logs/
+
+# Docker compose override files
+docker-compose.override.yaml
+
+# Temporary files
+*.log
+*.tmp
+
+

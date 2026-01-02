@@ -109,7 +109,9 @@ def _validate_connection_host(host: str, connection_type: str) -> str:
     # Check for localhost variants FIRST (before dangerous character check for IPv6)
     # Allow localhost for integration tests if ALLOW_LOCALHOST_FOR_TESTS is set
     allow_localhost = os.getenv("ALLOW_LOCALHOST_FOR_TESTS", "false").lower() == "true"
-    localhost_variants = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']
+    # SECURITY: This list is used for validation to BLOCK localhost access, not for binding
+    # We check if host is in this list and raise ValueError to prevent security issues
+    localhost_variants = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']  # nosec B104
     if host.lower() in localhost_variants and not allow_localhost:
         raise ValueError(
             f"Access to localhost '{host}' is not allowed for security reasons."

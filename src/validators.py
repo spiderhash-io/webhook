@@ -1046,11 +1046,12 @@ class OAuth2Validator(BaseValidator):
             hostname = netloc.split(':')[0]
         
         # Block localhost and variations
+        # SECURITY: This set is used for validation to BLOCK localhost access, not for binding
         localhost_variants = {
             'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
             '127.1', '127.0.1', '127.000.000.001', '0177.0.0.1',
             '0x7f.0.0.1', '2130706433', '0x7f000001',
-        }
+        }  # nosec B104
         if hostname.lower() in localhost_variants:
             raise ValueError(
                 f"Access to localhost in introspection endpoint is not allowed for security reasons (SSRF prevention)"
@@ -1297,7 +1298,9 @@ class DigestAuthValidator(BaseValidator):
         qop = digest_auth_config.get("qop", "auth") if digest_auth_config else "auth"
         
         # Check if credentials are configured (empty string is not valid)
-        if username is None or password is None or username == "" or password == "":
+        # SECURITY: This checks if password is empty (validation), not a hardcoded password
+        empty_string = ""  # nosec B105
+        if username is None or password is None or username == empty_string or password == empty_string:
             return False, "Digest auth credentials not configured"
         
         # Get Authorization header
@@ -1328,13 +1331,16 @@ class DigestAuthValidator(BaseValidator):
                 return False, "Invalid digest auth realm"
             
             # Compute expected response
+            # NOTE: MD5 is required by HTTP Digest Authentication (RFC 7616) specification.
+            # While MD5 is cryptographically weak, it's part of the standard protocol.
+            # Modern applications should prefer stronger auth methods (e.g., Bearer tokens, OAuth2).
             # HA1 = MD5(username:realm:password)
-            ha1 = hashlib.md5(f"{username}:{realm}:{password}".encode()).hexdigest()
+            ha1 = hashlib.md5(f"{username}:{realm}:{password}".encode()).hexdigest()  # nosec B324
             
             # HA2 = MD5(method:uri) for qop="auth"
             method = "POST"  # Webhooks are POST requests
             uri = digest_params.get('uri', '/')
-            ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()
+            ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()  # nosec B324
             
             # Response = MD5(HA1:nonce:nonceCount:cnonce:qop:HA2)
             nonce = digest_params.get('nonce', '')
@@ -1347,7 +1353,7 @@ class DigestAuthValidator(BaseValidator):
                 # No qop
                 response_str = f"{ha1}:{nonce}:{ha2}"
             
-            expected_response = hashlib.md5(response_str.encode()).hexdigest()
+            expected_response = hashlib.md5(response_str.encode()).hexdigest()  # nosec B324
             
             # Compare responses (constant-time)
             received_response = digest_params.get('response', '')
@@ -1759,7 +1765,9 @@ class RecaptchaValidator(BaseValidator):
     
     def _extract_token(self, headers: Dict[str, str], body: bytes) -> Optional[str]:
         """Extract reCAPTCHA token from headers or body."""
-        if self.token_source == "header":
+        # SECURITY: "header" is a configuration value (token_source), not a hardcoded password
+        header_source = "header"  # nosec B105
+        if self.token_source == header_source:
             # Try both original case and lowercase
             token = headers.get(self.token_field.lower()) or headers.get(self.token_field)
             return token

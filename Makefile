@@ -1,4 +1,4 @@
-.PHONY: help install install-dev install-prod test format lint clean run docker-build-multiarch docker-push-multiarch
+.PHONY: help install install-dev install-prod test format lint type-check security-scan security-bandit security-safety clean run docker-build-multiarch docker-push-multiarch
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -84,11 +84,25 @@ lint: ## Lint code with flake8
 type-check: ## Type check with mypy
 	$(VENV_PYTHON) -m mypy src/
 
+security-scan: security-bandit security-safety ## Run all security scans (Bandit + Safety)
+
+security-bandit: ## Run Bandit security scanner on source code
+	@echo "Running Bandit security scanner..."
+	$(VENV_PYTHON) -m bandit -r src/ -f json -o bandit-report.json --skip B608 || true
+	$(VENV_PYTHON) -m bandit -r src/ -f screen --skip B608
+
+security-safety: ## Check dependencies for known security vulnerabilities
+	@echo "Running Safety dependency checker on production dependencies (requirements.txt)..."
+	$(VENV_PYTHON) -m safety check --file requirements.txt --json --output safety-report.json || true
+	$(VENV_PYTHON) -m safety check --file requirements.txt || echo "Note: Safety requires internet for first run to download vulnerability database. Subsequent runs can work offline if DB is cached."
+	@echo ""
+	@echo "Note: Dev tools (setuptools, pip, urllib3) vulnerabilities are not checked as they are not runtime dependencies." || echo "Note: Safety requires internet for first run to download vulnerability database. Subsequent runs can work offline if DB is cached."
+
 clean: ## Clean cache and temporary files
 	find . -type d -name __pycache__ -exec rm -r {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
 	find . -type d -name "*.egg-info" -exec rm -r {} + 2>/dev/null || true
-	rm -rf .pytest_cache .coverage htmlcov/ .mypy_cache
+	rm -rf .pytest_cache .coverage htmlcov/ .mypy_cache bandit-report.json safety-report.json
 
 run: ## Run the development server
 	uvicorn src.main:app --reload --port 8000

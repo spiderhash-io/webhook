@@ -123,7 +123,10 @@ class SaveToDiskModule(BaseModule):
                 base_dir_abs_lower = base_dir_abs.lower()
                 
                 # Allow temp directories (needed for tests and legitimate use cases)
-                allowed_temp_prefixes = ['/var/tmp/', '/var/folders/', '/private/var/tmp/', '/private/var/folders/', '/tmp/']
+                # SECURITY: These temp directory paths are used for VALIDATION to ALLOW temp dirs
+                # as an exception to system directory blocking. This is intentional and safe.
+                # Temp directories are explicitly allowed because they're designed for temporary files.
+                allowed_temp_prefixes = ['/var/tmp/', '/var/folders/', '/private/var/tmp/', '/private/var/folders/', '/tmp/']  # nosec B108
                 is_temp_dir = any(base_dir_lower.startswith(prefix) for prefix in allowed_temp_prefixes)
                 
                 if not is_temp_dir:

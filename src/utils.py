@@ -607,7 +607,9 @@ class RedisEndpointStats:
             try:
                 await self._redis.aclose()
             except Exception:
-                pass  # Ignore errors when closing
+                # SECURITY: Silently ignore Redis close errors during cleanup
+                # This is intentional - close failures during teardown are non-critical
+                pass  # nosec B110
             finally:
                 self._redis = None
 
@@ -632,7 +634,9 @@ class RedisEndpointStats:
             try:
                 await self._redis.aclose()
             except Exception:
-                pass
+                # SECURITY: Silently ignore Redis close errors during cleanup
+                # This is intentional - close failures during teardown are non-critical
+                pass  # nosec B110
             self._redis = redis.from_url(self._redis_url, decode_responses=True)
 
     async def increment(self, endpoint_name):

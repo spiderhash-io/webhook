@@ -920,9 +920,10 @@ async def read_webhook(webhook_id: str,  request: Request):
     try:
         await stats.increment(webhook_id)
     except Exception as e:
-        # Silently skip stats update if Redis is unavailable
-        # Don't log errors to avoid noise when Redis is intentionally not configured
-        pass
+        # SECURITY: Silently skip stats update if Redis is unavailable
+        # This is intentional - stats are non-critical and Redis may be intentionally not configured
+        # Logging errors would create noise. The webhook processing should not fail due to stats.
+        pass  # nosec B110
 
     # Automatically log all webhook events to ClickHouse
     # This allows analytics service to process them later
@@ -936,9 +937,10 @@ async def read_webhook(webhook_id: str,  request: Request):
                 await clickhouse_logger.save_log(webhook_id, payload, headers)
             await task_manager.create_task(log_to_clickhouse())
         except Exception as e:
-            # Silently skip ClickHouse logging if it fails
-            # Don't log errors to avoid noise when ClickHouse is intentionally not configured
-            pass
+            # SECURITY: Silently skip ClickHouse logging if it fails
+            # This is intentional - logging is non-critical and ClickHouse may be intentionally not configured
+            # Logging errors would create noise. The webhook processing should not fail due to logging.
+            pass  # nosec B110
 
     # Check if retry is configured and task is running
     retry_config = webhook_handler.config.get("retry", {})

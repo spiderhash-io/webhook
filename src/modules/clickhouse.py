@@ -221,5 +221,7 @@ class ClickHouseModule(BaseModule):
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, lambda: self.client.disconnect())
             except Exception:
-                pass
+                # SECURITY: Silently ignore disconnect errors during cleanup
+                # This is intentional - disconnect failures during teardown are non-critical
+                pass  # nosec B110
 

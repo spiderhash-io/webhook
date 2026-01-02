@@ -283,11 +283,12 @@ class HTTPWebhookModule(BaseModule):
                 pass  # Not a valid octal IP, continue
         
         # Block localhost and variations
+        # SECURITY: This set is used for validation to BLOCK localhost access, not for binding
         localhost_variants = {
             'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
             '127.1', '127.0.1', '127.000.000.001', '0177.0.0.1',  # Octal
             '0x7f.0.0.1', '2130706433', '0x7f000001',  # Decimal/Hex
-        }
+        }  # nosec B104
         if hostname.lower() in localhost_variants:
             raise ValueError(
                 f"Access to localhost is not allowed for security reasons"
@@ -335,10 +336,12 @@ class HTTPWebhookModule(BaseModule):
             if "is not allowed" in str(e):
                 raise
             # Otherwise, it's not an IP address (might be a hostname), continue validation
-            pass
+            # SECURITY: This is intentional control flow - if IP parsing fails, try hostname validation
+            pass  # nosec B110
         except Exception:
             # Not an IP address, continue with hostname validation
-            pass
+            # SECURITY: This is intentional control flow - IP parsing failure means it's a hostname
+            pass  # nosec B110
         
         # Block common cloud metadata endpoints (even if hostname resolves to public IP)
         dangerous_hostnames = {

@@ -1,0 +1,33 @@
+# Docker Compose for Live Config Reload Test Scenario
+# Usage: docker-compose -f docker/scenario/docker-compose.yaml up -d
+#
+# This scenario tests live config reload functionality by:
+# 1. Running webhook service that saves webhooks to disk
+# 2. Sending continuous webhooks with numbered payloads
+# 3. Changing config files in parallel
+# 4. Verifying all webhooks arrive at disk log path
+
+services:
+  webhook:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../src:/app/src
+      - ./config/connections.json:/app/connections.json:rw
+      - ./config/webhooks.json:/app/webhooks.json:rw
+      - ./logs:/app/logs:rw
+    environment:
+      - CONFIG_FILE_WATCHING_ENABLED=true
+      - CONFIG_RELOAD_DEBOUNCE_SECONDS=2.0
+      - CONFIG_RELOAD_ADMIN_TOKEN=test_admin_token_123
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+

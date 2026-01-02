@@ -268,10 +268,11 @@ class MySQLModule(BaseModule):
         
         # Block localhost variants (unless allowed for tests)
         if not allow_localhost:
+            # SECURITY: This list is used for validation to BLOCK localhost access, not for binding
             localhost_variants = [
                 'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
                 '127.'
-            ]
+            ]  # nosec B104
             for variant in localhost_variants:
                 if hostname.startswith(variant):
                     return False
@@ -553,20 +554,24 @@ class MySQLModule(BaseModule):
                     # that prevents it. If you need true upsert behavior, use a unique index
                     # on a generated column. For now, always insert to ensure duplicate
                     # webhooks create new records.
-                    query = f"""
+                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                    # Values use parameterized queries (%s), preventing SQL injection
+                    query = f"""  # nosec B608
                     INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
                     VALUES (%s, %s, %s, %s)
-                    """
+                    """  # nosec B608
                     async with self.pool.acquire() as conn:
                         async with conn.cursor() as cur:
                             await cur.execute(query, (webhook_id, timestamp, payload_json, headers_json))
                             await conn.commit()
                 else:
                     # Regular insert
-                    query = f"""
+                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                    # Values use parameterized queries (%s), preventing SQL injection
+                    query = f"""  # nosec B608
                     INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
                     VALUES (%s, %s, %s, %s)
-                    """
+                    """  # nosec B608
                     async with self.pool.acquire() as conn:
                         async with conn.cursor() as cur:
                             await cur.execute(query, (webhook_id, timestamp, payload_json, headers_json))
@@ -616,18 +621,24 @@ class MySQLModule(BaseModule):
                             quoted_col = self._quote_identifier(col) if not col.startswith('`') else col
                             update_clauses.append(f"{quoted_col} = VALUES({quoted_col})")
                         
-                        query = f"""
+                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                    # Values use parameterized queries, preventing SQL injection
+                        query = f"""  # nosec B608
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
                         ON DUPLICATE KEY UPDATE {', '.join(update_clauses)}
                         """
                     else:
-                        query = f"""
+                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                    # Values use parameterized queries, preventing SQL injection
+                        query = f"""  # nosec B608
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
                         """
                 else:
-                    query = f"""
+                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                    # Values use parameterized queries, preventing SQL injection
+                    query = f"""  # nosec B608
                     INSERT INTO {quoted_table_name} ({columns_str})
                     VALUES ({placeholders_str})
                     """
@@ -685,18 +696,24 @@ class MySQLModule(BaseModule):
                             quoted_col = self._quote_identifier(col) if not col.startswith('`') else col
                             update_clauses.append(f"{quoted_col} = VALUES({quoted_col})")
                         
-                        query = f"""
+                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                    # Values use parameterized queries, preventing SQL injection
+                        query = f"""  # nosec B608
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
                         ON DUPLICATE KEY UPDATE {', '.join(update_clauses)}
                         """
                     else:
-                        query = f"""
+                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                    # Values use parameterized queries, preventing SQL injection
+                        query = f"""  # nosec B608
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
                         """
                 else:
-                    query = f"""
+                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                    # Values use parameterized queries, preventing SQL injection
+                    query = f"""  # nosec B608
                     INSERT INTO {quoted_table_name} ({columns_str})
                     VALUES ({placeholders_str})
                     """
@@ -719,5 +736,7 @@ class MySQLModule(BaseModule):
                 self.pool.close()
                 await self.pool.wait_closed()
             except Exception:
-                pass
+                # SECURITY: Silently ignore pool close errors during cleanup
+                # This is intentional - close failures during teardown are non-critical
+                pass  # nosec B110
 

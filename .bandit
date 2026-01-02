@@ -1,0 +1,82 @@
+# Bandit configuration file
+# See https://bandit.readthedocs.io/en/latest/config.html
+
+# Exclude test files and common false positives
+exclude_dirs:
+  - tests
+  - venv
+  - .venv
+  - htmlcov
+  - .pytest_cache
+  - .mypy_cache
+  - docker
+  - docusaurus
+  - temp
+
+# Skip specific tests (B101: assert_used is common in tests, but we exclude tests anyway)
+# B601: shell_injection_subprocess - may be false positives in some cases
+# B602: shell_injection_subprocess_popen - may be false positives
+# B108: hardcoded_tmp_directory - common in development code
+skips:
+  - B101  # assert_used
+  - B601  # shell_injection_subprocess
+  - B602  # shell_injection_subprocess_popen
+  - B108  # hardcoded_tmp_directory
+
+# Test selection
+tests:
+  - B201  # flask_debug_true
+  - B301  # pickle
+  - B302  # marshal
+  - B303  # md5
+  - B304  # ciphers
+  - B305  # cipher_modes
+  - B306  # mktemp_q
+  - B307  # eval
+  - B308  # mark_safe
+  - B309  # https_cert_validation_disabled
+  - B310  # urllib_urlopen
+  - B311  # random
+  - B312  # telnetlib
+  - B313  # xml_bomb
+  - B314  # xmlrpc
+  - B315  # ftplib
+  - B316  # pwd
+  - B317  # snmp_insec_version
+  - B318  # snmp_insec_write
+  - B319  # yaml_load
+  - B320  # request_with_no_cert_validation
+  - B321  # request_with_insecure_cipher
+  - B322  # blacklist_calls
+  - B323  # blacklist_imports
+  - B324  # hashlib_new_insecure_functions
+  - B325  # tempnam
+  - B326  # hardcoded_password_string
+  - B327  # hardcoded_password_default_arg
+  - B401  # import_subprocess
+  - B402  # import_xml_etree
+  - B403  # import_xml_sax
+  - B404  # import_xml_expat
+  - B405  # import_xmlrpc
+  - B406  # import_subprocess
+  - B407  # import_pycrypto
+  - B408  # import_pycurl
+  - B409  # import_ftplib
+  - B410  # import_lxml
+  - B411  # import_xmlrpclib
+  - B501  # request_with_no_cert_validation
+  - B502  # ssl_with_bad_version
+  - B503  # ssl_with_bad_defaults
+  - B504  # ssl_with_no_version
+  - B505  # weak_cryptographic_key
+  - B506  # yaml_load
+  - B507  # ssh_no_host_key_verification
+  - B508  # snmp_insecure_version
+  - B509  # django_mark_safe
+  - B510  # django_extra_used
+  - B511  # shell_injection_subprocess
+  - B512  # shell_injection_subprocess_popen
+  - B601  # shell_injection_subprocess
+  - B602  # shell_injection_subprocess_popen
+  - B701  # jinja2_autoescape_false
+

@@ -100,7 +100,8 @@ class ZeroMQModule(BaseModule):
                 
                 # SECURITY: Comprehensive SSRF prevention
                 # Block localhost variants
-                blocked_hosts = ['127.0.0.1', 'localhost', '0.0.0.0', '::1']
+                # SECURITY: This list is used for validation to BLOCK localhost access, not for binding
+                blocked_hosts = ['127.0.0.1', 'localhost', '0.0.0.0', '::1']  # nosec B104
                 if host.lower() in blocked_hosts:
                     raise ValueError(f"Endpoint host '{host}' is blocked for security (use explicit IP or hostname)")
                 
@@ -184,12 +185,16 @@ class ZeroMQModule(BaseModule):
             try:
                 self.socket.close()
             except Exception:
-                pass
+                # SECURITY: Silently ignore socket close errors during cleanup
+                # This is intentional - close failures during teardown are non-critical
+                pass  # nosec B110
         if self.context:
             try:
                 self.context.term()
             except Exception:
-                pass
+                # SECURITY: Silently ignore context termination errors during cleanup
+                # This is intentional - termination failures during teardown are non-critical
+                pass  # nosec B110
     
     async def process(self, payload: Any, headers: Dict[str, str]) -> None:
         """Publish payload to ZeroMQ socket."""

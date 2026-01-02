@@ -179,7 +179,9 @@ class RabbitMQConnectionPool:
             try:
                 await connection.close()
             except Exception:
-                pass
+                # SECURITY: Silently ignore connection close errors during cleanup
+                # This is intentional - close failures during teardown are non-critical
+                pass  # nosec B110
 
     async def close_all(self):
         """Close all connections when shutting down the pool."""
@@ -189,7 +191,9 @@ class RabbitMQConnectionPool:
             try:
                 await connection.close()
             except Exception:
-                pass
+                # SECURITY: Silently ignore connection close errors during cleanup
+                # This is intentional - close failures during teardown are non-critical
+                pass  # nosec B110
     
     def get_metrics(self) -> dict:
         """

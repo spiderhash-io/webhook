@@ -254,7 +254,10 @@ class AnalyticsProcessor:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, lambda: self.client.disconnect())
             except Exception:
-                pass
+                # SECURITY: Silently ignore disconnect errors during cleanup
+                # This is intentional - disconnect failures during shutdown are non-critical
+                # and logging them would create noise when services are intentionally unavailable
+                pass  # nosec B110
         if self.analytics:
             await self.analytics.disconnect()
 

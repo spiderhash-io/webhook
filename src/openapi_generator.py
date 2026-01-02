@@ -108,7 +108,8 @@ def _validate_oauth2_endpoint(endpoint: str) -> bool:
         except ValueError:
             # Not an IP address, check hostname
             # Block localhost variants
-            if host.lower() in ['localhost', '127.0.0.1', '0.0.0.0', '::1']:
+            # SECURITY: This list is used for validation to BLOCK localhost access, not for binding
+            if host.lower() in ['localhost', '127.0.0.1', '0.0.0.0', '::1']:  # nosec B104
                 return False
             
             # Block cloud metadata service hostnames

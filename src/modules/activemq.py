@@ -112,7 +112,8 @@ class ActiveMQModule(BaseModule):
                 raise ValueError("Host cannot be empty")
             
             # Block localhost variants
-            localhost_variants = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']
+            # SECURITY: This list is used for validation to BLOCK localhost access, not for binding
+            localhost_variants = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']  # nosec B104
             if host.lower() in localhost_variants:
                 raise ValueError(f"Host '{host}' is blocked for security")
             
@@ -197,7 +198,9 @@ class ActiveMQModule(BaseModule):
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, self.client.disconnect)
             except Exception:
-                pass
+                # SECURITY: Silently ignore disconnect errors during cleanup
+                # This is intentional - disconnect failures during teardown are non-critical
+                pass  # nosec B110
     
     async def process(self, payload: Any, headers: Dict[str, str]) -> None:
         """Publish payload to ActiveMQ destination."""
