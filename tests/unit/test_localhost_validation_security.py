@@ -7,6 +7,7 @@ because these addresses are used in validation lists to PREVENT binding, not
 to enable it.
 """
 import pytest
+import os
 from src.modules.http_webhook import HTTPWebhookModule
 from src.modules.mysql import MySQLModule
 from src.modules.postgres import PostgreSQLModule
@@ -43,35 +44,57 @@ class TestLocalhostBlocking:
     
     def test_mysql_blocks_localhost(self):
         """Test that MySQL module blocks localhost."""
-        config = {
-            "host": "localhost",
-            "port": 3306,
-            "database": "test",
-            "user": "test",
-            "password": "test",
-            "table_name": "test"
-        }
-        module = MySQLModule(config)
-        
-        assert module._validate_hostname("localhost") is False
-        assert module._validate_hostname("127.0.0.1") is False
-        assert module._validate_hostname("0.0.0.0") is False
+        # Ensure ALLOW_LOCALHOST_FOR_TESTS is not set (or set to false)
+        # Some integration tests may set this to true, affecting our test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            config = {
+                "host": "localhost",
+                "port": 3306,
+                "database": "test",
+                "user": "test",
+                "password": "test",
+                "table_name": "test"
+            }
+            module = MySQLModule(config)
+            
+            assert module._validate_hostname("localhost") is False
+            assert module._validate_hostname("127.0.0.1") is False
+            assert module._validate_hostname("0.0.0.0") is False
+        finally:
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     def test_postgres_blocks_localhost(self):
         """Test that PostgreSQL module blocks localhost."""
-        config = {
-            "host": "localhost",
-            "port": 5432,
-            "database": "test",
-            "user": "test",
-            "password": "test",
-            "table_name": "test"
-        }
-        module = PostgreSQLModule(config)
-        
-        assert module._validate_hostname("localhost") is False
-        assert module._validate_hostname("127.0.0.1") is False
-        assert module._validate_hostname("0.0.0.0") is False
+        # Ensure ALLOW_LOCALHOST_FOR_TESTS is not set (or set to false)
+        # Some integration tests may set this to true, affecting our test
+        original_value = os.environ.get("ALLOW_LOCALHOST_FOR_TESTS")
+        try:
+            os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "false"
+            
+            config = {
+                "host": "localhost",
+                "port": 5432,
+                "database": "test",
+                "user": "test",
+                "password": "test",
+                "table_name": "test"
+            }
+            module = PostgreSQLModule(config)
+            
+            assert module._validate_hostname("localhost") is False
+            assert module._validate_hostname("127.0.0.1") is False
+            assert module._validate_hostname("0.0.0.0") is False
+        finally:
+            if original_value is None:
+                os.environ.pop("ALLOW_LOCALHOST_FOR_TESTS", None)
+            else:
+                os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = original_value
     
     def test_redis_publish_blocks_localhost(self):
         """Test that Redis publish module blocks localhost."""

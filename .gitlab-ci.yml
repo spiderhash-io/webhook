@@ -24,6 +24,8 @@ unit-tests:
   image: python:3.11-slim
   before_script:
     - python --version
+    # Install build dependencies for packages with C extensions (e.g., ruamel.yaml.clibz)
+    - apt-get update -qq && apt-get install -y -qq gcc python3-dev && rm -rf /var/lib/apt/lists/*
     - pip install --upgrade pip setuptools wheel
     - pip install -r requirements.txt
     - pip install -r requirements-dev.txt
