@@ -54,17 +54,10 @@ if not DISABLE_OPENAPI_DOCS:
             # Generate schema dynamically from current webhook config
             # Use ConfigManager if available, otherwise fallback
             if config_manager:
-                # Build webhook config dict from ConfigManager
-                # We need to access internal _webhook_config - for now use a workaround
-                # In production, ConfigManager should have a get_all_webhook_configs() method
-                # For now, we'll use the internal attribute (not ideal but works)
-                try:
-                    webhook_configs = config_manager._webhook_config
-                    if webhook_configs:
-                        return generate_openapi_schema(webhook_configs)
-                except AttributeError:
-                    # Fallback if _webhook_config not accessible
-                    pass
+                # Build webhook config dict from ConfigManager using public API
+                webhook_configs = config_manager.get_all_webhook_configs()
+                if webhook_configs:
+                    return generate_openapi_schema(webhook_configs)
                 config_to_use = webhook_config_data
             else:
                 config_to_use = webhook_config_data

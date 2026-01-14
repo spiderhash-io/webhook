@@ -164,15 +164,15 @@ class TestCustomOpenAPI:
     def test_custom_openapi_with_config_manager(self):
         """Test custom OpenAPI with ConfigManager."""
         mock_config_manager = Mock()
-        mock_config_manager._webhook_config = {'webhook1': {'path': '/test'}}
-        
+        mock_config_manager.get_all_webhook_configs.return_value = {'webhook1': {'path': '/test'}}
+
         with patch('src.main.config_manager', mock_config_manager), \
              patch('src.main.webhook_config_data', {}), \
              patch('src.openapi_generator.generate_openapi_schema') as mock_gen:
-            
+
             mock_gen.return_value = {'openapi': '3.0.0'}
             result = custom_openapi()
-            
+
             mock_gen.assert_called_once_with({'webhook1': {'path': '/test'}})
             assert result == {'openapi': '3.0.0'}
     
@@ -188,18 +188,17 @@ class TestCustomOpenAPI:
             mock_gen.assert_called_once_with({'webhook1': {'path': '/test'}})
     
     def test_custom_openapi_with_attribute_error(self):
-        """Test custom OpenAPI when _webhook_config access fails."""
+        """Test custom OpenAPI when get_all_webhook_configs returns empty."""
         mock_config_manager = Mock()
-        mock_config_manager._webhook_config = None
-        del mock_config_manager._webhook_config  # Make it raise AttributeError
-        
+        mock_config_manager.get_all_webhook_configs.return_value = {}
+
         with patch('src.main.config_manager', mock_config_manager), \
              patch('src.main.webhook_config_data', {'webhook1': {'path': '/test'}}), \
              patch('src.openapi_generator.generate_openapi_schema') as mock_gen:
-            
+
             mock_gen.return_value = {'openapi': '3.0.0'}
             result = custom_openapi()
-            
+
             # Should fallback to webhook_config_data
             mock_gen.assert_called_once_with({'webhook1': {'path': '/test'}})
     
