@@ -131,10 +131,9 @@ class TestErrorInformationDisclosure:
             details={"file_path": "/etc/passwd", "stack_trace": "Traceback..."}
         ))
         
-        # Patch the global config_manager in main module
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": ""}):
@@ -153,7 +152,10 @@ class TestErrorInformationDisclosure:
                     assert "traceback" not in error_msg
                     assert "stack_trace" not in error_msg
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
     
     @pytest.mark.asyncio
     async def test_reload_config_details_disclosure(self):
@@ -169,10 +171,9 @@ class TestErrorInformationDisclosure:
             }
         ))
         
-        # Patch the global config_manager in main module
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": ""}):
@@ -189,7 +190,10 @@ class TestErrorInformationDisclosure:
                     assert "postgresql://" not in details_str
                     assert "/etc/passwd" not in details_str
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
     
     def test_config_status_information_disclosure(self):
         """Test that config status doesn't disclose sensitive pool information."""
@@ -209,9 +213,9 @@ class TestErrorInformationDisclosure:
             }
         })
         
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": ""}):
@@ -235,7 +239,10 @@ class TestErrorInformationDisclosure:
                         assert "password" not in pool_details_str
                         assert "secret" not in pool_details_str
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
 
 
 # ============================================================================
@@ -251,9 +258,9 @@ class TestNoneHeaderValidation:
         mock_config_manager = Mock(spec=ConfigManager)
         mock_config_manager.reload_all = AsyncMock(return_value=ReloadResult(success=True))
         
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": "secret-token"}):
@@ -269,7 +276,10 @@ class TestNoneHeaderValidation:
                 # Should return 401, not crash
                 assert response.status_code == 401
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
     
     def test_authorization_header_missing(self):
         """Test that missing authorization header is handled safely."""
@@ -277,9 +287,9 @@ class TestNoneHeaderValidation:
         mock_config_manager = Mock(spec=ConfigManager)
         mock_config_manager.reload_all = AsyncMock(return_value=ReloadResult(success=True))
         
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": "secret-token"}):
@@ -290,7 +300,10 @@ class TestNoneHeaderValidation:
                 # Should return 401, not crash
                 assert response.status_code == 401
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
 
 
 # ============================================================================
@@ -447,9 +460,9 @@ class TestHeaderInjection:
         mock_config_manager = Mock(spec=ConfigManager)
         mock_config_manager.reload_all = AsyncMock(return_value=ReloadResult(success=True))
         
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": "secret-token"}):
@@ -466,7 +479,10 @@ class TestHeaderInjection:
                 # Should reject (token extraction should handle newlines safely)
                 assert response.status_code == 401
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
     
     def test_authorization_header_carriage_return_injection(self):
         """Test that carriage return injection in Authorization header is prevented."""
@@ -474,9 +490,9 @@ class TestHeaderInjection:
         mock_config_manager = Mock(spec=ConfigManager)
         mock_config_manager.reload_all = AsyncMock(return_value=ReloadResult(success=True))
         
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": "secret-token"}):
@@ -493,7 +509,10 @@ class TestHeaderInjection:
                 # Should reject
                 assert response.status_code == 401
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
     
     def test_authorization_header_null_byte_injection(self):
         """Test that null byte injection in Authorization header is prevented."""
@@ -501,9 +520,9 @@ class TestHeaderInjection:
         mock_config_manager = Mock(spec=ConfigManager)
         mock_config_manager.reload_all = AsyncMock(return_value=ReloadResult(success=True))
         
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": "secret-token"}):
@@ -520,7 +539,10 @@ class TestHeaderInjection:
                 # Should reject
                 assert response.status_code == 401
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
     
     def test_authorization_header_unicode_injection(self):
         """Test that Unicode injection in Authorization header is handled safely."""
@@ -528,9 +550,9 @@ class TestHeaderInjection:
         mock_config_manager = Mock(spec=ConfigManager)
         mock_config_manager.reload_all = AsyncMock(return_value=ReloadResult(success=True))
         
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": "secret-token"}):
@@ -548,7 +570,10 @@ class TestHeaderInjection:
                 # Should reject
                 assert response.status_code == 401
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
 
 
 # ============================================================================
@@ -670,9 +695,9 @@ class TestWhitespaceAndEdgeCases:
         mock_config_manager = Mock(spec=ConfigManager)
         mock_config_manager.reload_all = AsyncMock(return_value=ReloadResult(success=True))
         
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": "   "}):
@@ -687,7 +712,10 @@ class TestWhitespaceAndEdgeCases:
                 # Should reject (whitespace-only token is invalid)
                 assert response.status_code == 401
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
     
     def test_reload_config_empty_token(self):
         """Test that empty token is handled safely."""
@@ -719,9 +747,9 @@ class TestWhitespaceAndEdgeCases:
         mock_config_manager = Mock(spec=ConfigManager)
         mock_config_manager.reload_all = AsyncMock(return_value=ReloadResult(success=True))
         
-        import src.main as main_module
-        original_config_manager = main_module.config_manager
-        main_module.config_manager = mock_config_manager
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        app.state.config_manager = mock_config_manager
         
         try:
             with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": "secret-token-123"}):
@@ -739,5 +767,8 @@ class TestWhitespaceAndEdgeCases:
                 # Should reject (token doesn't match or contains invalid chars)
                 assert response.status_code == 401
         finally:
-            main_module.config_manager = original_config_manager
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
 

@@ -96,6 +96,7 @@ class TestWebhookEndpointTaskResultHandling:
         
         # Mock request
         mock_request = Mock(spec=Request)
+        mock_request.app = app
         
         # Patch WebhookHandler creation
         with patch('src.main.WebhookHandler', return_value=mock_handler):
@@ -135,11 +136,12 @@ class TestWebhookEndpointTaskResultHandling:
         mock_handler.config = {"retry": {"enabled": True}}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 response = await read_webhook("test_webhook", mock_request)
                 # Should return 200 for success
                 assert response.status_code == 200
@@ -165,11 +167,12 @@ class TestWebhookEndpointTaskResultHandling:
         mock_handler.config = {"retry": {"enabled": True}}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 response = await read_webhook("test_webhook", mock_request)
                 # Should return 202 for background processing
                 assert response.status_code == 202
@@ -189,7 +192,8 @@ class TestWebhookEndpointErrorDisclosure:
         """Test that WebhookHandler initialization errors don't disclose sensitive information."""
         # Mock request
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         # Create exception with sensitive information
         sensitive_error = Exception("Failed to connect to database: host=internal.db, password=secret123")
         
@@ -217,7 +221,8 @@ class TestWebhookEndpointErrorDisclosure:
         mock_handler.process_webhook = AsyncMock(side_effect=sensitive_error)
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             try:
                 await read_webhook("test_webhook", mock_request)
@@ -252,9 +257,10 @@ class TestWebhookEndpointStatisticsLogging:
         mock_handler.config = {}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         malicious_webhook_id = "webhook_id'; DROP TABLE stats; --"
-        
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
@@ -282,21 +288,34 @@ class TestWebhookEndpointStatisticsLogging:
         mock_handler.config = {}
         
         mock_request = Mock(spec=Request)
+        # Set up app.state for clickhouse_logger
+        mock_request.app = app
+        if not hasattr(app.state, 'clickhouse_logger'):
+            app.state.clickhouse_logger = None
         
         malicious_webhook_id = "webhook_id'; DROP TABLE webhook_logs; --"
         
         # Mock clickhouse_logger
         mock_logger = Mock()
+        mock_logger.client = Mock()  # Need client attribute for the check
         mock_logger.save_log = AsyncMock()
         
-        with patch('src.main.WebhookHandler', return_value=mock_handler):
-            with patch('src.main.stats') as mock_stats:
-                mock_stats.increment = AsyncMock()
-            with patch('src.main.clickhouse_logger', mock_logger):
-                with patch('src.webhook.task_manager') as mock_task_manager:
-                    mock_task_manager.create_task = AsyncMock()
-                    
-                    await read_webhook(malicious_webhook_id, mock_request)
+        original_logger = getattr(app.state, 'clickhouse_logger', None)
+        app.state.clickhouse_logger = mock_logger
+        
+        try:
+            with patch('src.main.WebhookHandler', return_value=mock_handler):
+                with patch('src.main.stats') as mock_stats:
+                    mock_stats.increment = AsyncMock()
+                    with patch('src.webhook.task_manager') as mock_task_manager:
+                        mock_task_manager.create_task = AsyncMock()
+                        
+                        await read_webhook(malicious_webhook_id, mock_request)
+        finally:
+            if original_logger is not None:
+                app.state.clickhouse_logger = original_logger
+            elif hasattr(app.state, 'clickhouse_logger'):
+                app.state.clickhouse_logger = original_logger
                     
                     # ClickHouse logging should be called
                     # The module should handle webhook_id injection safely
@@ -315,7 +334,8 @@ class TestWebhookEndpointStatisticsLogging:
         mock_handler.config = {}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 # Statistics should fail but not affect webhook
@@ -342,17 +362,29 @@ class TestWebhookEndpointStatisticsLogging:
         # Mock clickhouse_logger
         mock_logger = Mock()
         mock_logger.save_log = AsyncMock(side_effect=Exception("ClickHouse error"))
+        mock_logger.client = Mock()  # Need client attribute for the check
+
+        mock_request = Mock(spec=Request)
+        mock_request.app = app
         
-        with patch('src.main.WebhookHandler', return_value=mock_handler):
-            with patch('src.main.stats') as mock_stats:
-                mock_stats.increment = AsyncMock()
-            with patch('src.main.clickhouse_logger', mock_logger):
-                with patch('src.webhook.task_manager') as mock_task_manager:
-                    mock_task_manager.create_task = AsyncMock(side_effect=Exception("Task error"))
-                    
-                    response = await read_webhook("test_webhook", mock_request)
-                    # Should still return 200 even if logging fails
-                    assert response.status_code == 200
+        original_logger = getattr(app.state, 'clickhouse_logger', None)
+        app.state.clickhouse_logger = mock_logger
+        
+        try:
+            with patch('src.main.WebhookHandler', return_value=mock_handler):
+                with patch('src.main.stats') as mock_stats:
+                    mock_stats.increment = AsyncMock()
+                    with patch('src.webhook.task_manager') as mock_task_manager:
+                        mock_task_manager.create_task = AsyncMock(side_effect=Exception("Task error"))
+
+                        response = await read_webhook("test_webhook", mock_request)
+                        # Should still return 200 even if logging fails
+                        assert response.status_code == 200
+        finally:
+            if original_logger is not None:
+                app.state.clickhouse_logger = original_logger
+            elif hasattr(app.state, 'clickhouse_logger'):
+                app.state.clickhouse_logger = original_logger
 
 
 # ============================================================================
@@ -375,11 +407,12 @@ class TestWebhookEndpointResponseGeneration:
         mock_handler.config = {}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 response = await read_webhook("test_webhook", mock_request)
                 # Response should not expose payload data
                 response_data = json.loads(response.body.decode())
@@ -401,11 +434,12 @@ class TestWebhookEndpointResponseGeneration:
         mock_handler.config = {}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 response = await read_webhook("test_webhook", mock_request)
                 # Should return 200 for successful processing
                 assert response.status_code == 200
@@ -423,11 +457,12 @@ class TestWebhookEndpointResponseGeneration:
         mock_handler.config = {}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 response = await read_webhook("test_webhook", mock_request)
                 # Security headers should be present (from SecurityHeadersMiddleware)
                 # Note: These are added by middleware, so may not be in response object directly
@@ -459,11 +494,12 @@ class TestWebhookEndpointAsyncTaskHandling:
         mock_handler.config = {"retry": {"enabled": True}}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 response = await read_webhook("test_webhook", mock_request)
                 # Should return 202 for background processing
                 assert response.status_code == 202
@@ -495,11 +531,12 @@ class TestWebhookEndpointAsyncTaskHandling:
         mock_handler.config = {"retry": {"enabled": True}}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 response = await read_webhook("test_webhook", mock_request)
                 # Should handle race condition safely
                 assert response.status_code in [200, 202]
@@ -566,11 +603,12 @@ class TestWebhookEndpointConcurrentHandling:
         mock_handler.config = {}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 # Send multiple concurrent requests
                 tasks = [read_webhook(f"webhook_{i}", mock_request) for i in range(10)]
                 responses = await asyncio.gather(*tasks, return_exceptions=True)
@@ -606,11 +644,12 @@ class TestWebhookEndpointRetryConfiguration:
         mock_handler.config = {"retry": "invalid_type"}  # Should be dict
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 response = await read_webhook("test_webhook", mock_request)
                 # Should handle invalid config gracefully
                 # get() with default should prevent crashes
@@ -631,11 +670,12 @@ class TestWebhookEndpointRetryConfiguration:
         mock_handler.config = {"retry": {}}  # Missing 'enabled'
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 response = await read_webhook("test_webhook", mock_request)
                 # Should handle missing 'enabled' gracefully (defaults to False)
                 assert response.status_code == 200
@@ -671,23 +711,35 @@ class TestWebhookEndpointPayloadLogging:
         # Mock clickhouse_logger
         mock_logger = Mock()
         mock_logger.save_log = AsyncMock()
+        mock_logger.client = Mock()  # Need client attribute for the check
+
+        mock_request = Mock(spec=Request)
+        mock_request.app = app
         
-        with patch('src.main.WebhookHandler', return_value=mock_handler):
-            with patch('src.main.stats') as mock_stats:
-                mock_stats.increment = AsyncMock()
-            with patch('src.main.clickhouse_logger', mock_logger):
-                with patch('src.webhook.task_manager') as mock_task_manager:
-                    mock_task_manager.create_task = AsyncMock()
-                    
-                    response = await read_webhook("test_webhook", mock_request)
-                    # Should process successfully
-                    # ClickHouse logging should receive payload (logging is internal)
-                    # But response should not expose sensitive data
-                    assert response.status_code == 200
-                    response_data = json.loads(response.body.decode())
-                    assert "password" not in response_data
-                    assert "api_key" not in response_data
-                    assert "credit_card" not in response_data
+        original_logger = getattr(app.state, 'clickhouse_logger', None)
+        app.state.clickhouse_logger = mock_logger
+        
+        try:
+            with patch('src.main.WebhookHandler', return_value=mock_handler):
+                with patch('src.main.stats') as mock_stats:
+                    mock_stats.increment = AsyncMock()
+                    with patch('src.webhook.task_manager') as mock_task_manager:
+                        mock_task_manager.create_task = AsyncMock()
+
+                        response = await read_webhook("test_webhook", mock_request)
+                        # Should process successfully
+                        # ClickHouse logging should receive payload (logging is internal)
+                        # But response should not expose sensitive data
+                        assert response.status_code == 200
+                        response_data = json.loads(response.body.decode())
+                        assert "password" not in response_data
+                        assert "api_key" not in response_data
+                        assert "credit_card" not in response_data
+        finally:
+            if original_logger is not None:
+                app.state.clickhouse_logger = original_logger
+            elif hasattr(app.state, 'clickhouse_logger'):
+                app.state.clickhouse_logger = original_logger
     
     @pytest.mark.asyncio
     async def test_sensitive_headers_logging(self):
@@ -712,21 +764,33 @@ class TestWebhookEndpointPayloadLogging:
         # Mock clickhouse_logger
         mock_logger = Mock()
         mock_logger.save_log = AsyncMock()
+        mock_logger.client = Mock()  # Need client attribute for the check
+
+        mock_request = Mock(spec=Request)
+        mock_request.app = app
         
-        with patch('src.main.WebhookHandler', return_value=mock_handler):
-            with patch('src.main.stats') as mock_stats:
-                mock_stats.increment = AsyncMock()
-            with patch('src.main.clickhouse_logger', mock_logger):
-                with patch('src.webhook.task_manager') as mock_task_manager:
-                    mock_task_manager.create_task = AsyncMock()
-                    
-                    response = await read_webhook("test_webhook", mock_request)
-                    # Should process successfully
-                    # Headers are logged internally but not exposed in response
-                    assert response.status_code == 200
-                    response_data = json.loads(response.body.decode())
-                    assert "Authorization" not in response_data
-                    assert "secret_token" not in response_data
+        original_logger = getattr(app.state, 'clickhouse_logger', None)
+        app.state.clickhouse_logger = mock_logger
+        
+        try:
+            with patch('src.main.WebhookHandler', return_value=mock_handler):
+                with patch('src.main.stats') as mock_stats:
+                    mock_stats.increment = AsyncMock()
+                    with patch('src.webhook.task_manager') as mock_task_manager:
+                        mock_task_manager.create_task = AsyncMock()
+
+                        response = await read_webhook("test_webhook", mock_request)
+                        # Should process successfully
+                        # Headers are logged internally but not exposed in response
+                        assert response.status_code == 200
+                        response_data = json.loads(response.body.decode())
+                        assert "Authorization" not in response_data
+                        assert "secret_token" not in response_data
+        finally:
+            if original_logger is not None:
+                app.state.clickhouse_logger = original_logger
+            elif hasattr(app.state, 'clickhouse_logger'):
+                app.state.clickhouse_logger = original_logger
 
 
 # ============================================================================
@@ -755,11 +819,12 @@ class TestWebhookEndpointAsyncSleep:
         mock_handler.config = {"retry": {"enabled": True}}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             with patch('src.main.stats') as mock_stats:
                 mock_stats.increment = AsyncMock()
-                
+
                 start_time = time.time()
                 response = await read_webhook("test_webhook", mock_request)
                 elapsed = time.time() - start_time
@@ -787,17 +852,26 @@ class TestWebhookEndpointGlobalState:
             None
         ))
         mock_handler.config = {}
-        
+
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         # Test with None clickhouse_logger
-        with patch('src.main.WebhookHandler', return_value=mock_handler):
-            with patch('src.main.stats') as mock_stats:
-                mock_stats.increment = AsyncMock()
-            with patch('src.main.clickhouse_logger', None):
-                response = await read_webhook("test_webhook", mock_request)
-                # Should handle None logger gracefully
-                assert response.status_code == 200
+        original_logger = getattr(app.state, 'clickhouse_logger', None)
+        app.state.clickhouse_logger = None
+
+        try:
+            with patch('src.main.WebhookHandler', return_value=mock_handler):
+                with patch('src.main.stats') as mock_stats:
+                    mock_stats.increment = AsyncMock()
+                    response = await read_webhook("test_webhook", mock_request)
+                    # Should handle None logger gracefully
+                    assert response.status_code == 200
+        finally:
+            if original_logger is not None:
+                app.state.clickhouse_logger = original_logger
+            elif hasattr(app.state, 'clickhouse_logger'):
+                app.state.clickhouse_logger = original_logger
     
     @pytest.mark.asyncio
     async def test_stats_global_state(self):
@@ -812,7 +886,8 @@ class TestWebhookEndpointGlobalState:
         mock_handler.config = {}
         
         mock_request = Mock(spec=Request)
-        
+        mock_request.app = app
+
         with patch('src.main.WebhookHandler', return_value=mock_handler):
             # Test with stats that raises exception
             with patch('src.main.stats') as mock_stats:

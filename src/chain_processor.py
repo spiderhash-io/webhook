@@ -7,6 +7,7 @@ resource management, and DoS protection.
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple
+from collections.abc import Mapping
 from src.modules.registry import ModuleRegistry
 from src.chain_validator import ChainValidator
 from src.retry_handler import retry_handler
@@ -32,7 +33,7 @@ class ChainProcessor:
     """Processes webhook chains (sequential or parallel execution)."""
     
     def __init__(self, chain: List[Any], chain_config: Dict[str, Any], 
-                 webhook_config: Dict[str, Any], pool_registry=None, connection_config=None):
+                 webhook_config: Dict[str, Any], pool_registry=None, connection_config: Optional[Mapping[str, Any]] = None):
         """
         Initialize chain processor.
         
@@ -43,7 +44,7 @@ class ChainProcessor:
             chain_config: Chain execution configuration
             webhook_config: Base webhook configuration
             pool_registry: Optional ConnectionPoolRegistry
-            connection_config: Optional connection configuration dictionary
+            connection_config: Optional connection configuration mapping
         """
         # SECURITY: Validate input types to prevent type confusion attacks
         if not isinstance(chain, list):
@@ -52,8 +53,8 @@ class ChainProcessor:
             raise TypeError(f"chain_config must be a dict or None, got {type(chain_config).__name__}")
         if not isinstance(webhook_config, dict):
             raise TypeError(f"webhook_config must be a dict, got {type(webhook_config).__name__}")
-        if connection_config is not None and not isinstance(connection_config, dict):
-            raise TypeError(f"connection_config must be a dict or None, got {type(connection_config).__name__}")
+        if connection_config is not None and not isinstance(connection_config, Mapping):
+            raise TypeError(f"connection_config must be a mapping or None, got {type(connection_config).__name__}")
         
         self.chain = chain
         self.chain_config = chain_config or {}

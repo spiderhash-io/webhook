@@ -8,9 +8,16 @@ from unittest.mock import Mock, patch, AsyncMock
 from src.config import _validate_connection_host, _validate_connection_port, inject_connection_details
 
 
+@pytest.fixture
+def allow_private_ips(monkeypatch):
+    monkeypatch.setenv("ALLOW_PRIVATE_IP_CONNECTIONS", "true")
+    yield
+
+
 class TestConfigSSRFPrevention:
     """Test suite for SSRF prevention in connection configuration."""
     
+    @pytest.mark.usefixtures("allow_private_ips")
     def test_private_ip_allowed(self):
         """Test that private IPs are allowed (internal network support)."""
         private_ips = [
@@ -182,6 +189,7 @@ class TestConfigSSRFPrevention:
         assert isinstance(result, int)
     
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("allow_private_ips")
     async def test_redis_rq_connection_validation(self):
         """Test that Redis RQ connections are validated (including private IPs)."""
         webhook_config = {

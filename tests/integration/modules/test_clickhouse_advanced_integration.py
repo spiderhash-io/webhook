@@ -18,6 +18,7 @@ from src.modules.clickhouse import ClickHouseModule
 
 
 @pytest.mark.integration
+@pytest.mark.external_services
 class TestClickHouseAdvancedIntegration:
     """Integration tests for ClickHouse advanced features."""
     

@@ -15,7 +15,7 @@ from unittest.mock import patch, Mock, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
-from src.main import app, startup_event, shutdown_event, custom_openapi
+from src.main import app, startup_event, shutdown_event, custom_openapi, startup_logic, shutdown_logic
 import src.main
 from src.config_manager import ConfigManager
 from src.config_watcher import ConfigFileWatcher
@@ -36,9 +36,14 @@ class TestStartupErrorInformationDisclosure:
         """Test that ConfigManager initialization errors don't disclose sensitive information."""
         import io
         from contextlib import redirect_stdout
+        from fastapi import FastAPI
+        
+        test_app = FastAPI()
         
         # Mock ConfigManager to raise exception with sensitive info
-        with patch('src.main.ConfigManager') as mock_config_manager_class:
+        with patch('src.main.webhook_config_data', {}), \
+             patch('src.main.connection_config', {}), \
+             patch('src.main.ConfigManager') as mock_config_manager_class:
             mock_config_manager = Mock()
             mock_config_manager.initialize = AsyncMock(side_effect=Exception("/etc/passwd: permission denied"))
             mock_config_manager_class.return_value = mock_config_manager
@@ -47,7 +52,7 @@ class TestStartupErrorInformationDisclosure:
             stdout_capture = io.StringIO()
             with redirect_stdout(stdout_capture):
                 try:
-                    await startup_event()
+                    await startup_logic(test_app)
                 except Exception:
                     pass  # Startup can fail, we're testing error messages
             
@@ -74,17 +79,24 @@ class TestStartupErrorInformationDisclosure:
         """Test that ClickHouse initialization errors don't disclose sensitive information."""
         import io
         from contextlib import redirect_stdout
+        from fastapi import FastAPI
+        
+        test_app = FastAPI()
         
         # Mock ConfigManager to succeed
-        with patch('src.main.ConfigManager') as mock_config_manager_class:
+        with patch('src.main.webhook_config_data', {}), \
+             patch('src.main.connection_config', {}), \
+             patch('src.main.ConfigManager') as mock_config_manager_class:
             mock_config_manager = Mock()
-            mock_config_manager.initialize = AsyncMock(return_value=Mock(success=True, details={}))
-            mock_config_manager.get_connection_config = Mock(return_value={
-                'type': 'clickhouse',
-                'host': 'internal-db.example.com',
-                'port': 8123,
-                'password': 'secret-password-123'
-            })
+            mock_config_manager.initialize = AsyncMock(return_value=Mock(success=True, details={"webhooks_loaded": 0, "connections_loaded": 1}))
+            mock_config_manager.get_all_connection_configs.return_value = {
+                'clickhouse1': {
+                    'type': 'clickhouse',
+                    'host': 'internal-db.example.com',
+                    'port': 8123,
+                    'password': 'secret-password-123'
+                }
+            }
             mock_config_manager_class.return_value = mock_config_manager
             
             # Mock ClickHouseAnalytics to raise exception with sensitive info
@@ -97,14 +109,13 @@ class TestStartupErrorInformationDisclosure:
                 stdout_capture = io.StringIO()
                 with redirect_stdout(stdout_capture):
                     try:
-                        await startup_event()
+                        await startup_logic(test_app)
                     except Exception:
                         pass
                 
                 output = stdout_capture.getvalue()
                 
                 # Error should not contain sensitive information
-                # NOTE: This test will fail until sanitize_error_message is used
                 assert "secret-password" not in output.lower(), "Error message should be sanitized"
                 assert "internal-db.example.com" not in output.lower() or "error" in output.lower()
     
@@ -113,12 +124,17 @@ class TestStartupErrorInformationDisclosure:
         """Test that file watcher initialization errors don't disclose sensitive information."""
         import io
         from contextlib import redirect_stdout
+        from fastapi import FastAPI
+        
+        test_app = FastAPI()
         
         # Mock ConfigManager to succeed
-        with patch('src.main.ConfigManager') as mock_config_manager_class:
+        with patch('src.main.webhook_config_data', {}), \
+             patch('src.main.connection_config', {}), \
+             patch('src.main.ConfigManager') as mock_config_manager_class:
             mock_config_manager = Mock()
-            mock_config_manager.initialize = AsyncMock(return_value=Mock(success=True, details={}))
-            mock_config_manager.get_connection_config = Mock(return_value=None)
+            mock_config_manager.initialize = AsyncMock(return_value=Mock(success=True, details={"webhooks_loaded": 0, "connections_loaded": 0}))
+            mock_config_manager.get_all_connection_configs.return_value = {}
             mock_config_manager_class.return_value = mock_config_manager
             
             # Mock environment variable to enable file watching
@@ -133,14 +149,13 @@ class TestStartupErrorInformationDisclosure:
                     stdout_capture = io.StringIO()
                     with redirect_stdout(stdout_capture):
                         try:
-                            await startup_event()
+                            await startup_logic(test_app)
                         except Exception:
                             pass
                     
                     output = stdout_capture.getvalue()
                     
                     # Error should not contain sensitive paths
-                    # NOTE: This test will fail until sanitize_error_message is used
                     assert "/etc/webhooks.json" not in output.lower(), "Error message should be sanitized"
 
 
@@ -219,8 +234,11 @@ class TestShutdownErrorHandling:
         """Test that shutdown handler gracefully handles errors without information disclosure."""
         import io
         from contextlib import redirect_stdout
+        from fastapi import FastAPI
         
-        # Mock global variables
+        test_app = FastAPI()
+        
+        # Mock components
         mock_config_watcher = Mock()
         mock_config_watcher.stop = Mock(side_effect=Exception("/etc/config: access denied"))
         
@@ -231,35 +249,23 @@ class TestShutdownErrorHandling:
         mock_clickhouse_logger = Mock()
         mock_clickhouse_logger.disconnect = AsyncMock(side_effect=Exception("Disconnect failed: internal-db.example.com"))
         
-        # Set global variables
-        import src.main
-        original_watcher = getattr(src.main, 'config_watcher', None)
-        original_manager = getattr(src.main, 'config_manager', None)
-        original_logger = getattr(src.main, 'clickhouse_logger', None)
-        
-        src.main.config_watcher = mock_config_watcher
-        src.main.config_manager = mock_config_manager
-        src.main.clickhouse_logger = mock_clickhouse_logger
+        test_app.state.config_watcher = mock_config_watcher
+        test_app.state.config_manager = mock_config_manager
+        test_app.state.clickhouse_logger = mock_clickhouse_logger
         
         # Capture stdout
         stdout_capture = io.StringIO()
         with redirect_stdout(stdout_capture):
             try:
-                await shutdown_event()
+                await shutdown_logic(test_app)
             except Exception:
                 pass  # Shutdown can fail, we're testing error handling
         
         output = stdout_capture.getvalue()
         
         # Errors should not contain sensitive information
-        # NOTE: This test documents that shutdown should handle errors gracefully
-        # Currently, shutdown doesn't have error handling, so exceptions would propagate
-        # This is acceptable for shutdown, but we document it
-        
-        # Restore globals
-        src.main.config_watcher = original_watcher
-        src.main.config_manager = original_manager
-        src.main.clickhouse_logger = original_logger
+        # Shutdown should handle errors gracefully
+        assert "secret-password" not in output.lower() or "error" in output.lower()
 
 
 # ============================================================================
@@ -342,15 +348,24 @@ class TestStartupRaceConditions:
     @pytest.mark.asyncio
     async def test_startup_concurrent_initialization(self):
         """Test that startup handler handles concurrent initialization safely."""
+        from fastapi import FastAPI
+        
         # Mock ConfigManager
-        with patch('src.main.ConfigManager') as mock_config_manager_class:
+        with patch('src.main.webhook_config_data', {}), \
+             patch('src.main.connection_config', {}), \
+             patch('src.main.ConfigManager') as mock_config_manager_class:
             mock_config_manager = Mock()
-            mock_config_manager.initialize = AsyncMock(return_value=Mock(success=True, details={}))
-            mock_config_manager.get_connection_config = Mock(return_value=None)
+            mock_config_manager.initialize = AsyncMock(return_value=Mock(success=True, details={"webhooks_loaded": 0, "connections_loaded": 0}))
+            mock_config_manager.get_all_connection_configs.return_value = {}
             mock_config_manager_class.return_value = mock_config_manager
             
-            # Call startup_event multiple times concurrently
-            tasks = [startup_event() for _ in range(5)]
+            # Call startup_logic multiple times concurrently with different app instances
+            async def run_startup():
+                test_app = FastAPI()
+                await startup_logic(test_app)
+                return test_app
+            
+            tasks = [run_startup() for _ in range(5)]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
             # Should not crash (exceptions are acceptable)

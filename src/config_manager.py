@@ -10,6 +10,7 @@ This module provides:
 import json
 import asyncio
 import os
+import copy
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -68,10 +69,9 @@ class ConfigManager:
         self.connection_config_file = connection_config_file
         self.pool_registry = pool_registry or ConnectionPoolRegistry()
         
-        # Async-safe config storage
         self._webhook_config: Dict[str, Any] = {}
         self._connection_config: Dict[str, Any] = {}
-        self._lock: Optional[asyncio.Lock] = None  # Lazy initialization to avoid event loop requirement
+        self._lock: Optional[asyncio.Lock] = None
         self._reload_in_progress = False
         self._last_reload: Optional[datetime] = None
     
@@ -81,7 +81,6 @@ class ConfigManager:
             try:
                 self._lock = asyncio.Lock()
             except RuntimeError:
-                # If no event loop exists, create a new one (for testing scenarios)
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 self._lock = asyncio.Lock()
@@ -329,9 +328,9 @@ class ConfigManager:
         Get all webhook configurations (async-safe read).
         
         Returns:
-            Dictionary of all webhook configurations (deep copy to prevent external modification)
+            Deep copy of all webhook configurations.
+            Safe to modify without affecting internal state.
         """
-        import copy
         return copy.deepcopy(self._webhook_config)
     
     def get_connection_config(self, connection_name: str) -> Optional[Dict[str, Any]]:
@@ -351,9 +350,9 @@ class ConfigManager:
         Get all connection configurations (async-safe read).
         
         Returns:
-            Dictionary of all connection configurations (deep copy to prevent external modification)
+            Deep copy of all connection configurations.
+            Safe to modify without affecting internal state.
         """
-        import copy
         return copy.deepcopy(self._connection_config)
     
     def get_status(self) -> Dict[str, Any]:

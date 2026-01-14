@@ -151,14 +151,21 @@ class TestConfigManager:
             await config_manager.initialize()
             
             all_configs = config_manager.get_all_connection_configs()
-            assert isinstance(all_configs, dict)
+            # Should return a dict-like object (copy of the config)
+            assert hasattr(all_configs, '__getitem__') and hasattr(all_configs, 'keys')
             assert "test_connection" in all_configs
             assert all_configs["test_connection"]["type"] == "rabbitmq"
             
-            # Verify it returns a copy (modifying shouldn't affect internal state)
-            all_configs["test_connection"]["modified"] = True
-            original_config = config_manager.get_connection_config("test_connection")
-            assert "modified" not in original_config
+            # Subsequent calls return fresh copies (not cached snapshot)
+            all_configs2 = config_manager.get_all_connection_configs()
+            assert all_configs is not all_configs2, \
+                "get_all_connection_configs should return a fresh copy per call"
+            
+            # External mutations should not affect internal state
+            mutable_copy = config_manager.get_all_connection_configs()
+            mutable_copy["test_connection"]["type"] = "modified"
+            current_config = config_manager.get_connection_config("test_connection")
+            assert current_config["type"] == "rabbitmq", "Internal state should remain unchanged"
     
     @pytest.mark.asyncio
     async def test_invalid_webhook_config_rejected(self, config_manager, temp_webhook_config):

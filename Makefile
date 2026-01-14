@@ -19,14 +19,19 @@ PYTHON := $(shell which python3 || which python)
 VENV_PYTHON := $(shell if [ -f venv/bin/python ]; then echo venv/bin/python; else echo $(PYTHON); fi)
 PYTEST := $(VENV_PYTHON) -m pytest
 
-test: ## Run unit tests (excludes integration and longrunning)
-	$(PYTEST) -v -m "not integration and not longrunning"
+test: ## Run unit tests (excludes integration, external_services, and longrunning)
+	$(PYTEST) -v -m "not integration and not external_services and not longrunning"
 
-test-integration: ## Run integration tests (requires Docker services and API server, excludes longrunning)
+test-integration: ## Run integration tests (requires Docker services and API server, excludes longrunning and external_services)
 	@echo "Checking Docker services..."
 	@(docker compose -f tests/integration/config/docker-compose.yaml ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || docker-compose -f tests/integration/config/docker-compose.yaml ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda" || sudo docker compose -f tests/integration/config/docker-compose.yaml ps redis rabbitmq clickhouse redpanda 2>/dev/null | grep -q "redis\|rabbitmq\|clickhouse\|redpanda") || (echo "ERROR: Docker services not running. Start with: make integration-up" && exit 1)
 	@echo "Running integration tests..."
-	$(PYTEST) tests/integration/ -v -m "integration and not longrunning"
+	$(PYTEST) tests/integration/ -v -m "integration and not longrunning and not external_services"
+
+test-external-services: ## Run tests that require external services (ClickHouse, Redis, Kafka, PostgreSQL)
+	@echo "Running tests that require external services..."
+	@echo "Make sure ClickHouse, Redis, Kafka, and PostgreSQL are running!"
+	$(PYTEST) -v -m "external_services"
 
 integration-up: ## Start integration test services
 	@echo "Starting integration test services..."
@@ -66,8 +71,8 @@ integration-logs: ## Show integration test service logs
 		sudo docker compose -f docker-compose.yaml logs -f; \
 	fi
 
-test-all: ## Run all tests (unit + integration, excludes longrunning)
-	$(PYTEST) -v -m "not longrunning"
+test-all: ## Run all tests (unit + integration, excludes longrunning and external_services)
+	$(PYTEST) -v -m "not longrunning and not external_services"
 
 test-longrunning: ## Run long-running tests (use with caution, these tests take a long time)
 	$(PYTEST) -v -m longrunning

@@ -14,6 +14,7 @@ from tests.integration.utils import make_authenticated_request
 
 
 @pytest.mark.integration
+@pytest.mark.external_services
 class TestRedisRQIntegration:
     """Integration tests for Redis RQ module."""
     

@@ -29,6 +29,7 @@ from tests.integration.test_config import (
 
 
 @pytest.mark.integration
+@pytest.mark.external_services
 @pytest.mark.asyncio
 class TestChainPostgresKafkaE2E:
     """End-to-end test for PostgreSQL -> Kafka chained webhook."""

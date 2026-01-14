@@ -13,16 +13,23 @@ from src.main import validate_connections
 from src.utils import sanitize_error_message
 
 
+@pytest.fixture
+def allow_private_ips(monkeypatch):
+    monkeypatch.setenv("ALLOW_PRIVATE_IP_CONNECTIONS", "true")
+    yield
+
+
 class TestValidateConnectionsSSRF:
     """Test SSRF vulnerabilities in connection validation."""
     
     @pytest.mark.asyncio
-    async def test_postgresql_ssrf_private_ip(self):
-        """Test SSRF via PostgreSQL connection to private IP."""
+    @pytest.mark.usefixtures("allow_private_ips")
+    async def test_postgresql_private_ip_allowed_for_internal_networks(self):
+        """Test that private IPs are allowed for internal network connections."""
         config = {
-            "malicious_db": {
+            "internal_db": {
                 "type": "postgresql",
-                "host": "192.168.1.1",  # Private IP
+                "host": "192.168.1.1",  # Private IP - allowed for internal networks
                 "port": 5432,
                 "database": "test",
                 "user": "user",
@@ -30,8 +37,7 @@ class TestValidateConnectionsSSRF:
             }
         }
         
-        # Should not connect to private IPs without validation
-        # This test will fail if SSRF protection is missing
+        # Private IPs are now allowed to support internal network deployments
         with patch('asyncpg.connect', new_callable=AsyncMock) as mock_connect:
             mock_conn = AsyncMock()
             mock_conn.fetchval = AsyncMock(return_value=1)
@@ -40,12 +46,8 @@ class TestValidateConnectionsSSRF:
             
             await validate_connections(config)
             
-            # If SSRF protection is missing, connection will be attempted
-            # Check if connection was attempted (vulnerability exists)
-            if mock_connect.called:
-                # SSRF vulnerability: connection attempted to private IP
-                # This should be blocked by host validation
-                assert False, "SSRF vulnerability: Connection attempted to private IP without validation"
+            # Connection should be attempted for private IPs (internal network support)
+            assert mock_connect.called, "Private IPs should be allowed for internal network connections"
     
     @pytest.mark.asyncio
     async def test_mysql_ssrf_localhost(self):
@@ -98,12 +100,13 @@ class TestValidateConnectionsSSRF:
                 assert False, "SSRF vulnerability: Connection attempted to metadata service without validation"
     
     @pytest.mark.asyncio
-    async def test_kafka_ssrf_bootstrap_servers(self):
-        """Test SSRF via Kafka bootstrap_servers to private IP."""
+    @pytest.mark.usefixtures("allow_private_ips")
+    async def test_kafka_private_ip_allowed_in_bootstrap_servers(self):
+        """Test that private IPs are allowed in Kafka bootstrap_servers for internal networks."""
         config = {
-            "malicious_kafka": {
+            "internal_kafka": {
                 "type": "kafka",
-                "bootstrap_servers": "10.0.0.1:9092"  # Private IP
+                "bootstrap_servers": "10.0.0.1:9092"  # Private IP - allowed for internal networks
             }
         }
         
@@ -115,9 +118,8 @@ class TestValidateConnectionsSSRF:
             
             await validate_connections(config)
             
-            # If SSRF protection is missing, connection will be attempted
-            if mock_producer.called:
-                assert False, "SSRF vulnerability: Connection attempted to private IP without validation"
+            # Connection should be attempted for private IPs (internal network support)
+            assert mock_producer.called, "Private IPs should be allowed for internal network Kafka connections"
 
 
 class TestValidateConnectionsDoS:
@@ -467,12 +469,13 @@ class TestValidateConnectionsInputValidation:
     """Test input validation and sanitization."""
     
     @pytest.mark.asyncio
-    async def test_host_validation_missing(self):
-        """Test that host validation is missing (vulnerability)."""
+    @pytest.mark.usefixtures("allow_private_ips")
+    async def test_host_validation_allows_private_ips(self):
+        """Test that private IPs are allowed for internal network connections."""
         config = {
             "test_db": {
                 "type": "postgresql",
-                "host": "192.168.1.1",  # Private IP - should be rejected
+                "host": "192.168.1.1",  # Private IP - allowed for internal networks
                 "port": 5432,
                 "database": "test",
                 "user": "user",
@@ -480,8 +483,7 @@ class TestValidateConnectionsInputValidation:
             }
         }
         
-        # If host validation is missing, connection will be attempted
-        # This is a vulnerability
+        # Private IPs are allowed for internal network deployments
         with patch('asyncpg.connect', new_callable=AsyncMock) as mock_connect:
             mock_conn = AsyncMock()
             mock_conn.fetchval = AsyncMock(return_value=1)
@@ -490,13 +492,72 @@ class TestValidateConnectionsInputValidation:
             
             await validate_connections(config)
             
-            # If connection was attempted without validation, vulnerability exists
-            if mock_connect.called:
-                # Check if private IP was blocked
-                call_args = mock_connect.call_args
-                connection_string = call_args[0][0] if call_args[0] else None
-                if connection_string and "192.168.1.1" in connection_string:
-                    assert False, "SSRF vulnerability: Private IP not validated before connection attempt"
+            # Connection should be attempted for private IPs
+            assert mock_connect.called, "Private IPs should be allowed for internal network connections"
+    
+    @pytest.mark.asyncio
+    async def test_allow_private_ip_connections_env_var(self):
+        """Test that ALLOW_PRIVATE_IP_CONNECTIONS env var controls private IP behavior."""
+        import os
+        from src.config import _validate_connection_host
+        
+        # Test that private IPs are blocked when ALLOW_PRIVATE_IP_CONNECTIONS=false
+        old_val = os.environ.get("ALLOW_PRIVATE_IP_CONNECTIONS")
+        try:
+            os.environ["ALLOW_PRIVATE_IP_CONNECTIONS"] = "false"
+            
+            # Should raise ValueError when env var is set to false
+            with pytest.raises(ValueError, match="not allowed"):
+                _validate_connection_host("192.168.1.1", "postgresql")
+            
+            # Test that private IPs are allowed when ALLOW_PRIVATE_IP_CONNECTIONS=true
+            os.environ["ALLOW_PRIVATE_IP_CONNECTIONS"] = "true"
+            
+            # Should not raise - private IP is allowed
+            result = _validate_connection_host("192.168.1.1", "postgresql")
+            assert result == "192.168.1.1"
+            
+        finally:
+            # Restore original env var
+            if old_val is None:
+                os.environ.pop("ALLOW_PRIVATE_IP_CONNECTIONS", None)
+            else:
+                os.environ["ALLOW_PRIVATE_IP_CONNECTIONS"] = old_val
+    
+    @pytest.mark.asyncio
+    async def test_private_ip_blocked_when_env_var_disabled(self):
+        """Test that private IPs are blocked when ALLOW_PRIVATE_IP_CONNECTIONS=false."""
+        import os
+        from src.main import validate_connections
+        
+        config = {
+            "test_db": {
+                "type": "postgresql",
+                "host": "192.168.1.1",  # Private IP
+                "port": 5432,
+                "database": "test",
+                "user": "user",
+                "password": "pass"
+            }
+        }
+        
+        old_val = os.environ.get("ALLOW_PRIVATE_IP_CONNECTIONS")
+        try:
+            os.environ["ALLOW_PRIVATE_IP_CONNECTIONS"] = "false"
+            
+            # Connection should NOT be attempted when env var is false
+            with patch('asyncpg.connect', new_callable=AsyncMock) as mock_connect:
+                await validate_connections(config)
+                
+                # Connection should NOT be attempted
+                assert not mock_connect.called, "Private IPs should be blocked when ALLOW_PRIVATE_IP_CONNECTIONS=false"
+                
+        finally:
+            # Restore original env var
+            if old_val is None:
+                os.environ.pop("ALLOW_PRIVATE_IP_CONNECTIONS", None)
+            else:
+                os.environ["ALLOW_PRIVATE_IP_CONNECTIONS"] = old_val
     
     @pytest.mark.asyncio
     async def test_port_validation_missing(self):

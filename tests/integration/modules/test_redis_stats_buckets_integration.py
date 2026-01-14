@@ -13,6 +13,7 @@ from src.utils import RedisEndpointStats
 
 
 @pytest.mark.integration
+@pytest.mark.external_services
 class TestRedisStatsBucketsIntegration:
     """Integration tests for Redis stats bucket operations."""
     

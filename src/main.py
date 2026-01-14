@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
+from contextlib import asynccontextmanager
 import asyncio
 import os
 from typing import Optional
@@ -23,21 +24,241 @@ DISABLE_OPENAPI_DOCS = os.getenv("DISABLE_OPENAPI_DOCS", "false").lower() == "tr
 # Note: This is used ONLY for URL generation, NOT for path stripping (uvicorn --root-path would do that)
 ROOT_PATH = os.getenv("ROOT_PATH", "").rstrip("/")  # Remove trailing slash if present
 
-# Initialize FastAPI app
+# Global stats object (Redis-backed, stateless, safe to share)
+stats = RedisEndpointStats()  # Use Redis for persistent stats
+
+
+async def startup_logic(app: FastAPI):
+    """
+    Application startup logic - extracted for testability.
+    
+    This function contains all startup initialization logic and can be tested
+    independently. It's called by the lifespan context manager.
+    
+    Args:
+        app: FastAPI application instance (uses app.state for storage)
+    """
+    import sys
+    import warnings
+    
+    # Suppress specific warnings that are not actionable
+    warnings.filterwarnings("ignore", category=FutureWarning, module="google.api_core")
+    
+    # Print ASCII art banner with version info
+    print("\n" + "=" * 60)
+    print("""
+██╗    ██╗███████╗██████╗ ██╗  ██╗ ██████╗  ██████╗ ██╗  ██╗
+██║    ██║██╔════╝██╔══██╗██║  ██║██╔═══██╗██╔═══██╗██║ ██╔╝
+██║ █╗ ██║█████╗  ██████╔╝███████║██║   ██║██║   ██║█████╔╝ 
+██║███╗██║██╔══╝  ██╔══██╗██╔══██║██║   ██║██║   ██║██╔═██╗ 
+╚███╔███╔╝███████╗██████╔╝██║  ██║╚██████╔╝╚██████╔╝██║  ██╗
+ ╚══╝╚══╝ ╚══════╝╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝
+    """)
+    print("=" * 60)
+    print(f"Python Version: {sys.version.split()[0]}")
+    print(f"Platform: {sys.platform}")
+    print("=" * 60 + "\n")
+    
+    # Initialize ConfigManager for live reload
+    print("📋 Initializing configuration manager...")
+    app.state.config_manager = ConfigManager()
+    try:
+        init_result = await app.state.config_manager.initialize()
+        if init_result.success:
+            webhooks_count = init_result.details.get('webhooks_loaded', 0)
+            connections_count = init_result.details.get('connections_loaded', 0)
+            print(f"✅ ConfigManager initialized: {webhooks_count} webhook(s), {connections_count} connection(s)")
+        else:
+            print(f"⚠️  ConfigManager initialization warning: {init_result.error}")
+    except Exception as e:
+        # SECURITY: Sanitize error message to prevent information disclosure
+        sanitized_error = sanitize_error_message(e, "startup_logic.ConfigManager")
+        print(f"❌ Failed to initialize ConfigManager: {sanitized_error}")
+        print("   Falling back to legacy config loading...")
+        # Fallback to old config loading
+        app.state.webhook_config_data = await inject_connection_details(webhook_config_data, connection_config)
+        app.state.config_manager = None
+    else:
+        # Use ConfigManager for config access
+        # Build webhook_config_data from ConfigManager for backward compatibility
+        app.state.webhook_config_data = {}
+        # Note: ConfigManager will be used directly in webhook handler
+    
+    # Validate all connections at startup
+    try:
+        if app.state.config_manager:
+            # Get connection config from ConfigManager using public method
+            conn_config = app.state.config_manager.get_all_connection_configs()
+        else:
+            # Use legacy connection_config
+            conn_config = connection_config
+        
+        await validate_connections(conn_config)
+    except Exception as e:
+        # Don't fail startup if validation fails, just log it
+        sanitized_error = sanitize_error_message(e, "connection validation")
+        print(f"⚠️  Connection validation error: {sanitized_error}")
+    
+    # Initialize ClickHouse logger for automatic event logging
+    # Look for any clickhouse connection (webhook instances just log events)
+    clickhouse_config = None
+    if app.state.config_manager:
+        # Get all connection configs using public API (avoiding private _connection_config)
+        try:
+            all_conn_configs = app.state.config_manager.get_all_connection_configs()
+            for conn_name, conn in all_conn_configs.items():
+                if conn and conn.get('type') == 'clickhouse':
+                    clickhouse_config = conn
+                    break
+        except Exception:
+            # Fallback if method not accessible
+            pass
+    else:
+        for conn_name, conn in connection_config.items():
+            if conn.get('type') == 'clickhouse':
+                clickhouse_config = conn
+                break
+    
+    # Initialize ClickHouse logger for automatic event logging
+    app.state.clickhouse_logger = None
+    if clickhouse_config:
+        print("📊 Checking ClickHouse connection...")
+        try:
+            app.state.clickhouse_logger = ClickHouseAnalytics(clickhouse_config)
+            await app.state.clickhouse_logger.connect()
+            print("✅ ClickHouse event logger initialized - all webhook events will be logged")
+        except Exception as e:
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "startup_logic.ClickHouse")
+            print(f"⚠️  ClickHouse logger unavailable: {sanitized_error}")
+            print("   Continuing without ClickHouse logging...")
+            app.state.clickhouse_logger = None
+    
+    # Start file watcher if enabled
+    app.state.config_watcher = None
+    file_watching_enabled = os.getenv("CONFIG_FILE_WATCHING_ENABLED", "false").lower() == "true"
+    if file_watching_enabled and app.state.config_manager:
+        try:
+            # SECURITY: Validate debounce_seconds to prevent DoS via invalid values
+            debounce_str = os.getenv("CONFIG_RELOAD_DEBOUNCE_SECONDS", "3.0")
+            try:
+                debounce_seconds = float(debounce_str)
+                # Validate range: 0.1 to 3600 seconds (0.1s to 1 hour)
+                if debounce_seconds < 0.1:
+                    debounce_seconds = 3.0  # Default to 3.0 if too small
+                    print(f"WARNING: CONFIG_RELOAD_DEBOUNCE_SECONDS too small, using default 3.0")
+                elif debounce_seconds > 3600:
+                    debounce_seconds = 3600  # Cap at 1 hour
+                    print(f"WARNING: CONFIG_RELOAD_DEBOUNCE_SECONDS too large, capped at 3600")
+            except (ValueError, TypeError):
+                # Invalid value, use default
+                debounce_seconds = 3.0
+                print(f"WARNING: Invalid CONFIG_RELOAD_DEBOUNCE_SECONDS value '{debounce_str}', using default 3.0")
+            
+            app.state.config_watcher = ConfigFileWatcher(app.state.config_manager, debounce_seconds=debounce_seconds)
+            app.state.config_watcher.start()
+            print(f"✅ Config file watcher started - automatic reload enabled (debounce: {debounce_seconds}s)")
+        except Exception as e:
+            # SECURITY: Sanitize error message to prevent information disclosure
+            sanitized_error = sanitize_error_message(e, "startup_logic.ConfigFileWatcher")
+            print(f"Failed to start config file watcher: {sanitized_error}")
+
+    # Start background cleanup task
+    asyncio.create_task(cleanup_task())
+    
+    # Print startup completion message
+    print("\n" + "=" * 60)
+    print("🚀 Webhook service startup complete!")
+    print("=" * 60 + "\n")
+
+
+async def shutdown_logic(app: FastAPI):
+    """
+    Application shutdown logic - extracted for testability.
+    
+    This function contains all shutdown cleanup logic and can be tested
+    independently. It's called by the lifespan context manager.
+    
+    Args:
+        app: FastAPI application instance (uses app.state for storage)
+    """
+    print("\n🛑 Shutting down webhook service...")
+    
+    # SECURITY: Handle errors gracefully during shutdown to prevent information disclosure
+    if hasattr(app.state, 'config_watcher') and app.state.config_watcher:
+        try:
+            app.state.config_watcher.stop()
+        except Exception as e:
+            sanitized_error = sanitize_error_message(e, "shutdown_logic.ConfigFileWatcher")
+            print(f"Error stopping config file watcher: {sanitized_error}")
+    
+    if hasattr(app.state, 'config_manager') and app.state.config_manager:
+        try:
+            await app.state.config_manager.pool_registry.close_all_pools()
+        except Exception as e:
+            sanitized_error = sanitize_error_message(e, "shutdown_logic.ConnectionPools")
+            print(f"Error closing connection pools: {sanitized_error}")
+    
+    if hasattr(app.state, 'clickhouse_logger') and app.state.clickhouse_logger:
+        try:
+            await app.state.clickhouse_logger.disconnect()
+        except Exception as e:
+            sanitized_error = sanitize_error_message(e, "shutdown_logic.ClickHouse")
+            print(f"Error disconnecting ClickHouse logger: {sanitized_error}")
+    
+    # Close Redis connection
+    try:
+        await stats.close()
+    except Exception as e:
+        sanitized_error = sanitize_error_message(e, "shutdown_logic.RedisStats")
+        print(f"Error closing Redis stats: {sanitized_error}")
+    
+    print("✅ Shutdown complete\n")
+
+
+# Backward compatibility aliases for tests
+async def startup_event():
+    """Backward compatibility alias for startup_logic - for testing."""
+    from fastapi import FastAPI
+    # Create a minimal app instance for testing
+    test_app = FastAPI()
+    await startup_logic(test_app)
+    return test_app
+
+
+async def shutdown_event():
+    """Backward compatibility alias for shutdown_logic - for testing."""
+    from fastapi import FastAPI
+    # Create a minimal app instance for testing
+    test_app = FastAPI()
+    await shutdown_logic(test_app)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan manager - handles startup and shutdown events.
+    Uses app.state for storing application-scoped dependencies (thread-safe).
+    Replaces deprecated @app.on_event decorators and global mutable state.
+    """
+    await startup_logic(app)
+    yield  # Application runs here
+    await shutdown_logic(app)
+
+
+# Initialize FastAPI app with lifespan
 # Disable docs if requested
 # root_path is used when behind a reverse proxy to generate correct URLs in OpenAPI schema
 # openapi_url must include ROOT_PATH so Swagger UI loads the correct JSON file
 openapi_url_path = f"{ROOT_PATH}/openapi.json" if (ROOT_PATH and not DISABLE_OPENAPI_DOCS) else ("/openapi.json" if not DISABLE_OPENAPI_DOCS else None)
 app = FastAPI(
+    lifespan=lifespan,
     docs_url="/docs" if not DISABLE_OPENAPI_DOCS else None,
     redoc_url="/redoc" if not DISABLE_OPENAPI_DOCS else None,
     openapi_url=openapi_url_path,
     root_path=ROOT_PATH if ROOT_PATH else None  # Set root_path for reverse proxy support (URL generation only)
 )
-stats = RedisEndpointStats()  # Use Redis for persistent stats
-clickhouse_logger: ClickHouseAnalytics = None  # For logging events only
-config_manager: Optional[ConfigManager] = None  # Config manager for live reload
-config_watcher: Optional[ConfigFileWatcher] = None  # File watcher for auto-reload
+
 
 # Override FastAPI's openapi() method to return custom schema
 if not DISABLE_OPENAPI_DOCS:
@@ -48,22 +269,21 @@ if not DISABLE_OPENAPI_DOCS:
     @wraps(original_openapi)
     def custom_openapi():
         """Generate custom OpenAPI schema from webhooks.json."""
-        global config_manager, webhook_config_data
         try:
             from src.openapi_generator import generate_openapi_schema
             # Generate schema dynamically from current webhook config
             # Use ConfigManager if available, otherwise fallback
+            config_manager = getattr(app.state, 'config_manager', None)
             if config_manager:
                 # Build webhook config dict from ConfigManager using public API
                 webhook_configs = config_manager.get_all_webhook_configs()
-                if webhook_configs:
+                if webhook_configs:  # Only call if non-empty dict
                     return generate_openapi_schema(webhook_configs)
-                config_to_use = webhook_config_data
-            else:
-                config_to_use = webhook_config_data
             
-            if config_to_use:
-                return generate_openapi_schema(config_to_use)
+            # Fallback to webhook_config_data if available
+            webhook_config_data = getattr(app.state, 'webhook_config_data', None)
+            if webhook_config_data:  # Only call if truthy (not None, not empty dict)
+                return generate_openapi_schema(webhook_config_data)
         except Exception as e:
             # SECURITY: Sanitize error message to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "custom_openapi")
@@ -318,22 +538,9 @@ async def validate_connections(connection_config: dict):
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 5432)
                 
-                # Validate host to prevent SSRF
+                # Validate host to prevent SSRF (allows private IPs for internal networks)
                 try:
                     _validate_connection_host(host, conn_type)
-                    # SECURITY: Additionally block private IP ranges for connection validation
-                    # (even though _validate_connection_host allows them for internal networks)
-                    try:
-                        ip = ipaddress.ip_address(host)
-                        if ip.is_private:
-                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
-                    except ValueError as ip_error:
-                        # Check if this is our validation error or an ipaddress parsing error
-                        if "not allowed for connection validation" in str(ip_error):
-                            # Re-raise our validation error
-                            raise
-                        # Otherwise, it's not an IP address, treat as hostname (already validated by _validate_connection_host)
-                        pass
                 except ValueError as e:
                     status_icon = "❌"
                     status_msg = f"Host validation failed: {str(e)}"
@@ -372,17 +579,9 @@ async def validate_connections(connection_config: dict):
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 3306)
                 
-                # Validate host to prevent SSRF
+                # Validate host to prevent SSRF (allows private IPs for internal networks)
                 try:
                     _validate_connection_host(host, conn_type)
-                    # SECURITY: Additionally block private IP ranges for connection validation
-                    try:
-                        ip = ipaddress.ip_address(host)
-                        if ip.is_private:
-                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
-                    except ValueError:
-                        # Not an IP address, treat as hostname (already validated by _validate_connection_host)
-                        pass
                 except ValueError as e:
                     status_icon = "❌"
                     status_msg = f"Host validation failed: {str(e)}"
@@ -451,21 +650,9 @@ async def validate_connections(connection_config: dict):
                     else:
                         host = server
                     
-                    # Validate host to prevent SSRF
+                    # Validate host to prevent SSRF (allows private IPs for internal networks)
                     try:
                         _validate_connection_host(host, conn_type)
-                        # SECURITY: Additionally block private IP ranges for connection validation
-                        try:
-                            ip = ipaddress.ip_address(host)
-                            if ip.is_private:
-                                raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
-                        except ValueError as ip_error:
-                            # Check if this is our validation error or an ipaddress parsing error
-                            if "not allowed for connection validation" in str(ip_error):
-                                # Re-raise our validation error
-                                raise
-                            # Otherwise, it's not an IP address, treat as hostname (already validated by _validate_connection_host)
-                            pass
                     except ValueError as e:
                         status_icon = "❌"
                         status_msg = f"Host validation failed in bootstrap_servers: {str(e)}"
@@ -494,17 +681,9 @@ async def validate_connections(connection_config: dict):
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 6379)
                 
-                # Validate host to prevent SSRF
+                # Validate host to prevent SSRF (allows private IPs for internal networks)
                 try:
                     _validate_connection_host(host, conn_type)
-                    # SECURITY: Additionally block private IP ranges for connection validation
-                    try:
-                        ip = ipaddress.ip_address(host)
-                        if ip.is_private:
-                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
-                    except ValueError:
-                        # Not an IP address, treat as hostname (already validated by _validate_connection_host)
-                        pass
                 except ValueError as e:
                     status_icon = "❌"
                     status_msg = f"Host validation failed: {str(e)}"
@@ -536,17 +715,9 @@ async def validate_connections(connection_config: dict):
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 5672)
                 
-                # Validate host to prevent SSRF
+                # Validate host to prevent SSRF (allows private IPs for internal networks)
                 try:
                     _validate_connection_host(host, conn_type)
-                    # SECURITY: Additionally block private IP ranges for connection validation
-                    try:
-                        ip = ipaddress.ip_address(host)
-                        if ip.is_private:
-                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
-                    except ValueError:
-                        # Not an IP address, treat as hostname (already validated by _validate_connection_host)
-                        pass
                 except ValueError as e:
                     status_icon = "❌"
                     status_msg = f"Host validation failed: {str(e)}"
@@ -582,17 +753,9 @@ async def validate_connections(connection_config: dict):
                 host = conn_details.get('host', 'localhost')
                 port = conn_details.get('port', 9000)
                 
-                # Validate host to prevent SSRF
+                # Validate host to prevent SSRF (allows private IPs for internal networks)
                 try:
                     _validate_connection_host(host, conn_type)
-                    # SECURITY: Additionally block private IP ranges for connection validation
-                    try:
-                        ip = ipaddress.ip_address(host)
-                        if ip.is_private:
-                            raise ValueError(f"Private IP addresses are not allowed for connection validation: {host}")
-                    except ValueError:
-                        # Not an IP address, treat as hostname (already validated by _validate_connection_host)
-                        pass
                 except ValueError as e:
                     status_icon = "❌"
                     status_msg = f"Host validation failed: {str(e)}"
@@ -673,194 +836,23 @@ async def validate_connections(connection_config: dict):
     print()
 
 
-@app.on_event("startup")
-async def startup_event():
-    global webhook_config_data, clickhouse_logger, config_manager, config_watcher
-    
-    import sys
-    import warnings
-    
-    # Suppress specific warnings that are not actionable
-    warnings.filterwarnings("ignore", category=FutureWarning, module="google.api_core")
-    
-    # Print ASCII art banner with version info
-    print("\n" + "=" * 60)
-    print("""
-██╗    ██╗███████╗██████╗ ██╗  ██╗ ██████╗  ██████╗ ██╗  ██╗
-██║    ██║██╔════╝██╔══██╗██║  ██║██╔═══██╗██╔═══██╗██║ ██╔╝
-██║ █╗ ██║█████╗  ██████╔╝███████║██║   ██║██║   ██║█████╔╝ 
-██║███╗██║██╔══╝  ██╔══██╗██╔══██║██║   ██║██║   ██║██╔═██╗ 
-╚███╔███╔╝███████╗██████╔╝██║  ██║╚██████╔╝╚██████╔╝██║  ██╗
- ╚══╝╚══╝ ╚══════╝╚═════╝ ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝
-    """)
-    print("=" * 60)
-    print(f"Python Version: {sys.version.split()[0]}")
-    print(f"Platform: {sys.platform}")
-    print("=" * 60 + "\n")
-    
-    # Initialize ConfigManager for live reload
-    global config_manager
-    print("📋 Initializing configuration manager...")
-    config_manager = ConfigManager()
-    try:
-        init_result = await config_manager.initialize()
-        if init_result.success:
-            webhooks_count = init_result.details.get('webhooks_loaded', 0)
-            connections_count = init_result.details.get('connections_loaded', 0)
-            print(f"✅ ConfigManager initialized: {webhooks_count} webhook(s), {connections_count} connection(s)")
-        else:
-            print(f"⚠️  ConfigManager initialization warning: {init_result.error}")
-    except Exception as e:
-        # SECURITY: Sanitize error message to prevent information disclosure
-        sanitized_error = sanitize_error_message(e, "startup_event.ConfigManager")
-        print(f"❌ Failed to initialize ConfigManager: {sanitized_error}")
-        print("   Falling back to legacy config loading...")
-        # Fallback to old config loading
-        webhook_config_data = await inject_connection_details(webhook_config_data, connection_config)
-    else:
-        # Use ConfigManager for config access
-        # Build webhook_config_data from ConfigManager for backward compatibility
-        webhook_config_data = {}
-        # Note: ConfigManager will be used directly in webhook handler
-    
-    # Validate all connections at startup
-    try:
-        if config_manager:
-            # Get connection config from ConfigManager using public method
-            conn_config = config_manager.get_all_connection_configs()
-        else:
-            # Use legacy connection_config
-            conn_config = connection_config
-        
-        await validate_connections(conn_config)
-    except Exception as e:
-        # Don't fail startup if validation fails, just log it
-        sanitized_error = sanitize_error_message(e, "connection validation")
-        print(f"⚠️  Connection validation error: {sanitized_error}")
-    
-    # Initialize ClickHouse logger for automatic event logging
-    # Look for any clickhouse connection (webhook instances just log events)
-    clickhouse_config = None
-    if config_manager:
-        # Access connection config dict directly (similar to _webhook_config access pattern)
-        try:
-            conn_config = config_manager._connection_config
-            for conn_name, conn in conn_config.items():
-                if conn and conn.get('type') == 'clickhouse':
-                    clickhouse_config = conn
-                    break
-        except AttributeError:
-            # Fallback if _connection_config not accessible
-            pass
-    else:
-        for conn_name, conn in connection_config.items():
-            if conn.get('type') == 'clickhouse':
-                clickhouse_config = conn
-                break
-    
-    # Initialize ClickHouse logger for automatic event logging
-    if clickhouse_config:
-        print("📊 Checking ClickHouse connection...")
-        try:
-            clickhouse_logger = ClickHouseAnalytics(clickhouse_config)
-            await clickhouse_logger.connect()
-            print("✅ ClickHouse event logger initialized - all webhook events will be logged")
-        except Exception as e:
-            # SECURITY: Sanitize error message to prevent information disclosure
-            sanitized_error = sanitize_error_message(e, "startup_event.ClickHouse")
-            print(f"⚠️  ClickHouse logger unavailable: {sanitized_error}")
-            print("   Continuing without ClickHouse logging...")
-            clickhouse_logger = None  # Ensure it's None if connection failed
-    else:
-        clickhouse_logger = None  # Explicitly set to None
-    
-    # Start file watcher if enabled
-    file_watching_enabled = os.getenv("CONFIG_FILE_WATCHING_ENABLED", "false").lower() == "true"
-    if file_watching_enabled and config_manager:
-        try:
-            # SECURITY: Validate debounce_seconds to prevent DoS via invalid values
-            debounce_str = os.getenv("CONFIG_RELOAD_DEBOUNCE_SECONDS", "3.0")
-            try:
-                debounce_seconds = float(debounce_str)
-                # Validate range: 0.1 to 3600 seconds (0.1s to 1 hour)
-                if debounce_seconds < 0.1:
-                    debounce_seconds = 3.0  # Default to 3.0 if too small
-                    print(f"WARNING: CONFIG_RELOAD_DEBOUNCE_SECONDS too small, using default 3.0")
-                elif debounce_seconds > 3600:
-                    debounce_seconds = 3600  # Cap at 1 hour
-                    print(f"WARNING: CONFIG_RELOAD_DEBOUNCE_SECONDS too large, capped at 3600")
-            except (ValueError, TypeError):
-                # Invalid value, use default
-                debounce_seconds = 3.0
-                print(f"WARNING: Invalid CONFIG_RELOAD_DEBOUNCE_SECONDS value '{debounce_str}', using default 3.0")
-            
-            config_watcher = ConfigFileWatcher(config_manager, debounce_seconds=debounce_seconds)
-            config_watcher.start()
-            print(f"✅ Config file watcher started - automatic reload enabled (debounce: {debounce_seconds}s)")
-        except Exception as e:
-            # SECURITY: Sanitize error message to prevent information disclosure
-            sanitized_error = sanitize_error_message(e, "startup_event.ConfigFileWatcher")
-            print(f"Failed to start config file watcher: {sanitized_error}")
 
-    # Start background cleanup task
-    asyncio.create_task(cleanup_task())
-    
-    # Print startup completion message
-    print("\n" + "=" * 60)
-    print("🚀 Webhook service startup complete!")
-    print("=" * 60 + "\n")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown."""
-    global clickhouse_logger, config_watcher, config_manager
-    
-    # SECURITY: Handle errors gracefully during shutdown to prevent information disclosure
-    if config_watcher:
-        try:
-            config_watcher.stop()
-        except Exception as e:
-            sanitized_error = sanitize_error_message(e, "shutdown_event.ConfigFileWatcher")
-            print(f"Error stopping config file watcher: {sanitized_error}")
-    
-    if config_manager:
-        try:
-            await config_manager.pool_registry.close_all_pools()
-        except Exception as e:
-            sanitized_error = sanitize_error_message(e, "shutdown_event.ConnectionPools")
-            print(f"Error closing connection pools: {sanitized_error}")
-    
-    if clickhouse_logger:
-        try:
-            await clickhouse_logger.disconnect()
-        except Exception as e:
-            sanitized_error = sanitize_error_message(e, "shutdown_event.ClickHouse")
-            print(f"Error disconnecting ClickHouse logger: {sanitized_error}")
-    
-    # Close Redis connection
-    try:
-        await stats.close()
-    except Exception as e:
-        sanitized_error = sanitize_error_message(e, "shutdown_event.RedisStats")
-        print(f"Error closing Redis stats: {sanitized_error}")
 
 
 @app.post("/webhook/{webhook_id}", tags=["Webhooks"])
 async def read_webhook(webhook_id: str,  request: Request):
-    global config_manager
-    
     # Get configs from ConfigManager if available, otherwise use fallback
+    config_manager = getattr(request.app.state, 'config_manager', None)
     if config_manager:
         # Get all webhook configs to support default fallback
         webhook_configs = config_manager.get_all_webhook_configs()
         # Pass connection_config for chain processor to inject connection_details
         # ConfigManager already has environment variables substituted
-        conn_configs = config_manager.get_all_connection_configs() if config_manager else {}
+        conn_configs = config_manager.get_all_connection_configs()
         pool_registry = config_manager.pool_registry
     else:
         # Fallback to old config system
-        webhook_configs = webhook_config_data
+        webhook_configs = getattr(request.app.state, 'webhook_config_data', webhook_config_data)
         conn_configs = connection_config
         pool_registry = None
 
@@ -921,7 +913,7 @@ async def read_webhook(webhook_id: str,  request: Request):
     # Automatically log all webhook events to ClickHouse
     # This allows analytics service to process them later
     # Only log if ClickHouse is available and connected
-    global clickhouse_logger
+    clickhouse_logger = getattr(request.app.state, 'clickhouse_logger', None)
     if clickhouse_logger and clickhouse_logger.client:
         try:
             # Log asynchronously using task manager (fire and forget)
@@ -1107,7 +1099,7 @@ async def reload_config_endpoint(request: Request):
     - reload_webhooks: boolean (optional, default: true)
     - reload_connections: boolean (optional, default: true)
     """
-    global config_manager
+    config_manager = getattr(request.app.state, 'config_manager', None)
     
     if not config_manager:
         raise HTTPException(status_code=503, detail="ConfigManager not initialized")
@@ -1274,7 +1266,7 @@ async def config_status_endpoint(request: Request):
     
     Requires authentication via CONFIG_RELOAD_ADMIN_TOKEN environment variable.
     """
-    global config_manager
+    config_manager = getattr(request.app.state, 'config_manager', None)
     
     if not config_manager:
         raise HTTPException(status_code=503, detail="ConfigManager not initialized")
@@ -1345,7 +1337,7 @@ async def config_status_endpoint(request: Request):
         status["pool_details"] = sanitized_pool_details
     
     # Add file watching status
-    global config_watcher
+    config_watcher = getattr(request.app.state, 'config_watcher', None)
     status["file_watching_enabled"] = config_watcher is not None and config_watcher.is_watching()
     
     return JSONResponse(content=status)

@@ -17,6 +17,10 @@ class HTTPWebhookModule(BaseModule):
     # Includes standard newlines, Unicode line/paragraph separators, and control chars
     DANGEROUS_CHARS = ['\r', '\n', '\0', '\u2028', '\u2029', '\u000B', '\u000C']
     
+    # Octal IP detection patterns (compiled once at class load time for performance)
+    OCTAL_PATTERN = re.compile(r'^0[0-7]+$')
+    DECIMAL_PATTERN = re.compile(r'^[0-9]+$')
+    
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         # Get whitelist of allowed headers from config (optional)
@@ -247,11 +251,11 @@ class HTTPWebhookModule(BaseModule):
                 for part in parts:
                     # Check if part looks like octal (starts with 0, has more digits, all 0-7)
                     # Examples: 0177, 00, 000, 001 (but not 0, 08, 09, 010)
-                    if re.match(r'^0[0-7]+$', part):
+                    if self.OCTAL_PATTERN.match(part):
                         # Parse as octal
                         decimal_parts.append(int(part, 8))
                         has_octal = True
-                    elif re.match(r'^[0-9]+$', part):
+                    elif self.DECIMAL_PATTERN.match(part):
                         # Regular decimal
                         decimal_parts.append(int(part))
                     else:

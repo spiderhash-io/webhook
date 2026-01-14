@@ -163,7 +163,15 @@ def _validate_connection_host(host: str, connection_type: str) -> str:
                 f"Access to reserved IP '{host}' is not allowed for security reasons."
             )
         
-        # Allow public and private IPs (except the blocked categories above)
+        # Block private IPs by default for security (secure-by-default principle)
+        # Check ALLOW_PRIVATE_IP_CONNECTIONS env var to explicitly allow private IPs if needed
+        allow_private = os.getenv("ALLOW_PRIVATE_IP_CONNECTIONS", "false").lower() == "true"
+        if ip.is_private and not allow_private:
+            raise ValueError(
+                f"Access to private IP '{host}' is not allowed. "
+                f"Set ALLOW_PRIVATE_IP_CONNECTIONS=true to enable internal network connections."
+            )
+        
         return host
     
     except ValueError as e:

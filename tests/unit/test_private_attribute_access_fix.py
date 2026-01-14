@@ -25,7 +25,7 @@ class TestPrivateAttributeAccessFix:
         assert callable(config_manager.get_all_webhook_configs)
 
     def test_get_all_webhook_configs_returns_dict(self):
-        """Verify that get_all_webhook_configs returns a dictionary."""
+        """Verify that get_all_webhook_configs returns a dictionary-like object."""
         config_manager = ConfigManager(
             webhook_config_file="test_webhooks.yaml",
             connection_config_file="test_connections.yaml"
@@ -43,17 +43,18 @@ class TestPrivateAttributeAccessFix:
         # Call the public method
         result = config_manager.get_all_webhook_configs()
 
-        # Verify it returns a dictionary
-        assert isinstance(result, dict)
+        # Verify it returns a dict-like object (dict or MappingProxyType)
+        from types import MappingProxyType
+        assert isinstance(result, (dict, MappingProxyType))
         assert "test-webhook" in result
 
-    def test_get_all_webhook_configs_returns_deep_copy(self):
-        """Verify that get_all_webhook_configs returns a deep copy, not the original."""
+    def test_get_all_webhook_configs_returns_copy(self):
+        """Verify that get_all_webhook_configs returns a fresh copy each call."""
         config_manager = ConfigManager(
             webhook_config_file="test_webhooks.yaml",
             connection_config_file="test_connections.yaml"
         )
-
+ 
         # Create test data
         test_config = {
             "test-webhook": {
@@ -63,15 +64,18 @@ class TestPrivateAttributeAccessFix:
             }
         }
         config_manager._webhook_config = test_config
-
+ 
         # Get the result from public method
         result = config_manager.get_all_webhook_configs()
-
-        # Modify the returned dict
-        result["test-webhook"]["url"] = "/modified"
-
-        # Verify the original is not modified (it's a deep copy)
+        second_result = config_manager.get_all_webhook_configs()
+ 
+        # Each call returns a fresh copy
+        assert result is not second_result
+ 
+        # Mutating the returned copy should not affect internal state
+        result["test-webhook"]["url"] = "/webhook/modified"
         assert config_manager._webhook_config["test-webhook"]["url"] == "/webhook/test"
+
 
     def test_main_uses_public_api_not_private_attribute(self):
         """Verify that main.py uses the public API method."""
@@ -142,8 +146,9 @@ class TestPrivateAttributeAccessFix:
         # Verify the method signature and behavior
         result = config_manager.get_all_webhook_configs()
 
-        # Should return a dict (or behave like a dict)
-        assert isinstance(result, (dict, type(None)))
+        # Should return a dict-like object (dict, MappingProxyType, or None)
+        from types import MappingProxyType
+        assert isinstance(result, (dict, MappingProxyType, type(None)))
 
         # Should not raise any exceptions
         try:

@@ -13,6 +13,7 @@ from src.modules.kafka import KafkaModule
 
 
 @pytest.mark.integration
+@pytest.mark.external_services
 class TestKafkaIntegration:
     """Integration tests for Kafka module."""
     

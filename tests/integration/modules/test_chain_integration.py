@@ -83,33 +83,47 @@ class TestChainIntegration:
         # Reload configs after writing file
         webhook_config_dict, connection_config_dict = self._load_configs(webhook_config_file, connection_config_file)
         
-        # Patch the configs in main module
-        with patch('src.main.webhook_config_data', webhook_config_dict), \
-             patch('src.main.connection_config', connection_config_dict), \
-             patch('src.main.config_manager', None):
-            # Clean up any existing webhooks directory
-            webhooks_dir = tmp_path / "webhooks"
-            if webhooks_dir.exists():
-                import shutil
-                shutil.rmtree(webhooks_dir)
-            
-            # Send webhook request
-            payload = {"test": "data", "timestamp": "2024-01-01T00:00:00Z"}
-            response = await client.post(
-                "/webhook/test_chain_sequential",
-                json=payload,
-                headers={"Authorization": "Bearer test_token"}
-            )
-            
-            # Verify response
-            assert response.status_code == 200
-            
-            # Wait a bit for async processing
-            await asyncio.sleep(0.5)
-            
-            # Verify file was saved (save_to_disk module)
-            # Note: This depends on the actual save_to_disk implementation
-            # The test verifies the chain executed without errors
+        # Set configs in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        original_webhook_config = getattr(app.state, 'webhook_config_data', None)
+        app.state.config_manager = None
+        app.state.webhook_config_data = webhook_config_dict
+        
+        try:
+            # Also patch connection_config for backward compatibility
+            with patch('src.main.connection_config', connection_config_dict):
+                # Clean up any existing webhooks directory
+                webhooks_dir = tmp_path / "webhooks"
+                if webhooks_dir.exists():
+                    import shutil
+                    shutil.rmtree(webhooks_dir)
+                
+                # Send webhook request
+                payload = {"test": "data", "timestamp": "2024-01-01T00:00:00Z"}
+                response = await client.post(
+                    "/webhook/test_chain_sequential",
+                    json=payload,
+                    headers={"Authorization": "Bearer test_token"}
+                )
+                
+                # Verify response
+                assert response.status_code == 200
+                
+                # Wait a bit for async processing
+                await asyncio.sleep(0.5)
+                
+                # Verify file was saved (save_to_disk module)
+                # Note: This depends on the actual save_to_disk implementation
+                # The test verifies the chain executed without errors
+        finally:
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
+            if original_webhook_config is not None:
+                app.state.webhook_config_data = original_webhook_config
+            elif hasattr(app.state, 'webhook_config_data'):
+                delattr(app.state, 'webhook_config_data')
     
     @pytest.mark.asyncio
     async def test_parallel_chain_execution(self, client, webhook_config_file, connection_config_file):
@@ -140,20 +154,34 @@ class TestChainIntegration:
         # Reload configs after writing file
         webhook_config_dict, connection_config_dict = self._load_configs(webhook_config_file, connection_config_file)
         
-        # Patch the configs in main module
-        with patch('src.main.webhook_config_data', webhook_config_dict), \
-             patch('src.main.connection_config', connection_config_dict), \
-             patch('src.main.config_manager', None):
-            # Send webhook request
-            payload = {"test": "parallel_execution"}
-            response = await client.post(
-                "/webhook/test_chain_parallel",
-                json=payload,
-                headers={"Authorization": "Bearer test_token"}
-            )
-            
-            # Verify response
-            assert response.status_code == 200
+        # Set configs in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        original_webhook_config = getattr(app.state, 'webhook_config_data', None)
+        app.state.config_manager = None
+        app.state.webhook_config_data = webhook_config_dict
+        
+        try:
+            # Also patch connection_config for backward compatibility
+            with patch('src.main.connection_config', connection_config_dict):
+                # Send webhook request
+                payload = {"test": "parallel_execution"}
+                response = await client.post(
+                    "/webhook/test_chain_parallel",
+                    json=payload,
+                    headers={"Authorization": "Bearer test_token"}
+                )
+                
+                # Verify response
+                assert response.status_code == 200
+        finally:
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
+            if original_webhook_config is not None:
+                app.state.webhook_config_data = original_webhook_config
+            elif hasattr(app.state, 'webhook_config_data'):
+                delattr(app.state, 'webhook_config_data')
     
     @pytest.mark.asyncio
     async def test_chain_with_retry(self, client, webhook_config_file, connection_config_file):
@@ -183,20 +211,34 @@ class TestChainIntegration:
         # Reload configs after writing file
         webhook_config_dict, connection_config_dict = self._load_configs(webhook_config_file, connection_config_file)
         
-        # Patch the configs in main module
-        with patch('src.main.webhook_config_data', webhook_config_dict), \
-             patch('src.main.connection_config', connection_config_dict), \
-             patch('src.main.config_manager', None):
-            # Send webhook request
-            payload = {"test": "retry_chain"}
-            response = await client.post(
-                "/webhook/test_chain_retry",
-                json=payload,
-                headers={"Authorization": "Bearer test_token"}
-            )
-            
-            # Verify response
-            assert response.status_code == 200
+        # Set configs in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        original_webhook_config = getattr(app.state, 'webhook_config_data', None)
+        app.state.config_manager = None
+        app.state.webhook_config_data = webhook_config_dict
+        
+        try:
+            # Also patch connection_config for backward compatibility
+            with patch('src.main.connection_config', connection_config_dict):
+                # Send webhook request
+                payload = {"test": "retry_chain"}
+                response = await client.post(
+                    "/webhook/test_chain_retry",
+                    json=payload,
+                    headers={"Authorization": "Bearer test_token"}
+                )
+                
+                # Verify response
+                assert response.status_code == 200
+        finally:
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
+            if original_webhook_config is not None:
+                app.state.webhook_config_data = original_webhook_config
+            elif hasattr(app.state, 'webhook_config_data'):
+                delattr(app.state, 'webhook_config_data')
     
     @pytest.mark.asyncio
     async def test_chain_continue_on_error(self, client, webhook_config_file, connection_config_file):
@@ -221,20 +263,34 @@ class TestChainIntegration:
         # Reload configs after writing file
         webhook_config_dict, connection_config_dict = self._load_configs(webhook_config_file, connection_config_file)
         
-        # Patch the configs in main module
-        with patch('src.main.webhook_config_data', webhook_config_dict), \
-             patch('src.main.connection_config', connection_config_dict), \
-             patch('src.main.config_manager', None):
-            # Send webhook request
-            payload = {"test": "continue_on_error"}
-            response = await client.post(
-                "/webhook/test_chain_continue",
-                json=payload,
-                headers={"Authorization": "Bearer test_token"}
-            )
-            
-            # Verify response
-            assert response.status_code == 200
+        # Set configs in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        original_webhook_config = getattr(app.state, 'webhook_config_data', None)
+        app.state.config_manager = None
+        app.state.webhook_config_data = webhook_config_dict
+        
+        try:
+            # Also patch connection_config for backward compatibility
+            with patch('src.main.connection_config', connection_config_dict):
+                # Send webhook request
+                payload = {"test": "continue_on_error"}
+                response = await client.post(
+                    "/webhook/test_chain_continue",
+                    json=payload,
+                    headers={"Authorization": "Bearer test_token"}
+                )
+                
+                # Verify response
+                assert response.status_code == 200
+        finally:
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
+            if original_webhook_config is not None:
+                app.state.webhook_config_data = original_webhook_config
+            elif hasattr(app.state, 'webhook_config_data'):
+                delattr(app.state, 'webhook_config_data')
     
     @pytest.mark.asyncio
     async def test_chain_backward_compatibility(self, client, webhook_config_file, connection_config_file):
@@ -252,20 +308,34 @@ class TestChainIntegration:
         # Reload configs after writing file
         webhook_config_dict, connection_config_dict = self._load_configs(webhook_config_file, connection_config_file)
         
-        # Patch the configs in main module
-        with patch('src.main.webhook_config_data', webhook_config_dict), \
-             patch('src.main.connection_config', connection_config_dict), \
-             patch('src.main.config_manager', None):
-            # Send webhook request
-            payload = {"test": "backward_compat"}
-            response = await client.post(
-                "/webhook/test_single_module",
-                json=payload,
-                headers={"Authorization": "Bearer test_token"}
-            )
-            
-            # Verify response (should work as before)
-            assert response.status_code == 200
+        # Set configs in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        original_webhook_config = getattr(app.state, 'webhook_config_data', None)
+        app.state.config_manager = None
+        app.state.webhook_config_data = webhook_config_dict
+        
+        try:
+            # Also patch connection_config for backward compatibility
+            with patch('src.main.connection_config', connection_config_dict):
+                # Send webhook request
+                payload = {"test": "backward_compat"}
+                response = await client.post(
+                    "/webhook/test_single_module",
+                    json=payload,
+                    headers={"Authorization": "Bearer test_token"}
+                )
+                
+                # Verify response (should work as before)
+                assert response.status_code == 200
+        finally:
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
+            if original_webhook_config is not None:
+                app.state.webhook_config_data = original_webhook_config
+            elif hasattr(app.state, 'webhook_config_data'):
+                delattr(app.state, 'webhook_config_data')
     
     @pytest.mark.asyncio
     async def test_chain_validation_error(self, client, webhook_config_file, connection_config_file):
@@ -283,19 +353,33 @@ class TestChainIntegration:
         # Reload configs after writing file
         webhook_config_dict, connection_config_dict = self._load_configs(webhook_config_file, connection_config_file)
         
-        # Patch the configs in main module
-        with patch('src.main.webhook_config_data', webhook_config_dict), \
-             patch('src.main.connection_config', connection_config_dict), \
-             patch('src.main.config_manager', None):
-            # Send webhook request
-            payload = {"test": "invalid_chain"}
-            response = await client.post(
-                "/webhook/test_invalid_chain",
-                json=payload,
-                headers={"Authorization": "Bearer test_token"}
-            )
-            
-            # Verify response (should be 400 or 500 due to validation error)
-            # The exact status code depends on when validation happens
-            assert response.status_code in [400, 404, 500]
+        # Set configs in app.state
+        original_config_manager = getattr(app.state, 'config_manager', None)
+        original_webhook_config = getattr(app.state, 'webhook_config_data', None)
+        app.state.config_manager = None
+        app.state.webhook_config_data = webhook_config_dict
+        
+        try:
+            # Also patch connection_config for backward compatibility
+            with patch('src.main.connection_config', connection_config_dict):
+                # Send webhook request
+                payload = {"test": "invalid_chain"}
+                response = await client.post(
+                    "/webhook/test_invalid_chain",
+                    json=payload,
+                    headers={"Authorization": "Bearer test_token"}
+                )
+                
+                # Verify response (should be 400 or 500 due to validation error)
+                # The exact status code depends on when validation happens
+                assert response.status_code in [400, 404, 500]
+        finally:
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, 'config_manager'):
+                delattr(app.state, 'config_manager')
+            if original_webhook_config is not None:
+                app.state.webhook_config_data = original_webhook_config
+            elif hasattr(app.state, 'webhook_config_data'):
+                delattr(app.state, 'webhook_config_data')
 

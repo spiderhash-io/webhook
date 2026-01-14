@@ -11,6 +11,7 @@ from src.clickhouse_analytics import ClickHouseAnalytics
 
 
 @pytest.mark.integration
+@pytest.mark.external_services
 class TestAnalyticsProcessorIntegration:
     """Integration tests for analytics processor."""
     

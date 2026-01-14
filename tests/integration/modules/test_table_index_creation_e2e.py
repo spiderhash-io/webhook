@@ -25,6 +25,7 @@ from src.modules.mysql import MySQLModule
 
 
 @pytest.mark.integration
+@pytest.mark.external_services
 @pytest.mark.asyncio
 class TestPostgreSQLTableIndexCreationE2E:
     """End-to-end test for PostgreSQL table and index creation."""

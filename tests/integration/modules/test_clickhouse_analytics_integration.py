@@ -17,6 +17,7 @@ os.environ["ALLOW_LOCALHOST_FOR_TESTS"] = "true"
 
 
 @pytest.mark.integration
+@pytest.mark.external_services
 class TestClickHouseAnalyticsIntegration:
     """Integration tests for ClickHouse Analytics service."""
     

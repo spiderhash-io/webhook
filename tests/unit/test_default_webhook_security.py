@@ -579,10 +579,10 @@ class TestDefaultWebhookConfigManagerSecurity:
     """Test ConfigManager security with default webhooks."""
     
     @pytest.mark.asyncio
-    async def test_get_all_webhook_configs_returns_deep_copy(self):
+    async def test_get_all_webhook_configs_returns_copy(self):
         """
-        SECURITY: get_all_webhook_configs should return a deep copy.
-        This prevents external modification of internal state.
+        SECURITY: get_all_webhook_configs should return a fresh copy to prevent callers
+        from accidentally mutating internal state.
         """
         manager = ConfigManager(
             webhook_config_file="nonexistent_webhooks.json",
@@ -592,18 +592,14 @@ class TestDefaultWebhookConfigManagerSecurity:
         with patch('builtins.print'):  # Suppress output
             await manager.reload_webhooks()
         
-        # Get configs
         configs1 = manager.get_all_webhook_configs()
         configs2 = manager.get_all_webhook_configs()
         
-        # Modify one
+        # Each call returns a fresh copy so the caller can mutate safely
+        assert configs1 is not configs2, "get_all_webhook_configs should return a new copy each call"
+        
+        # Mutating the returned copy should not affect internal state
         configs1["default"]["module"] = "modified"
-        
-        # Other should not be affected
-        assert configs2["default"]["module"] == "log", \
-            "get_all_webhook_configs did not return a deep copy!"
-        
-        # Internal state should not be affected
         internal_config = manager.get_webhook_config("default")
         assert internal_config["module"] == "log", \
             "Internal state was modified by external code!"

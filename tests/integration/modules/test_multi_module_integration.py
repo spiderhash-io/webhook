@@ -20,6 +20,7 @@ from src.modules.rabbitmq import RabbitMQConnectionPool
 
 
 @pytest.mark.integration
+@pytest.mark.external_services
 class TestMultiModuleIntegration:
     """Integration tests for multi-module webhook processing."""
     
