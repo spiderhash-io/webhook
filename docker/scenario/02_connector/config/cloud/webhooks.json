@@ -1,0 +1,13 @@
+{
+    "cloud-webhook": {
+        "data_type": "json",
+        "module": "webhook_connect",
+        "module-config": {
+            "channel": "test-channel",
+            "channel_token": "channel_secret_token_123",
+            "ttl_seconds": 3600,
+            "max_queue_size": 10000,
+            "max_connections": 10
+        }
+    }
+}

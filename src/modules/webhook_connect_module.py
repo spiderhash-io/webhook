@@ -11,7 +11,7 @@ streamed to connected Local Connectors.
 
 import logging
 from typing import Any, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.modules.base import BaseModule
 from src.webhook_connect.models import WebhookMessage
@@ -81,8 +81,11 @@ class WebhookConnectModule(BaseModule):
         self.max_connections = self.module_config.get("max_connections", 10)
         self.max_in_flight = self.module_config.get("max_in_flight", 100)
 
-        # Get webhook_id from config (set by webhook handler)
-        self.webhook_id = config.get("webhook_id", "unknown")
+        # Get webhook_id from config (set by webhook handler as _webhook_id)
+        self.webhook_id = config.get("_webhook_id") or config.get("webhook_id", "unknown")
+
+        # Setup tracking
+        self._setup_done = False
 
         # Validation
         if not self.channel_name:
@@ -112,6 +115,7 @@ class WebhookConnectModule(BaseModule):
             max_in_flight=self.max_in_flight,
         )
 
+        self._setup_done = True
         logger.info(
             f"WebhookConnectModule setup complete: channel={self.channel_name}, "
             f"webhook_id={self.webhook_id}, ttl={self.ttl_seconds}s"
@@ -128,6 +132,10 @@ class WebhookConnectModule(BaseModule):
         Raises:
             Exception: If channel manager is not available or queue is full
         """
+        # Lazy setup: register channel on first webhook
+        if not self._setup_done:
+            await self.setup()
+
         channel_manager = self.get_channel_manager()
         if not channel_manager:
             raise Exception("ChannelManager not available")
@@ -138,8 +146,8 @@ class WebhookConnectModule(BaseModule):
             webhook_id=self.webhook_id,
             payload=payload,
             headers=headers,
-            received_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(seconds=self.ttl_seconds),
+            received_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=self.ttl_seconds),
             metadata={
                 "source": "webhook_connect_module",
             }

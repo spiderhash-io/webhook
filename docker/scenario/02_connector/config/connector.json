@@ -1,0 +1,20 @@
+{
+    "cloud_url": "http://cloud-receiver:8000",
+    "channel": "test-channel",
+    "token": "channel_secret_token_123",
+    "protocol": "sse",
+    "connector_id": "local-connector-1",
+    "default_target": {
+        "url": "http://local-processor:8000/webhook/local-receiver",
+        "method": "POST",
+        "timeout_seconds": 30,
+        "headers": {
+            "Content-Type": "application/json"
+        }
+    },
+    "max_concurrent": 10,
+    "retry_attempts": 3,
+    "retry_delay": 1.0,
+    "reconnect_delay": 5.0,
+    "max_reconnect_delay": 60.0
+}

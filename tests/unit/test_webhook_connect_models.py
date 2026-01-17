@@ -75,10 +75,10 @@ class TestWebhookMessage:
 
         assert wire["type"] == "webhook"
         assert wire["message_id"] == msg.message_id
-        # Data is nested in wire format
-        assert wire["data"]["webhook_id"] == "webhook-1"
-        assert wire["data"]["payload"] == {"data": "test"}
-        assert wire["data"]["headers"] == {"X-Test": "value"}
+        # Data is flat in wire format for connector compatibility
+        assert wire["webhook_id"] == "webhook-1"
+        assert wire["payload"] == {"data": "test"}
+        assert wire["headers"] == {"X-Test": "value"}
 
     def test_to_envelope(self):
         """Test message envelope serialization."""

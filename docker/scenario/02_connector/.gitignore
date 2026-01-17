@@ -1,0 +1,7 @@
+# Logs
+logs/local/*
+logs/cloud/*
+!logs/local/.gitkeep
+!logs/cloud/.gitkeep
+
+# Keep log directories

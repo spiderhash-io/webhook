@@ -148,11 +148,19 @@ async def _stream_messages_ws(
 
     async def send_message(message: WebhookMessage) -> None:
         """Callback to send message to WebSocket."""
+        # Check WebSocket state first
+        if websocket.client_state != WebSocketState.CONNECTED:
+            raise Exception("WebSocket disconnected")
+
         # Check in-flight limit
         while len(connection.in_flight_messages) >= channel_config.max_in_flight:
             if websocket.client_state != WebSocketState.CONNECTED:
                 raise Exception("WebSocket disconnected")
             await asyncio.sleep(0.1)  # Backpressure
+
+        # Final check before sending
+        if websocket.client_state != WebSocketState.CONNECTED:
+            raise Exception("WebSocket disconnected")
 
         # Track in-flight
         connection.in_flight_messages.add(message.message_id)
@@ -160,12 +168,16 @@ async def _stream_messages_ws(
         message.last_delivered_to = connection.connection_id
         message.last_delivered_at = datetime.now(timezone.utc)
 
-        # Send to client
-        await websocket.send_json(message.to_wire_format())
-        connection.messages_received += 1
-        connection.last_message_at = datetime.now(timezone.utc)
-
-        logger.debug(f"Sent message {message.message_id} to {connection.connection_id}")
+        try:
+            # Send to client
+            await websocket.send_json(message.to_wire_format())
+            connection.messages_received += 1
+            connection.last_message_at = datetime.now(timezone.utc)
+            logger.debug(f"Sent message {message.message_id} to {connection.connection_id}")
+        except Exception as e:
+            # Remove from in-flight on send failure
+            connection.in_flight_messages.discard(message.message_id)
+            raise
 
     try:
         # Subscribe to channel and stream messages

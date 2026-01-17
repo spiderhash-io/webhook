@@ -1,0 +1,100 @@
+# Docker Compose for Webhook Connect Scenario
+#
+# This scenario demonstrates the Webhook Connect feature:
+# - Cloud Receiver: Accepts webhooks and queues them for connectors
+# - Connector: Bridges cloud to local, pulling webhooks and forwarding them
+# - Local Processor: Receives forwarded webhooks and logs to disk
+#
+# Test Flow:
+# 1. Send webhooks to cloud-receiver (port 8000)
+# 2. Cloud queues messages in Redis for the "test-channel"
+# 3. Connector pulls messages via WebSocket/SSE and forwards to local-processor
+# 4. Local-processor logs webhooks to disk for verification
+#
+# Resilience Test:
+# 1. Stop local-processor and connector
+# 2. Send webhooks to cloud (they queue up)
+# 3. Start connector and local-processor
+# 4. Verify all queued webhooks are delivered
+
+services:
+  # Redis for Webhook Connect message buffer
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"  # Use 6380 to avoid conflict with local Redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Cloud Receiver - Accepts external webhooks and queues for connectors
+  cloud-receiver:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8010:8000"  # Use 8010 to avoid conflict
+    volumes:
+      - ../../../src:/app/src
+      - ./config/cloud/webhooks.json:/app/webhooks.json:ro
+      - ./config/cloud/connections.json:/app/connections.json:ro
+      - ./logs/cloud:/app/logs:rw
+    environment:
+      - WEBHOOK_CONNECT_ENABLED=true
+      - WEBHOOK_CONNECT_REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
+      - WEBHOOK_CONNECT_ADMIN_TOKEN=admin_secret_123
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  # Local Processor - Receives webhooks from connector and logs to disk
+  local-processor:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8011:8000"  # Use 8011 to avoid conflict
+    volumes:
+      - ../../../src:/app/src
+      - ./config/local/webhooks.json:/app/webhooks.json:ro
+      - ./config/local/connections.json:/app/connections.json:ro
+      - ./logs/local:/app/logs:rw
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    profiles:
+      - with-local  # Only start when explicitly requested
+
+  # Connector - Bridges cloud to local
+  connector:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    command: ["python", "-m", "src.connector.main"]
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connector.json:/app/connector.json:ro
+    environment:
+      - CONNECTOR_CLOUD_URL=http://cloud-receiver:8000
+      - CONNECTOR_CHANNEL=test-channel
+      - CONNECTOR_TOKEN=channel_secret_token_123
+      - CONNECTOR_TARGET_URL=http://local-processor:8000/webhook/local-receiver
+      - CONNECTOR_PROTOCOL=sse
+      - CONNECTOR_LOG_LEVEL=INFO
+    depends_on:
+      cloud-receiver:
+        condition: service_healthy
+    profiles:
+      - with-connector  # Only start when explicitly requested

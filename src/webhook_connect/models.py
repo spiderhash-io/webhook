@@ -164,12 +164,10 @@ class WebhookMessage:
             "type": "webhook",
             "message_id": self.message_id,
             "sequence": self.sequence,
-            "data": {
-                "webhook_id": self.webhook_id,
-                "timestamp": self.received_at.isoformat(),
-                "headers": self.headers,
-                "payload": self.payload
-            }
+            "webhook_id": self.webhook_id,
+            "timestamp": self.received_at.isoformat(),
+            "headers": self.headers,
+            "payload": self.payload
         }
 
     def to_envelope(self) -> Dict[str, Any]:
