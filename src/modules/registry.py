@@ -18,6 +18,7 @@ from src.modules.aws_sqs import AWSSQSModule
 from src.modules.gcp_pubsub import GCPPubSubModule
 from src.modules.postgres import PostgreSQLModule
 from src.modules.mysql import MySQLModule
+from src.modules.webhook_connect_module import WebhookConnectModule
 
 
 class ModuleRegistry:
@@ -43,6 +44,7 @@ class ModuleRegistry:
         'postgres': PostgreSQLModule,  # Alias for convenience
         'mysql': MySQLModule,
         'mariadb': MySQLModule,  # Alias for MariaDB
+        'webhook_connect': WebhookConnectModule,
     }
     
     @classmethod

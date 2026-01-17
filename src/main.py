@@ -6,6 +6,7 @@ from starlette.requests import Request as StarletteRequest
 from contextlib import asynccontextmanager
 import asyncio
 import os
+import time
 from typing import Optional
 
 from src.webhook import WebhookHandler
@@ -15,6 +16,13 @@ from src.rate_limiter import rate_limiter
 from src.clickhouse_analytics import ClickHouseAnalytics
 from src.config_manager import ConfigManager
 from src.config_watcher import ConfigFileWatcher
+
+# Webhook Connect imports
+from src.webhook_connect.channel_manager import ChannelManager
+from src.webhook_connect.buffer.redis_buffer import RedisBuffer
+from src.webhook_connect import api as webhook_connect_api
+from src.webhook_connect import admin_api as webhook_connect_admin_api
+from src.modules.webhook_connect_module import WebhookConnectModule
 
 # Check if OpenAPI docs should be disabled
 DISABLE_OPENAPI_DOCS = os.getenv("DISABLE_OPENAPI_DOCS", "false").lower() == "true"
@@ -134,6 +142,37 @@ async def startup_logic(app: FastAPI):
             print("   Continuing without ClickHouse logging...")
             app.state.clickhouse_logger = None
     
+    # Initialize Webhook Connect if enabled
+    app.state.webhook_connect_channel_manager = None
+    webhook_connect_enabled = os.getenv("WEBHOOK_CONNECT_ENABLED", "false").lower() == "true"
+    if webhook_connect_enabled:
+        print("🔗 Initializing Webhook Connect...")
+        try:
+            # Get Redis URL for buffer (use same Redis as stats or dedicated one)
+            redis_url = os.getenv("WEBHOOK_CONNECT_REDIS_URL", os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+
+            # Create Redis buffer
+            buffer = RedisBuffer(url=redis_url, prefix="webhook_connect")
+
+            # Create channel manager
+            channel_manager = ChannelManager(buffer)
+            await channel_manager.start()
+
+            # Store in app state
+            app.state.webhook_connect_channel_manager = channel_manager
+
+            # Inject into module and API handlers
+            WebhookConnectModule.set_channel_manager(channel_manager)
+            webhook_connect_api.set_channel_manager(channel_manager)
+            webhook_connect_admin_api.set_channel_manager(channel_manager)
+
+            print("✅ Webhook Connect initialized successfully")
+        except Exception as e:
+            sanitized_error = sanitize_error_message(e, "startup_logic.WebhookConnect")
+            print(f"⚠️  Webhook Connect initialization failed: {sanitized_error}")
+            print("   Webhook Connect module will not be available")
+            app.state.webhook_connect_channel_manager = None
+
     # Start file watcher if enabled
     app.state.config_watcher = None
     file_watching_enabled = os.getenv("CONFIG_FILE_WATCHING_ENABLED", "false").lower() == "true"
@@ -166,9 +205,18 @@ async def startup_logic(app: FastAPI):
     # Start background cleanup task
     asyncio.create_task(cleanup_task())
     
+    # Get server port from environment (default: 8000)
+    server_port = os.getenv("PORT", "8000")
+    server_host = os.getenv("HOST", "0.0.0.0")
+    base_url = f"http://{server_host}:{server_port}"
+    
     # Print startup completion message
     print("\n" + "=" * 60)
     print("🚀 Webhook service startup complete!")
+    print("-" * 60)
+    print(f"📍 Health check: {base_url}/health")
+    print(f"📊 Statistics:   {base_url}/stats")
+    print(f"📚 API Docs:     {base_url}/docs")
     print("=" * 60 + "\n")
 
 
@@ -205,7 +253,15 @@ async def shutdown_logic(app: FastAPI):
         except Exception as e:
             sanitized_error = sanitize_error_message(e, "shutdown_logic.ClickHouse")
             print(f"Error disconnecting ClickHouse logger: {sanitized_error}")
-    
+
+    # Stop Webhook Connect channel manager
+    if hasattr(app.state, 'webhook_connect_channel_manager') and app.state.webhook_connect_channel_manager:
+        try:
+            await app.state.webhook_connect_channel_manager.stop()
+        except Exception as e:
+            sanitized_error = sanitize_error_message(e, "shutdown_logic.WebhookConnect")
+            print(f"Error stopping Webhook Connect: {sanitized_error}")
+
     # Close Redis connection
     try:
         await stats.close()
@@ -485,6 +541,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 # Add security headers middleware (after CORS, before routes)
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Include Webhook Connect routers (conditional - will only work if WEBHOOK_CONNECT_ENABLED=true)
+# The routers handle the case when channel_manager is not set (returns 503)
+app.include_router(webhook_connect_api.router)
+app.include_router(webhook_connect_admin_api.router)
 
 
 async def cleanup_task():
@@ -1004,6 +1065,93 @@ async def default_endpoint(request: Request):
         )
     
     return JSONResponse(content={"message": "200 OK"})
+
+
+@app.get("/health", tags=["Health"])
+async def health_endpoint(request: Request):
+    """
+    Health check endpoint for monitoring and load balancers.
+    
+    Returns the health status of the service and critical components.
+    This endpoint has minimal rate limiting to allow frequent health checks.
+    
+    Returns:
+        - 200 OK: Service is healthy
+        - 503 Service Unavailable: Service is unhealthy (critical components down)
+    """
+    health_status = {
+        "status": "healthy",
+        "service": "webhook-service",
+        "timestamp": None
+    }
+    
+    # Get current timestamp
+    health_status["timestamp"] = time.time()
+    
+    # Check critical components
+    components = {}
+    overall_healthy = True
+    
+    # Check ConfigManager
+    config_manager = getattr(request.app.state, 'config_manager', None)
+    if config_manager:
+        try:
+            # Quick check if config manager is initialized
+            config_manager.get_all_webhook_configs()
+            components["config_manager"] = "healthy"
+        except Exception:
+            components["config_manager"] = "unhealthy"
+            overall_healthy = False
+    else:
+        components["config_manager"] = "not_configured"
+    
+    # Check Redis stats (if used)
+    try:
+        # Quick ping to Redis if available
+        await stats.get_stats()
+        components["redis_stats"] = "healthy"
+    except Exception:
+        components["redis_stats"] = "unavailable"
+        # Redis stats are non-critical, so don't mark as unhealthy
+    
+    # Check ClickHouse logger (if configured)
+    clickhouse_logger = getattr(request.app.state, 'clickhouse_logger', None)
+    if clickhouse_logger:
+        try:
+            if clickhouse_logger.client:
+                components["clickhouse"] = "healthy"
+            else:
+                components["clickhouse"] = "disconnected"
+        except Exception:
+            components["clickhouse"] = "unavailable"
+    else:
+        components["clickhouse"] = "not_configured"
+    
+    # Check Webhook Connect (if enabled)
+    webhook_connect_manager = getattr(request.app.state, 'webhook_connect_channel_manager', None)
+    if webhook_connect_manager:
+        try:
+            # Check if channel manager is running and buffer is connected
+            if hasattr(webhook_connect_manager, 'is_running') and webhook_connect_manager.is_running():
+                components["webhook_connect"] = "healthy"
+            else:
+                components["webhook_connect"] = "degraded"  # Initialized but buffer not connected
+        except Exception:
+            components["webhook_connect"] = "unavailable"
+    else:
+        components["webhook_connect"] = "not_configured"
+    
+    health_status["components"] = components
+    
+    # If critical components are unhealthy, return 503
+    if not overall_healthy:
+        health_status["status"] = "unhealthy"
+        return JSONResponse(
+            content=health_status,
+            status_code=503
+        )
+    
+    return JSONResponse(content=health_status)
 
 
 @app.get("/stats", tags=["Statistics"])
