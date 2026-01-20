@@ -8,9 +8,11 @@ from unittest.mock import MagicMock, patch, AsyncMock
 async def test_redis_stats_increment():
     # Mock Redis client
     mock_redis = MagicMock()
-    # Pipeline context manager needs to be async
-    mock_pipeline = AsyncMock()
-    mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+    mock_redis.ping = AsyncMock()
+    
+    # Mock Lua script
+    mock_script = AsyncMock()
+    mock_redis.register_script.return_value = mock_script
     
     # Setup patch
     with patch('redis.asyncio.from_url', return_value=mock_redis):
@@ -19,30 +21,31 @@ async def test_redis_stats_increment():
         # Test increment
         await stats.increment("test_endpoint")
         
-        # Verify pipeline calls
-        assert mock_pipeline.sadd.called
-        assert mock_pipeline.incr.call_count >= 2 # total + bucket(s)
-        assert mock_pipeline.expire.called
-        assert mock_pipeline.execute.called
+        # Verify script registration and call
+        assert mock_redis.register_script.called
+        assert mock_script.called
         
-        # Verify specific calls
-        mock_pipeline.sadd.assert_called_with("stats:endpoints", "test_endpoint")
-        mock_pipeline.incr.assert_any_call("stats:test_endpoint:total")
+        # Verify arguments passed to script
+        args, kwargs = mock_script.call_args
+        # kwargs['args'] should contain endpoint and timestamp
+        script_args = kwargs.get('args', [])
+        assert script_args[0] == "test_endpoint"
+        assert isinstance(script_args[1], int)
 
 @pytest.mark.asyncio
 async def test_redis_stats_get_stats():
     # Mock Redis client
     mock_redis = MagicMock()
+    mock_redis.ping = AsyncMock()
     
     # Setup data for get_stats
     # endpoints - needs to be awaitable
     mock_redis.smembers = AsyncMock(return_value={"test_endpoint"})
     
-    # total - needs to be awaitable
-    mock_redis.get = AsyncMock(return_value="100")
+    # total in Hash - needs to be awaitable
+    mock_redis.hget = AsyncMock(return_value="100")
     
     # mget results (buckets) - needs to be awaitable
-    # We need to return enough zeros or values for the mget call
     mock_redis.mget = AsyncMock(return_value=["1"] * 200)
     
     with patch('redis.asyncio.from_url', return_value=mock_redis):
@@ -57,17 +60,19 @@ async def test_redis_stats_get_stats():
         # 5_minutes (5 buckets) = 5
         assert result["test_endpoint"]["minute"] == 1
         assert result["test_endpoint"]["5_minutes"] == 5
+        
+        # Verify it used HGET
+        mock_redis.hget.assert_called_with("stats:totals", "test_endpoint")
 
 @pytest.mark.asyncio
 async def test_redis_stats_persistence_simulation():
     mock_redis = MagicMock()
+    mock_redis.ping = AsyncMock()
+    mock_script = AsyncMock()
+    mock_redis.register_script.return_value = mock_script
     
     with patch('redis.asyncio.from_url', return_value=mock_redis):
         stats1 = RedisEndpointStats()
-        # Mock pipeline for increment
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
-        
         await stats1.increment("test_endpoint")
         
         stats2 = RedisEndpointStats()

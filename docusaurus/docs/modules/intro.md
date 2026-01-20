@@ -54,3 +54,38 @@ Modules use connections defined in `connections.json`:
 }
 ```
 
+## Using Modules in Chains
+
+All modules can be used in [webhook chains](../features/webhook-chaining) to send payloads to multiple destinations:
+
+```json
+{
+    "chained_webhook": {
+        "data_type": "json",
+        "chain": [
+            "log",
+            {
+                "module": "s3",
+                "connection": "s3_storage",
+                "module-config": {
+                    "bucket": "webhooks"
+                }
+            },
+            {
+                "module": "redis_rq",
+                "connection": "redis_local",
+                "module-config": {
+                    "queue_name": "events"
+                }
+            }
+        ],
+        "chain-config": {
+            "execution": "sequential"
+        },
+        "authorization": "Bearer secret"
+    }
+}
+```
+
+See the [Webhook Chaining documentation](../features/webhook-chaining) for more details.
+

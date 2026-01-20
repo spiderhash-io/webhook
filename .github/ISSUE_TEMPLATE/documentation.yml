@@ -1,0 +1,58 @@
+name: Documentation Issue
+description: Report an issue with documentation
+title: "[DOCS] "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us improve our documentation!
+
+  - type: input
+    id: page
+    attributes:
+      label: Documentation Page
+      description: Which page or section needs improvement?
+      placeholder: "e.g., README.md, docs/ARCHITECTURE.md, /docs endpoint"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue Type
+      description: What kind of documentation issue is this?
+      options:
+        - Incorrect information
+        - Missing information
+        - Unclear explanation
+        - Typo or grammar
+        - Broken link
+        - Missing example
+        - Outdated content
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current Documentation
+      description: What does the current documentation say? (copy/paste if applicable)
+      placeholder: Current text or description...
+
+  - type: textarea
+    id: suggested
+    attributes:
+      label: Suggested Improvement
+      description: What should it say instead? Or what should be added?
+      placeholder: Suggested text or description...
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other information that might help
+      placeholder: Additional context...

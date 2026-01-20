@@ -1,6 +1,7 @@
 import json
 import asyncio
-from typing import Optional, Any, Dict
+import logging
+from typing import Optional, Any, Dict, List, Tuple
 
 from fastapi import HTTPException, Request
 from src.modules.registry import ModuleRegistry
@@ -9,6 +10,20 @@ from src.input_validator import InputValidator
 from src.retry_handler import retry_handler
 from src.chain_validator import ChainValidator
 from src.chain_processor import ChainProcessor
+
+
+logger = logging.getLogger(__name__)
+
+
+# Global metrics (in-memory counters for observability)
+# These would ideally be integrated with Prometheus/Grafana
+metrics = {
+    "chain_tasks_dropped_total": 0,
+    "chain_execution_total": 0,
+    "chain_execution_failed_total": 0,
+    "chain_execution_partial_success_total": 0,
+    "module_execution_dropped_total": 0,
+}
 
 
 class TaskManager:
@@ -128,7 +143,7 @@ class TaskManager:
         
         # Create task first, then reference it in wrapper to avoid closure issues
         # We'll set the task reference after creation so the wrapper can access it
-        task_ref = {'task': None}  # Use dict to allow mutation in closure
+        task_ref: Dict[str, Any] = {'task': None}  # Use dict to allow mutation in closure
         
         async def task_wrapper():
             """Wrapper to handle cleanup and timeout."""
@@ -197,8 +212,8 @@ try:
     task_manager = TaskManager(max_concurrent_tasks=_max_concurrent_tasks, task_timeout=_task_timeout)
 except (ValueError, TypeError) as e:
     # SECURITY: If environment variables are invalid, use safe defaults
-    print(f"WARNING: Invalid task manager configuration from environment: {e}")
-    print("WARNING: Using safe default values")
+    logger.warning(f"Invalid task manager configuration from environment: {e}")
+    logger.warning("Using safe default values")
     task_manager = TaskManager(max_concurrent_tasks=100, task_timeout=300.0)
 
 
@@ -215,7 +230,7 @@ class WebhookHandler:
         if not self.config and "default" in configs:
             self.config = configs.get("default")
             # Log that we're using the default webhook
-            print(f"INFO: Webhook ID '{webhook_id}' not found, using default logging webhook")
+            logger.info(f"Webhook ID '{webhook_id}' not found, using default logging webhook")
         elif not self.config:
             raise HTTPException(status_code=404, detail="Webhook ID not found")
         self.connection_config = connection_config
@@ -235,25 +250,53 @@ class WebhookHandler:
         # Initialize validators
         # SECURITY: Validator instantiation is wrapped in try-except to handle instantiation errors
         try:
-            self.validators = [
-                RateLimitValidator(self.config, webhook_id),  # Check rate limit first
-                RecaptchaValidator(self.config),  # Google reCAPTCHA validation
-                BasicAuthValidator(self.config),  # Basic auth
-                DigestAuthValidator(self.config),  # Digest auth
-                JWTValidator(self.config),  # JWT auth
-                OAuth1Validator(self.config),  # OAuth 1.0 signature validation
-                OAuth2Validator(self.config),  # OAuth 2.0 token validation
-                AuthorizationValidator(self.config),  # Bearer token (simple)
-                HMACValidator(self.config),  # HMAC signature
-                IPWhitelistValidator(self.config, request=self.request),  # IP whitelist (pass request for secure IP detection)
-                JsonSchemaValidator(self.config),  # JSON Schema validation
-                QueryParameterAuthValidator(self.config),  # Query parameter auth
-                HeaderAuthValidator(self.config),  # Header-based API key auth
-            ]
+            self.validators = []
+            
+            # Optimization: Only instantiate validators that are configured for this webhook
+            # Check for each validator type in config and only instantiate if configured
+            if "rate_limit" in self.config:
+                self.validators.append(RateLimitValidator(self.config, webhook_id))
+            
+            if "recaptcha" in self.config:
+                self.validators.append(RecaptchaValidator(self.config))
+            
+            if "basic_auth" in self.config:
+                self.validators.append(BasicAuthValidator(self.config))
+            
+            if "digest_auth" in self.config:
+                self.validators.append(DigestAuthValidator(self.config))
+            
+            if "jwt" in self.config:
+                self.validators.append(JWTValidator(self.config))
+            
+            if "oauth1" in self.config:
+                self.validators.append(OAuth1Validator(self.config))
+            
+            if "oauth2" in self.config:
+                self.validators.append(OAuth2Validator(self.config))
+            
+            if "authorization" in self.config:
+                self.validators.append(AuthorizationValidator(self.config))
+            
+            if "hmac" in self.config:
+                self.validators.append(HMACValidator(self.config))
+            
+            if "ip_whitelist" in self.config:
+                self.validators.append(IPWhitelistValidator(self.config, request=self.request))
+            
+            if "json_schema" in self.config:
+                self.validators.append(JsonSchemaValidator(self.config))
+            
+            if "query_auth" in self.config:
+                self.validators.append(QueryParameterAuthValidator(self.config))
+            
+            if "header_auth" in self.config:
+                self.validators.append(HeaderAuthValidator(self.config))
+                
         except TypeError as e:
             # SECURITY: Handle type errors during validator instantiation
             # This can occur if config is not a dict (caught by BaseValidator)
-            print(f"ERROR: Failed to instantiate validators for webhook '{webhook_id}': {e}")
+            logger.error(f"Failed to instantiate validators for webhook '{webhook_id}': {e}")
             from src.utils import sanitize_error_message
             raise HTTPException(
                 status_code=500,
@@ -261,7 +304,7 @@ class WebhookHandler:
             )
         except Exception as e:
             # SECURITY: Handle other exceptions during validator instantiation
-            print(f"ERROR: Failed to instantiate validators for webhook '{webhook_id}': {e}")
+            logger.error(f"Failed to instantiate validators for webhook '{webhook_id}': {e}")
             from src.utils import sanitize_error_message
             raise HTTPException(
                 status_code=500,
@@ -296,7 +339,7 @@ class WebhookHandler:
                         # SECURITY: Sanitize error message to prevent information disclosure
                         from src.utils import sanitize_error_message
                         error_msg = sanitize_error_message(e, "request body reading")
-                        print(f"ERROR: Failed to read request body: {error_msg}")
+                        logger.error(f"Failed to read request body for webhook '{self.webhook_id}': {error_msg}")
                         # Set cached_body to empty bytes to prevent retry
                         self._cached_body = b''
                         # Return validation failure with sanitized error
@@ -321,14 +364,14 @@ class WebhookHandler:
                 query_params = self.request.query_params.copy()
             else:
                 # Unexpected type, default to empty dict
-                print(f"WARNING: Unexpected query_params type: {type(self.request.query_params).__name__}")
+                logger.warning(f"Unexpected query_params type: {type(self.request.query_params).__name__}")
                 query_params = {}
         except (TypeError, AttributeError) as e:
             # If conversion fails, default to empty dict and log error
             # SECURITY: Sanitize error message to prevent information disclosure
             from src.utils import sanitize_error_message
             sanitized_error = sanitize_error_message(e, "query parameter extraction")
-            print(f"ERROR: Failed to extract query parameters: {sanitized_error}")
+            logger.error(f"Failed to extract query parameters for webhook '{self.webhook_id}': {sanitized_error}")
             query_params = {}
         
         # SECURITY: Ensure query_params is a dict (defensive check)
@@ -350,7 +393,7 @@ class WebhookHandler:
                 # Ensure is_valid is a boolean (or truthy/falsy value that can be evaluated)
                 if not isinstance(is_valid, bool):
                     # Convert to boolean using truthiness, but log warning
-                    print(f"WARNING: Validator {type(validator).__name__} returned non-boolean is_valid: {type(is_valid).__name__}")
+                    logger.warning(f"Validator {type(validator).__name__} returned non-boolean is_valid: {type(is_valid).__name__}")
                     is_valid = bool(is_valid)
                 
                 # Ensure message is a string
@@ -364,14 +407,45 @@ class WebhookHandler:
                 if not is_valid:
                     return False, message
             except Exception as e:
-                # SECURITY: Catch and sanitize validator exceptions to prevent information disclosure
+                # SECURITY: Catch and sanitize validator execution errors
                 # Log detailed error server-side only
-                print(f"ERROR: Validator exception for webhook '{self.webhook_id}': {e}")
-                # Return generic error to client (don't expose internal details)
+                logger.error(f"Validator exception for webhook '{self.webhook_id}': {e}")
+                # Re-raise as HTTPException to prevent further processing
                 from src.utils import sanitize_error_message
                 return False, sanitize_error_message(e, "webhook validation")
         
         return True, "Valid webhook"
+
+    def _get_cleaned_data(self, payload: Any, headers: Dict[str, str]) -> Tuple[Any, Dict[str, str]]:
+        """
+        Clean credentials from payload and headers based on configuration.
+        Returns a tuple of (cleaned_payload, cleaned_headers).
+        
+        This method is intended to be called within background tasks to avoid
+        blocking the request/response cycle.
+        """
+        cleanup_config = self.config.get("credential_cleanup", {})
+        cleanup_enabled = cleanup_config.get("enabled", True)
+        
+        if not cleanup_enabled:
+            return payload, headers
+            
+        try:
+            from src.utils import CredentialCleaner
+            cleanup_mode = cleanup_config.get("mode", "mask")
+            custom_fields = cleanup_config.get("fields", [])
+            cleaner = CredentialCleaner(custom_fields=custom_fields, mode=cleanup_mode)
+            
+            cleaned_payload = payload
+            if isinstance(payload, (dict, list)):
+                cleaned_payload = cleaner.clean_credentials(payload)
+                
+            cleaned_headers = cleaner.clean_headers(headers)
+            return cleaned_payload, cleaned_headers
+        except Exception as e:
+            # Fallback to original data on failure
+            logger.warning(f"Credential cleanup failed for webhook '{self.webhook_id}': {e}")
+            return payload, headers
 
     async def process_webhook(self):
         """Process webhook payload using the configured module."""
@@ -395,7 +469,7 @@ class WebhookHandler:
                         # SECURITY: Sanitize error message to prevent information disclosure
                         from src.utils import sanitize_error_message
                         error_msg = sanitize_error_message(e, "request body reading")
-                        print(f"ERROR: Failed to read request body: {error_msg}")
+                        logger.error(f"Failed to read request body for webhook '{self.webhook_id}': {error_msg}")
                         # Set cached_body to empty bytes to prevent retry
                         self._cached_body = b''
                         # Raise HTTPException with sanitized error
@@ -431,7 +505,8 @@ class WebhookHandler:
                 from src.utils import safe_decode_body
                 content_type = self.headers.get('content-type', '')
                 decoded_body, encoding_used = safe_decode_body(body, content_type)
-                payload = json.loads(decoded_body)
+                # SECURITY: Use asyncio.to_thread for JSON parsing to avoid blocking the event loop for large payloads
+                payload = await asyncio.to_thread(json.loads, decoded_body)
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Malformed JSON payload")
             except HTTPException:
@@ -478,44 +553,12 @@ class WebhookHandler:
         
         try:
             module_class = ModuleRegistry.get(module_name)
-        except (KeyError, ValueError) as e:
-            # Don't expose module name to prevent information disclosure
+        except Exception as e:
             # Log detailed error server-side only
-            print(f"ERROR: Unsupported module '{module_name}' for webhook '{self.webhook_id}': {e}")
+            logger.error(f"Unsupported module '{module_name}' for webhook '{self.webhook_id}': {e}")
             raise HTTPException(status_code=501, detail="Module configuration error")
-        
-        # Credential cleanup: Clean credentials from payload and headers before storing/logging
-        # Original data is preserved for validation, only cleaned copy is passed to modules
-        cleanup_config = self.config.get("credential_cleanup", {})
-        cleanup_enabled = cleanup_config.get("enabled", True)  # Default: enabled (opt-out)
-        
-        cleaned_payload = payload
-        cleaned_headers = dict(self.headers.items())
-        
-        if cleanup_enabled:
-            from src.utils import CredentialCleaner
             
-            # Get cleanup mode (mask or remove)
-            cleanup_mode = cleanup_config.get("mode", "mask")
-            custom_fields = cleanup_config.get("fields", [])
-            
-            try:
-                cleaner = CredentialCleaner(custom_fields=custom_fields, mode=cleanup_mode)
-                
-                # Clean payload (deep copy to avoid modifying original)
-                if isinstance(payload, (dict, list)):
-                    import copy
-                    cleaned_payload = cleaner.clean_credentials(copy.deepcopy(payload))
-                else:
-                    cleaned_payload = payload  # For blob data, no cleaning needed
-                
-                # Clean headers
-                cleaned_headers = cleaner.clean_headers(cleaned_headers)
-            except Exception as e:
-                # If cleanup fails, log but don't crash - use original data
-                print(f"WARNING: Credential cleanup failed for webhook '{self.webhook_id}': {e}")
-                cleaned_payload = payload
-                cleaned_headers = dict(self.headers.items())
+        # Note: Credential cleanup is now deferred to the background task for better performance
         
         # Instantiate and process
         # Add webhook_id to config for modules that need it (e.g., ClickHouse)
@@ -537,7 +580,7 @@ class WebhookHandler:
         except Exception as e:
             # SECURITY: Catch and sanitize module instantiation errors to prevent information disclosure
             # Log detailed error server-side only
-            print(f"ERROR: Module instantiation failed for webhook '{self.webhook_id}': {e}")
+            logger.error(f"Module instantiation failed for webhook '{self.webhook_id}': {e}")
             # Raise generic error to client (don't expose internal details)
             from src.utils import sanitize_error_message
             raise HTTPException(
@@ -550,21 +593,32 @@ class WebhookHandler:
         
         # If retry is enabled, execute with retry handler
         if retry_config.get("enabled", False):
-            # Execute module with retry logic (use cleaned data)
-            async def execute_module():
+            # Execute module with retry logic (performing cleanup in background)
+            async def execute_module_with_retry():
+                # Perform credential cleanup in background
+                target_payload, target_headers = self._get_cleaned_data(payload, headers_dict)
+                
                 return await retry_handler.execute_with_retry(
                     module.process,
-                    cleaned_payload,
-                    cleaned_headers,
+                    target_payload,
+                    target_headers,
                     retry_config=retry_config
                 )
             
             # Execute with retry using task manager (fire-and-forget, but track result)
             try:
-                task = await task_manager.create_task(execute_module())
+                task = await task_manager.create_task(execute_module_with_retry())
             except Exception as e:
                 # If task queue is full, log and continue (task will be lost, but webhook is accepted)
-                print(f"WARNING: Could not create task for webhook '{self.webhook_id}': {e}")
+                metrics["module_execution_dropped_total"] += 1
+                logger.error(
+                    f"Could not create task for webhook '{self.webhook_id}'",
+                    extra={
+                        "webhook_id": self.webhook_id,
+                        "error": str(e),
+                        "retry_enabled": True
+                    }
+                )
                 # Return None for task to indicate it wasn't created
                 return payload, dict(self.headers.items()), None
             
@@ -572,16 +626,26 @@ class WebhookHandler:
             return payload, dict(self.headers.items()), task
         else:
             # No retry configured, execute normally using task manager (fire-and-forget)
-            # Use cleaned data for module processing
+            # Use cleaned data for module processing (performing cleanup in background)
             async def execute_module():
-                await module.process(cleaned_payload, cleaned_headers)
+                # Perform credential cleanup in background
+                target_payload, target_headers = self._get_cleaned_data(payload, headers_dict)
+                await module.process(target_payload, target_headers)
             
             try:
                 # Create task with task manager (fire-and-forget, no tracking needed)
                 await task_manager.create_task(execute_module())
             except Exception as e:
                 # If task queue is full, log and continue (task will be lost, but webhook is accepted)
-                print(f"WARNING: Could not create task for webhook '{self.webhook_id}': {e}")
+                metrics["module_execution_dropped_total"] += 1
+                logger.error(
+                    f"Could not create task for webhook '{self.webhook_id}'",
+                    extra={
+                        "webhook_id": self.webhook_id,
+                        "error": str(e),
+                        "retry_enabled": False
+                    }
+                )
             
             # Return original payload and headers for logging (before cleanup)
             return payload, dict(self.headers.items()), None
@@ -601,38 +665,7 @@ class WebhookHandler:
         chain = self.config.get('chain')
         chain_config = self.config.get('chain-config', {})
         
-        # Credential cleanup: Clean credentials from payload and headers before storing/logging
-        # Original data is preserved for validation, only cleaned copy is passed to modules
-        cleanup_config = self.config.get("credential_cleanup", {})
-        cleanup_enabled = cleanup_config.get("enabled", True)  # Default: enabled (opt-out)
-        
-        cleaned_payload = payload
-        cleaned_headers = dict(headers)
-        
-        if cleanup_enabled:
-            from src.utils import CredentialCleaner
-            
-            # Get cleanup mode (mask or remove)
-            cleanup_mode = cleanup_config.get("mode", "mask")
-            custom_fields = cleanup_config.get("fields", [])
-            
-            try:
-                cleaner = CredentialCleaner(custom_fields=custom_fields, mode=cleanup_mode)
-                
-                # Clean payload (deep copy to avoid modifying original)
-                if isinstance(payload, (dict, list)):
-                    import copy
-                    cleaned_payload = cleaner.clean_credentials(copy.deepcopy(payload))
-                else:
-                    cleaned_payload = payload  # For blob data, no cleaning needed
-                
-                # Clean headers
-                cleaned_headers = cleaner.clean_headers(cleaned_headers)
-            except Exception as e:
-                # If cleanup fails, log but don't crash - use original data
-                print(f"WARNING: Credential cleanup failed for webhook '{self.webhook_id}': {e}")
-                cleaned_payload = payload
-                cleaned_headers = dict(headers)
+        # Note: Credential cleanup is now deferred to the background task for better performance
         
         # Add webhook_id to config for modules that need it
         webhook_config_with_id = {**self.config, '_webhook_id': self.webhook_id}
@@ -648,8 +681,11 @@ class WebhookHandler:
         
         # Execute chain using task manager (fire-and-forget)
         async def execute_chain():
+            metrics["chain_execution_total"] += 1
             try:
-                results = await processor.execute(cleaned_payload, cleaned_headers)
+                # Perform credential cleanup in background
+                target_payload, target_headers = self._get_cleaned_data(payload, headers)
+                results = await processor.execute(target_payload, target_headers)
                 summary = processor.get_summary(results)
                 
                 # Log chain execution summary
@@ -657,24 +693,53 @@ class WebhookHandler:
                 failed = summary['failed']
                 total = summary['total_modules']
                 
+                log_extra = {
+                    "webhook_id": self.webhook_id,
+                    "total_modules": total,
+                    "successful": successful,
+                    "failed": failed,
+                }
+                
                 if failed > 0:
-                    print(f"Chain execution for webhook '{self.webhook_id}': {successful}/{total} modules succeeded, {failed} failed")
+                    if successful > 0:
+                        metrics["chain_execution_partial_success_total"] += 1
+                    else:
+                        metrics["chain_execution_failed_total"] += 1
+                        
+                    logger.warning(
+                        f"Chain execution for webhook '{self.webhook_id}': {successful}/{total} modules succeeded, {failed} failed",
+                        extra=log_extra
+                    )
                     # Log individual failures
                     for result in summary['results']:
                         if not result['success']:
-                            print(f"  - Module '{result['module']}' failed: {result['error']}")
+                            logger.error(
+                                f"Module '{result['module']}' in chain failed: {result['error']}",
+                                extra={**log_extra, "module": result['module'], "error": str(result['error'])}
+                            )
                 else:
-                    print(f"Chain execution for webhook '{self.webhook_id}': All {total} modules succeeded")
+                    logger.info(
+                        f"Chain execution for webhook '{self.webhook_id}': All {total} modules succeeded",
+                        extra=log_extra
+                    )
             except Exception as e:
                 # Log chain execution errors
-                print(f"ERROR: Chain execution failed for webhook '{self.webhook_id}': {e}")
+                metrics["chain_execution_failed_total"] += 1
+                logger.error(
+                    f"Chain execution failed for webhook '{self.webhook_id}': {e}",
+                    extra={"webhook_id": self.webhook_id, "error": str(e)}
+                )
         
         try:
             # Create task with task manager (fire-and-forget)
             await task_manager.create_task(execute_chain())
         except Exception as e:
             # If task queue is full, log and continue (task will be lost, but webhook is accepted)
-            print(f"WARNING: Could not create task for chain execution in webhook '{self.webhook_id}': {e}")
+            metrics["chain_tasks_dropped_total"] += 1
+            logger.error(
+                f"Could not create task for chain execution in webhook '{self.webhook_id}'",
+                extra={"webhook_id": self.webhook_id, "error": str(e)}
+            )
         
         # Return original payload and headers for logging (before cleanup)
-        return payload, dict(self.headers.items()), None
+        return payload, dict(headers), None

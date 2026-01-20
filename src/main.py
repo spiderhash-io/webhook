@@ -203,7 +203,7 @@ async def startup_logic(app: FastAPI):
             print(f"Failed to start config file watcher: {sanitized_error}")
 
     # Start background cleanup task
-    asyncio.create_task(cleanup_task())
+    app.state.cleanup_task = asyncio.create_task(cleanup_task())
     
     # Get server port from environment (default: 8000)
     server_port = os.getenv("PORT", "8000")
@@ -268,6 +268,18 @@ async def shutdown_logic(app: FastAPI):
     except Exception as e:
         sanitized_error = sanitize_error_message(e, "shutdown_logic.RedisStats")
         print(f"Error closing Redis stats: {sanitized_error}")
+
+    # Stop background cleanup task
+    if hasattr(app.state, 'cleanup_task') and app.state.cleanup_task:
+        try:
+            app.state.cleanup_task.cancel()
+            try:
+                await asyncio.wait_for(app.state.cleanup_task, timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+        except Exception as e:
+            sanitized_error = sanitize_error_message(e, "shutdown_logic.CleanupTask")
+            print(f"Error stopping cleanup task: {sanitized_error}")
     
     print("✅ Shutdown complete\n")
 

@@ -4,7 +4,10 @@ The Core Webhook Module includes several powerful features for processing and ma
 
 ## Available Features
 
-- **[Webhook Chaining](webhook-chaining)** - Send payloads to multiple destinations
+- **[Webhook Chaining](webhook-chaining)** - Send payloads to multiple destinations in sequence or parallel
+  - [Getting Started](webhook-chaining-getting-started) - Step-by-step guide
+  - [Advanced Usage](webhook-chaining-advanced) - Per-module configs, retries, and best practices
+  - [Troubleshooting](webhook-chaining-troubleshooting) - Common issues and solutions
 - **[Rate Limiting](rate-limiting)** - Per-webhook rate limiting
 - **[JSON Schema Validation](json-schema)** - Validate payload structure
 - **[Credential Cleanup](credential-cleanup)** - Automatic credential masking

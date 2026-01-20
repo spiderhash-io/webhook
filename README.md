@@ -2,13 +2,33 @@
 
 A webhook receiver and processor built with FastAPI. Receives HTTP webhook requests, validates them using authentication and validation rules, and forwards payloads to destinations including RabbitMQ, Redis, MQTT, databases, object storage, message queues, and local filesystem.
 
-**Status**: 2,493 passing tests. Supports 11 authentication methods and 17 output modules.
+**Status**: 2,493 passing tests. Supports 11 authentication methods, 17 output modules, and cloud-to-local webhook relay.
+
+## Recent Updates (2025-01)
+
+### Webhook Connect - Cloud-to-Local Relay
+- **NEW**: Cloud-to-local webhook relay system for receiving webhooks behind firewalls
+- WebSocket and SSE streaming protocols
+- Channel-based isolation with HMAC authentication
+- Message acknowledgments, retries, and dead-letter queue
+- Multi-target forwarding support
+
+### Performance & Reliability Improvements
+- **Webhook Chaining**: Added timeout protection for parallel execution (configurable, default 30s)
+- **Webhook Chaining**: Automatic task cancellation on partial failure
+- **Performance**: Credential cleanup deferred to background tasks (no request latency impact)
+- **Observability**: Replaced all `print()` statements with structured logging
+- **Metrics**: Added in-memory metrics for chain execution tracking
+- **Memory**: Module config pre-building optimization (reduced allocations)
+- **Reliability**: Fail-fast on circular references (no unsafe shallow copy fallback)
+- **TaskManager**: Enhanced with semaphore-based backpressure and timeout protection
 
 ## Features
 
 ### Core Functionality
 - **Output Modules**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, WebSocket, PostgreSQL, MySQL/MariaDB, S3, Kafka, ActiveMQ, AWS SQS, GCP Pub/Sub, ZeroMQ, or stdout.
-- **Webhook Chaining**: Send webhook payloads to multiple destinations in sequence or parallel (e.g., save to S3 then Redis, save to DB and RabbitMQ simultaneously).
+- **Webhook Chaining**: Send webhook payloads to multiple destinations in sequence or parallel with timeout protection, task cancellation, and retry support (e.g., save to S3 then Redis, save to DB and RabbitMQ simultaneously).
+- **Webhook Connect**: Cloud-to-local webhook relay system for receiving webhooks at a cloud endpoint and streaming them to local networks via WebSocket/SSE (similar to ngrok for webhooks).
 - **Plugin Architecture**: Extensible module system. New output modules can be added without modifying core code.
 - **Configuration-Driven**: Configuration via JSON files (`webhooks.json`, `connections.json`) located in `config/development/` (or root directory) and environment variables.
 - **Live Config Reload**: Hot-reload webhook and connection configurations without restarting the application (via ConfigManager and ConfigFileWatcher).
@@ -16,6 +36,7 @@ A webhook receiver and processor built with FastAPI. Receives HTTP webhook reque
 - **Statistics**: Tracks webhook usage statistics (requests per minute, hour, day, etc.) via `/stats`.
 - **ClickHouse Analytics**: Automatic logging of all webhook events to ClickHouse for analytics and monitoring.
 - **Distributed Architecture**: Support for multiple webhook instances with centralized analytics processing.
+- **Observability**: Structured logging with correlation IDs, in-memory metrics for chain execution, and task manager monitoring.
 
 ### Security Features
 - **Authorization**: Authorization header validation (Bearer tokens).
@@ -28,7 +49,8 @@ A webhook receiver and processor built with FastAPI. Receives HTTP webhook reque
 - **Multi-Layer Validation**: Combine multiple validators (Authorization + HMAC + IP whitelist + reCAPTCHA).
 - **Payload Validation**: JSON payload validation with size, depth, and string length checks.
 - **JSON Schema Validation**: Validate incoming payloads against JSON schemas.
-- **Credential Cleanup**: Masks or removes credentials from payloads and headers before logging or storing.
+- **Credential Cleanup**: Masks or removes credentials from payloads and headers before logging or storing (deferred to background tasks for optimal performance).
+- **Task Manager**: Concurrent task management with semaphore-based limiting, timeout protection, and backpressure handling.
 
 ## Project Structure
 - `src/main.py`: Entry point, FastAPI app, and route definitions.
@@ -49,6 +71,16 @@ A webhook receiver and processor built with FastAPI. Receives HTTP webhook reque
 - `src/openapi_generator.py`: Dynamic OpenAPI schema generation from webhook configurations.
 - `src/rate_limiter.py`: Sliding window rate limiting implementation.
 - `src/input_validator.py`: Input validation and sanitization utilities.
+- `src/webhook_connect/`: Webhook Connect cloud-to-local relay system
+  - `api.py`: WebSocket/SSE streaming endpoints
+  - `channel_manager.py`: Channel management and message queuing
+  - `models.py`: Data models for channels, connections, and messages
+  - `admin_api.py`: Admin endpoints for channel management
+- `src/connector/`: Local connector for receiving cloud webhooks
+  - `main.py`: Main connector service
+  - `stream_client.py`: WebSocket/SSE client implementations
+  - `processor.py`: Message processing and forwarding
+  - `config.py`: Connector configuration models
 - `ARCHITECTURE.md`: Detailed architecture documentation
 - `PERFORMANCE_TEST.md`: Performance testing documentation
 
@@ -1159,8 +1191,84 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 
 **Note**: Topic is automatically created if it doesn't exist (useful for Pub/Sub Emulator development).
 
+#### Webhook Connect (Cloud-to-Local Relay)
+**NEW FEATURE** - Receive webhooks at a cloud endpoint and stream them to local networks behind firewalls or NAT (similar to ngrok for webhooks).
+
+**Architecture:**
+- **Cloud Receiver**: Runs in the cloud with public IP, receives webhooks via HTTP
+- **Local Connector**: Runs on local network, connects to cloud via WebSocket/SSE
+- **Channel-based**: Multiple channels with unique channel IDs and secrets for isolation
+- **Reliable Delivery**: Message queuing, acknowledgments, retries, and dead-letter handling
+
+**Use Cases:**
+- Receive webhooks from external services (GitHub, Stripe, etc.) without exposing local services
+- Development and testing webhooks on local machines
+- Enterprise environments with strict firewall rules
+- Multi-site deployments with centralized webhook receiver
+
+**Configuration:**
+
+1. **Cloud Side** - Enable Webhook Connect in cloud deployment:
+```bash
+export WEBHOOK_CONNECT_ENABLED=true
+export WEBHOOK_CONNECT_ADMIN_TOKEN=your_admin_secret
+```
+
+2. **Local Side** - Run connector with configuration:
+```json
+{
+    "channel_id": "my-channel-123",
+    "channel_secret": "secret_key_456",
+    "cloud_url": "https://webhook-cloud.example.com",
+    "protocol": "websocket",
+    "targets": [
+        {
+            "name": "local_api",
+            "url": "http://localhost:8080/webhooks",
+            "enabled": true
+        }
+    ],
+    "retry": {
+        "enabled": true,
+        "max_attempts": 3,
+        "backoff": "exponential"
+    }
+}
+```
+
+```bash
+# Run local connector
+python -m src.connector.main --config connector.json
+```
+
+**Features:**
+- WebSocket and SSE (Server-Sent Events) protocols
+- HMAC signature authentication
+- Message acknowledgments and retries
+- Dead-letter queue for failed messages
+- Multi-target support (forward to multiple local endpoints)
+- Channel-based isolation and security
+- Admin API for channel management
+
+**Cloud Endpoints:**
+- `/webhook-connect/ws/{channel_id}` - WebSocket streaming
+- `/webhook-connect/sse/{channel_id}` - SSE streaming
+- `/webhook-connect/channels` - Channel management (admin)
+
+**See `src/webhook_connect/` and `src/connector/` for implementation details.**
+
+---
+
 #### Webhook Chaining (Multiple Destinations)
 Send webhook payloads to multiple destinations in sequence or parallel. This feature allows you to create complex workflows where a single webhook triggers multiple actions.
+
+**Recent Improvements:**
+- ✅ Parallel execution timeout protection (configurable, default 30s)
+- ✅ Automatic task cancellation on partial failure when `continue_on_error=false`
+- ✅ Background credential cleanup for improved performance
+- ✅ Structured logging with correlation IDs
+- ✅ In-memory metrics tracking (chain execution success/failure/partial rates)
+- ✅ Optimized module config pre-building (reduced memory pressure)
 
 **Simple Array Format (requires connections in `connections.json`):**
 ```json
@@ -1218,8 +1326,17 @@ Send webhook payloads to multiple destinations in sequence or parallel. This fea
 **Configuration Options:**
 - `chain`: Array of module names (strings) or detailed module configurations (objects)
 - `chain-config.execution`: `"sequential"` (one after another) or `"parallel"` (all at once)
-- `chain-config.continue_on_error`: `true` to continue chain execution even if a module fails, `false` to stop on first error
+- `chain-config.continue_on_error`: `true` to continue chain execution even if a module fails, `false` to stop on first error (with automatic task cancellation for parallel mode)
+- `chain-config.timeout`: Maximum timeout in seconds for parallel execution (default: 30s, configurable)
 - `retry`: Per-module retry configuration (optional)
+
+**Performance & Reliability:**
+- Credential cleanup runs in background tasks (no latency impact on HTTP response)
+- Parallel tasks have configurable timeouts to prevent indefinite hangs
+- Failed tasks are automatically cancelled in parallel mode when `continue_on_error=false`
+- Structured logging with webhook_id, module names, and error details for debugging
+- In-memory metrics track execution success, failures, and partial successes
+- Module configurations are pre-built once at initialization (reduced memory allocations)
 
 **Execution Modes:**
 - **Sequential**: Modules execute one after another in order. Useful when one module depends on another (e.g., save to DB then publish to Kafka).
@@ -1298,8 +1415,21 @@ Send webhook payloads to multiple destinations in sequence or parallel. This fea
 - Maximum chain length limit (20 modules) to prevent DoS attacks
 - Module name validation to prevent injection attacks
 - Type validation for all configuration fields
-- Resource management with concurrency limits
+- Resource management with concurrency limits (TaskManager with semaphore-based backpressure)
 - Error sanitization to prevent information disclosure
+- Task timeout protection to prevent resource exhaustion
+- Fail-fast on circular references in configuration (no unsafe shallow copy fallback)
+
+**Observability:**
+- Structured logging with `logger.info()`, `logger.warning()`, `logger.error()`
+- Log correlation via webhook_id in all log entries
+- In-memory metrics dictionary:
+  - `chain_execution_total`: Total chain executions
+  - `chain_execution_failed_total`: Fully failed chains
+  - `chain_execution_partial_success_total`: Partially successful chains
+  - `chain_tasks_dropped_total`: Chains dropped due to task manager overflow
+  - `module_execution_dropped_total`: Individual modules dropped due to task manager overflow
+- Individual module failure logging with error details
 
 See `docs/WEBHOOK_CHAINING_FEATURE.md` for detailed documentation.
 
@@ -1355,10 +1485,31 @@ See `docs/WEBHOOK_CHAINING_FEATURE.md` for detailed documentation.
 - [x] Environment Variable Substitution
 - [x] Configuration Validation
 
+### Cloud-to-Local Relay
+- [x] Webhook Connect (Cloud Receiver)
+- [x] Local Connector (WebSocket/SSE clients)
+- [x] Channel Management
+- [x] Message Queue with Acknowledgments
+- [x] Dead-Letter Queue Support
+- [x] Multi-Target Forwarding
+
+### Performance & Reliability (Recent Improvements)
+- [x] Parallel execution timeout protection (chain processor)
+- [x] Task cancellation on partial failure
+- [x] Background credential cleanup (deferred from request path)
+- [x] Structured logging with correlation IDs
+- [x] In-memory metrics tracking
+- [x] Module config pre-building optimization
+- [x] TaskManager with semaphore-based backpressure
+- [x] Fail-fast on circular references
+
 ### Future Enhancements
+- [ ] Prometheus/Grafana metrics integration (replace in-memory metrics)
+- [ ] Distributed tracing with OpenTelemetry
 - [ ] Payload Transformation (pre-processing step)
 - [ ] Cloudflare Turnstile Validation
 - [ ] Batch insert support for database modules
+- [ ] Circuit breakers for consistently failing modules
 - [ ] Performance test documentation expansion
 
 ## Test Status
@@ -1372,7 +1523,8 @@ Test suites include:
 - Module tests (all 17 output modules)
 - Database module tests (PostgreSQL, MySQL)
 - Webhook flow tests
-- Webhook chaining tests (sequential and parallel execution)
+- Webhook chaining tests (sequential and parallel execution, timeout, cancellation)
+- Webhook Connect tests (channel management, streaming, connector)
 - Rate limiting tests
 - Redis statistics tests
 - Input validation tests
@@ -1382,6 +1534,8 @@ Test suites include:
 - Connection pool registry tests
 - Analytics processor tests
 - Chain processor and validator tests
+- Credential cleanup tests
+- Task manager tests
 
 **Test Coverage:** 90%+ code coverage
 

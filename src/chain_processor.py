@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from src.modules.registry import ModuleRegistry
 from src.chain_validator import ChainValidator
 from src.retry_handler import retry_handler
+from src.utils import sanitize_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +67,29 @@ class ChainProcessor:
         self.execution_mode = self.chain_config.get('execution', 'sequential')
         self.continue_on_error = self.chain_config.get('continue_on_error', True)
         
+        # SECURITY: Set execution timeout to prevent infinite hangs
+        # Default: 30 seconds
+        self.timeout = float(self.chain_config.get('timeout', 30.0))
+        
         # Normalize chain items to dict format
         self.normalized_chain = [ChainValidator.normalize_chain_item(item) for item in chain]
+        
+        # PERFORMANCE: Pre-build module configurations to avoid multiple deepcopy calls during execution
+        self._prebuilt_configs = self._prebuild_module_configs()
     
+    def _prebuild_module_configs(self) -> List[Dict[str, Any]]:
+        """
+        Build module configurations for all items in the chain during initialization.
+        
+        PERFORMANCE: Doing this once at initialization avoids repeated deepcopy calls
+        during chain execution, significantly reducing memory pressure and CPU usage.
+        """
+        prebuilt_configs = []
+        for chain_item in self.normalized_chain:
+            config = self._build_module_config(chain_item)
+            prebuilt_configs.append(config)
+        return prebuilt_configs
+
     async def execute(self, payload: Any, headers: Dict[str, str]) -> List[ChainResult]:
         """
         Execute the chain.
@@ -96,7 +117,7 @@ class ChainProcessor:
         results = []
         
         for idx, chain_item in enumerate(self.normalized_chain):
-            module_name = chain_item.get('module')
+            module_name = str(chain_item.get('module', 'unknown'))
             result = await self._execute_module(chain_item, payload, headers, idx)
             results.append(result)
             
@@ -105,7 +126,7 @@ class ChainProcessor:
                 logger.warning(f"Chain execution stopped at module {idx} ({module_name}) due to error")
                 # Mark remaining modules as not executed
                 for remaining_idx in range(idx + 1, len(self.normalized_chain)):
-                    remaining_module = self.normalized_chain[remaining_idx].get('module')
+                    remaining_module = str(self.normalized_chain[remaining_idx].get('module', 'unknown'))
                     results.append(ChainResult(remaining_module, False, 
                                              Exception("Chain execution stopped due to previous error")))
                 break
@@ -116,27 +137,99 @@ class ChainProcessor:
         """
         Execute chain in parallel (all modules at once).
         
-        SECURITY: Uses asyncio.gather with return_exceptions to handle errors gracefully.
+        SECURITY: Uses asyncio.gather with return_exceptions and timeout protection.
         """
         # Create tasks for all modules
+        # Using asyncio.create_task allows us to cancel them if timeout is hit
         tasks = []
         for idx, chain_item in enumerate(self.normalized_chain):
-            task = self._execute_module(chain_item, payload, headers, idx)
+            task = asyncio.create_task(self._execute_module(chain_item, payload, headers, idx))
             tasks.append(task)
         
-        # Execute all tasks in parallel
-        # return_exceptions=True ensures all tasks complete even if some fail
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        try:
+            # Execute all tasks in parallel with a total timeout
+            if self.continue_on_error:
+                # return_exceptions=True ensures all tasks complete even if some fail
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=self.timeout
+                )
+            else:
+                # PERFORMANCE: If continue_on_error=False, we want to stop as soon as any task fails
+                # Since _execute_module catches exceptions and returns ChainResult, we need 
+                # to monitor tasks as they complete and check for failures.
+                pending = set(tasks)
+                results_map = {} # Map original index to result
+                
+                deadline = asyncio.get_event_loop().time() + self.timeout
+                
+                while pending:
+                    now = asyncio.get_event_loop().time()
+                    if now >= deadline:
+                        raise asyncio.TimeoutError()
+                    
+                    done, pending = await asyncio.wait(
+                        pending, 
+                        timeout=deadline - now,
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    
+                    if not done:
+                        # Timeout hit
+                        raise asyncio.TimeoutError()
+                    
+                    # Check if any of the completed tasks failed
+                    any_failed = False
+                    for task in done:
+                        try:
+                            result = task.result()
+                            if isinstance(result, ChainResult) and not result.success:
+                                any_failed = True
+                        except (Exception, asyncio.CancelledError):
+                            any_failed = True
+                    
+                    if any_failed:
+                        logger.warning(f"Parallel chain execution stopped due to module failure (continue_on_error=False)")
+                        # Cancel all pending tasks
+                        for task in pending:
+                            task.cancel()
+                        # Wait for all pending to finish cancellation
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+                        break
+                
+                # Collect results for all tasks in original order
+                results = []
+                for task in tasks:
+                    try:
+                        results.append(task.result())
+                    except (Exception, asyncio.CancelledError) as e:
+                        results.append(e)
+        except asyncio.TimeoutError:
+            logger.error(f"Parallel chain execution timed out after {self.timeout}s")
+            # Cancel all pending tasks to prevent resource leaks
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            
+            # Wait for cancellations to complete and collect what finished
+            # We don't want to leave orphaned tasks
+            results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Convert results to ChainResult objects
         chain_results = []
         for idx, result in enumerate(results):
             chain_item = self.normalized_chain[idx]
-            module_name = chain_item.get('module')
+            module_name = str(chain_item.get('module', 'unknown'))
             
-            if isinstance(result, Exception):
-                # Exception occurred during execution
-                chain_results.append(ChainResult(module_name, False, result))
+            if isinstance(result, (Exception, asyncio.CancelledError)):
+                # Exception or timeout occurred
+                # Convert CancelledError (BaseException) to Exception for ChainResult
+                if isinstance(result, (asyncio.TimeoutError, asyncio.CancelledError)):
+                    error = Exception(f"Task timed out after {self.timeout}s")
+                else:
+                    error = result if isinstance(result, Exception) else Exception(str(result))
+                chain_results.append(ChainResult(module_name, False, error))
             elif isinstance(result, ChainResult):
                 # Normal result
                 chain_results.append(result)
@@ -163,12 +256,16 @@ class ChainProcessor:
         Returns:
             ChainResult object
         """
-        module_name = chain_item.get('module')
+        module_name = str(chain_item.get('module', 'unknown'))
         module = None  # Initialize to None to track if module was created
         
         try:
-            # Build module configuration
-            module_config = self._build_module_config(chain_item)
+            # PERFORMANCE: Use pre-built module configuration
+            if index < len(self._prebuilt_configs):
+                module_config = self._prebuilt_configs[index]
+            else:
+                # Fallback (should not happen in normal flow)
+                module_config = self._build_module_config(chain_item)
             
             # Instantiate module
             try:
@@ -176,13 +273,11 @@ class ChainProcessor:
                 module = module_class(module_config, pool_registry=self.pool_registry)
             except (KeyError, ValueError) as e:
                 # SECURITY: Sanitize error messages to prevent information disclosure
-                from src.utils import sanitize_error_message
                 sanitized_error = sanitize_error_message(e, "module instantiation")
                 logger.error(f"Chain module {index} ({module_name}): Failed to get module class: {sanitized_error}")
                 return ChainResult(module_name, False, e)  # Return original exception for debugging, but log sanitized
             except Exception as e:
                 # SECURITY: Sanitize error messages to prevent information disclosure
-                from src.utils import sanitize_error_message
                 sanitized_error = sanitize_error_message(e, "module instantiation")
                 logger.error(f"Chain module {index} ({module_name}): Failed to instantiate module: {sanitized_error}")
                 return ChainResult(module_name, False, e)  # Return original exception for debugging, but log sanitized
@@ -210,7 +305,6 @@ class ChainProcessor:
                     result = ChainResult(module_name, True)
             except Exception as e:
                 # SECURITY: Sanitize error messages to prevent information disclosure
-                from src.utils import sanitize_error_message
                 sanitized_error = sanitize_error_message(e, "module execution")
                 logger.error(f"Chain module {index} ({module_name}): Execution failed: {sanitized_error}")
                 result = ChainResult(module_name, False, e)  # Return original exception for debugging, but log sanitized
@@ -221,7 +315,6 @@ class ChainProcessor:
                         await module.teardown()
                     except Exception as teardown_error:
                         # SECURITY: Sanitize teardown error messages to prevent information disclosure
-                        from src.utils import sanitize_error_message
                         sanitized_error = sanitize_error_message(teardown_error, "module teardown")
                         # Log teardown errors but don't fail the chain result
                         logger.warning(f"Chain module {index} ({module_name}): Teardown failed: {sanitized_error}")
@@ -230,7 +323,6 @@ class ChainProcessor:
         
         except Exception as e:
             # SECURITY: Sanitize error messages to prevent information disclosure
-            from src.utils import sanitize_error_message
             sanitized_error = sanitize_error_message(e, "chain module execution")
             # Catch any unexpected errors
             logger.error(f"Chain module {index} ({module_name}): Unexpected error: {sanitized_error}")
@@ -241,6 +333,7 @@ class ChainProcessor:
         Build module configuration from chain item and base webhook config.
         
         SECURITY: Merges configurations safely, preserving security settings.
+        PERFORMANCE: Minimized deepcopy calls to reduce memory pressure.
         
         Args:
             chain_item: Normalized chain item
@@ -252,7 +345,7 @@ class ChainProcessor:
         if not isinstance(chain_item, dict):
             raise TypeError(f"chain_item must be a dict, got {type(chain_item).__name__}")
         
-        # Start with base webhook config (copy to avoid modifying original)
+        # PERFORMANCE: Start with base webhook config (one deep copy to avoid modifying original)
         # SECURITY: Use safe_deepcopy to prevent DoS via circular references
         import copy
         try:
@@ -260,14 +353,11 @@ class ChainProcessor:
         except (RecursionError, MemoryError) as e:
             # SECURITY: Handle circular references and memory exhaustion
             logger.error(f"Failed to deep copy webhook_config: {e}")
-            # Fallback to shallow copy (less safe but prevents DoS)
-            import copy as shallow_copy
-            module_config = shallow_copy.copy(self.webhook_config)
-            if isinstance(module_config, dict):
-                module_config = dict(module_config)  # Create new dict
+            # PERFORMANCE: Fail fast on circular references rather than unsafe shallow fallback
+            raise ValueError("Circular reference detected in webhook_config") from e
         
         # Override module name
-        module_config['module'] = chain_item.get('module')
+        module_config['module'] = str(chain_item.get('module', 'unknown'))
         
         # Override connection if specified in chain item
         connection_name = chain_item.get('connection')
@@ -277,51 +367,26 @@ class ChainProcessor:
             # Inject connection details from connection_config if available
             if self.connection_config and connection_name in self.connection_config:
                 try:
+                    # PERFORMANCE: Only need to deepcopy connection details once
                     connection_details = copy.deepcopy(self.connection_config[connection_name])
+                    module_config['connection_details'] = connection_details
                 except (RecursionError, MemoryError) as e:
-                    # SECURITY: Handle circular references and memory exhaustion
                     logger.error(f"Failed to deep copy connection_details: {e}")
-                    # Fallback to shallow copy
-                    import copy as shallow_copy
-                    connection_details = shallow_copy.copy(self.connection_config[connection_name])
-                    if isinstance(connection_details, dict):
-                        connection_details = dict(connection_details)  # Create new dict
-                module_config['connection_details'] = connection_details
-        
-        # All module-specific configs should be in module-config, not at top level
-        # This ensures proper isolation between modules in a chain
+                    raise ValueError(f"Circular reference detected in connection_details for '{connection_name}'") from e
         
         # Merge module-config if specified
         if 'module-config' in chain_item:
             chain_module_config = chain_item['module-config']
             if isinstance(chain_module_config, dict):
-                # Merge with existing module-config
+                # PERFORMANCE: Get existing module-config from OUR NEW module_config copy
+                # We can safely mutate it because we already did a deepcopy of the whole self.webhook_config
                 existing_module_config = module_config.get('module-config', {})
-                if isinstance(existing_module_config, dict):
-                    # Deep merge
-                    try:
-                        merged_config = copy.deepcopy(existing_module_config)
-                    except (RecursionError, MemoryError) as e:
-                        # SECURITY: Handle circular references and memory exhaustion
-                        logger.error(f"Failed to deep copy existing_module_config: {e}")
-                        # Fallback to shallow copy
-                        import copy as shallow_copy
-                        merged_config = shallow_copy.copy(existing_module_config)
-                        if isinstance(merged_config, dict):
-                            merged_config = dict(merged_config)  # Create new dict
-                    merged_config.update(chain_module_config)
-                    module_config['module-config'] = merged_config
-                else:
-                    try:
-                        module_config['module-config'] = copy.deepcopy(chain_module_config)
-                    except (RecursionError, MemoryError) as e:
-                        # SECURITY: Handle circular references and memory exhaustion
-                        logger.error(f"Failed to deep copy chain_module_config: {e}")
-                        # Fallback to shallow copy
-                        import copy as shallow_copy
-                        module_config['module-config'] = shallow_copy.copy(chain_module_config)
-                        if isinstance(module_config['module-config'], dict):
-                            module_config['module-config'] = dict(module_config['module-config'])
+                if not isinstance(existing_module_config, dict):
+                    existing_module_config = {}
+                
+                # Merge chain-specific overrides
+                existing_module_config.update(chain_module_config)
+                module_config['module-config'] = existing_module_config
             else:
                 # Invalid module-config, use empty dict
                 module_config['module-config'] = {}

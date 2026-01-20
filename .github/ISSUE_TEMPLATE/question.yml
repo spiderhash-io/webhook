@@ -1,0 +1,57 @@
+name: Question
+description: Ask a question about Core Webhook Module
+title: "[QUESTION] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question? We're here to help!
+        
+        **Note:** For general discussions, consider using [GitHub Discussions](https://github.com/spiderhash-io/webhook/discussions) instead.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: Ask your question here...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Question Category
+      description: What is your question about?
+      options:
+        - Installation and setup
+        - Configuration
+        - Authentication methods
+        - Output modules
+        - Webhook chaining
+        - Performance and scaling
+        - Security
+        - Docker deployment
+        - Integration with other services
+        - Development and contributing
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide any relevant context (what you're trying to achieve, what you've tried, etc.)
+      placeholder: Additional context...
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Details (if applicable)
+      description: Version, deployment method, OS, etc.
+      placeholder: |
+        Version: 1.0.0
+        Deployment: Docker
+        OS: Linux

@@ -200,12 +200,18 @@ class ChainValidator:
         continue_on_error = chain_config.get('continue_on_error', True)
         if not isinstance(continue_on_error, bool):
             return False, "chain-config.continue_on_error must be a boolean"
+            
+        # Validate timeout
+        if 'timeout' in chain_config:
+            timeout = chain_config.get('timeout')
+            if not isinstance(timeout, (int, float)) or timeout <= 0:
+                return False, "chain-config.timeout must be a positive number"
         
         # SECURITY: Reject unknown fields to prevent injection
-        allowed_fields = {'execution', 'continue_on_error'}
+        allowed_fields = {'execution', 'continue_on_error', 'timeout'}
         for field in chain_config.keys():
             if field not in allowed_fields:
-                return False, f"chain-config: unknown field '{field}' (allowed: {', '.join(allowed_fields)})"
+                return False, f"chain-config: unknown field '{field}' (allowed: {', '.join(sorted(allowed_fields))})"
         
         return True, None
     

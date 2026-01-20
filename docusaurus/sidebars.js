@@ -70,7 +70,16 @@ const sidebars = {
       label: 'Features',
       items: [
         'features/intro',
-        'features/webhook-chaining',
+        {
+          type: 'category',
+          label: 'Webhook Chaining',
+          items: [
+            'features/webhook-chaining',
+            'features/webhook-chaining-getting-started',
+            'features/webhook-chaining-advanced',
+            'features/webhook-chaining-troubleshooting',
+          ],
+        },
         'features/rate-limiting',
         'features/json-schema',
         'features/credential-cleanup',
