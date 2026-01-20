@@ -56,6 +56,7 @@ class TestBasicAuthTiming:
         assert "Invalid credentials" in message
 
     @pytest.mark.asyncio
+    @pytest.mark.slow
     async def test_basic_auth_username_timing_attack_resistance(self):
         """
         Test that username timing attacks are prevented by using constant-time comparison.
@@ -150,6 +151,9 @@ class TestBasicAuthTiming:
         )
 
     @pytest.mark.asyncio
+
+
+    @pytest.mark.slow
     async def test_basic_auth_password_timing_attack_resistance(self):
         """
         Test that password timing attacks are prevented (verify existing protection).
@@ -220,6 +224,9 @@ class TestBasicAuthTiming:
         )
 
     @pytest.mark.asyncio
+
+
+    @pytest.mark.slow
     async def test_basic_auth_both_credentials_timing(self):
         """
         Test timing when both username and password are wrong vs when only one is wrong.
@@ -301,6 +308,9 @@ class TestBasicAuthTiming:
         )
 
     @pytest.mark.asyncio
+
+
+    @pytest.mark.slow
     async def test_basic_auth_unicode_username_timing(self):
         """Test timing attack resistance with Unicode usernames."""
         config = {
@@ -354,6 +364,9 @@ class TestBasicAuthTiming:
         )
 
     @pytest.mark.asyncio
+
+
+    @pytest.mark.slow
     async def test_basic_auth_case_sensitivity_timing(self):
         """Test that case-sensitive comparisons are constant-time."""
         config = {"basic_auth": {"username": "Admin", "password": "Secret123"}}

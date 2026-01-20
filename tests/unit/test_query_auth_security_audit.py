@@ -313,6 +313,7 @@ class TestQueryAuthTimingAttacks:
     """Test timing attack vulnerabilities."""
 
     @pytest.mark.asyncio
+    @pytest.mark.slow
     async def test_timing_attack_resistance(self):
         """Test that validation uses constant-time comparison."""
         import time

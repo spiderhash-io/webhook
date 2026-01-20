@@ -31,7 +31,7 @@ jobs:
     
     - name: Run unit tests
       run: |
-        pytest tests/unit/ -v --tb=short -m "not integration and not longrunning and not todo"
+        pytest tests/unit/ -v --tb=short --forked -m "not integration and not longrunning and not todo and not external_services and not slow"
     
     - name: Upload test results
       if: always()

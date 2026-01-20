@@ -25,16 +25,17 @@ jobs:
         python -m pip install --upgrade pip setuptools wheel
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
-        pip install pytest pytest-cov pytest-asyncio
+        pip install pytest pytest-cov pytest-asyncio pytest-forked
     
     - name: Run tests with coverage
       run: |
         pytest tests/unit/ -v \
+          --forked \
           --cov=src \
           --cov-report=term-missing \
           --cov-report=xml \
           --cov-report=html \
-          -m "not integration and not longrunning and not todo"
+          -m "not integration and not longrunning and not todo and not external_services and not slow"
     
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4

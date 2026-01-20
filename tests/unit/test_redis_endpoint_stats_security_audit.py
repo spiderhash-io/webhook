@@ -9,6 +9,9 @@ import time
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from src.utils import RedisEndpointStats
 
+# Mark all tests in this module as requiring external services (Redis)
+pytestmark = pytest.mark.external_services
+
 
 # ============================================================================
 # 1. REDIS KEY INJECTION

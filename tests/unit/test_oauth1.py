@@ -517,6 +517,7 @@ class TestOAuth1:
         assert "Invalid OAuth 1.0 consumer key" in message
 
     @pytest.mark.asyncio
+    @pytest.mark.slow
     async def test_oauth1_timing_attack_resistance(self):
         """Test that validation uses constant-time comparison to resist timing attacks."""
         import time

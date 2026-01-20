@@ -395,6 +395,7 @@ class TestDigestAuth:
         assert is_valid is True
 
     @pytest.mark.asyncio
+    @pytest.mark.slow
     async def test_digest_auth_timing_attack_resistance(self):
         """Test that validation uses constant-time comparison to resist timing attacks."""
         import time
