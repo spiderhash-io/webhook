@@ -11,12 +11,12 @@ from src.utils import sanitize_error_message
 
 class PostgreSQLModule(BaseModule):
     """Module for saving webhook payloads to PostgreSQL database.
-    
+
     Supports three storage modes:
     1. JSON: Store entire payload in JSONB column (default)
     2. Relational: Map payload fields to table columns
     3. Hybrid: Store mapped fields in columns + full payload in JSONB column
-    
+
     The module expects the following configuration in the webhook definition:
     ```json
     {
@@ -33,145 +33,183 @@ class PostgreSQLModule(BaseModule):
     }
     ```
     """
-    
+
     def __init__(self, config: Dict[str, Any], pool_registry=None):
         super().__init__(config, pool_registry)
         self.pool: Optional[asyncpg.Pool] = None
-        raw_table_name = self.module_config.get('table', 'webhook_events')
+        raw_table_name = self.module_config.get("table", "webhook_events")
         self.table_name = self._validate_table_name(raw_table_name)
-        self.storage_mode = self.module_config.get('storage_mode', 'json')  # json, relational, hybrid
-        self.upsert = self.module_config.get('upsert', False)
-        raw_upsert_key = self.module_config.get('upsert_key', 'id')
+        self.storage_mode = self.module_config.get(
+            "storage_mode", "json"
+        )  # json, relational, hybrid
+        self.upsert = self.module_config.get("upsert", False)
+        raw_upsert_key = self.module_config.get("upsert_key", "id")
         # Security: Validate upsert_key to prevent injection
         # upsert_key is used in JSON path operations, so it should be a simple string
         if not isinstance(raw_upsert_key, str):
-            raise ValueError(f"upsert_key must be a string, got {type(raw_upsert_key).__name__}")
+            raise ValueError(
+                f"upsert_key must be a string, got {type(raw_upsert_key).__name__}"
+            )
         if not raw_upsert_key or len(raw_upsert_key) > 256:  # Reasonable limit
             raise ValueError(f"upsert_key must be non-empty and <= 256 characters")
         # Reject dangerous characters that could be used in JSON path injection
-        if any(char in raw_upsert_key for char in ['"', "'", ';', '--', '/*', '*/', '\n', '\r', '\x00']):
+        if any(
+            char in raw_upsert_key
+            for char in ['"', "'", ";", "--", "/*", "*/", "\n", "\r", "\x00"]
+        ):
             raise ValueError("upsert_key contains dangerous characters")
         self.upsert_key = raw_upsert_key
-        self.include_headers = self.module_config.get('include_headers', True)
-        self.include_timestamp = self.module_config.get('include_timestamp', True)
-        self.schema = self.module_config.get('schema', {})
+        self.include_headers = self.module_config.get("include_headers", True)
+        self.include_timestamp = self.module_config.get("include_timestamp", True)
+        self.schema = self.module_config.get("schema", {})
         self._table_created = False
-    
+
     def _validate_table_name(self, table_name: str) -> str:
         """
         Validate and sanitize PostgreSQL table name to prevent SQL injection.
-        
+
         Args:
             table_name: The table name from configuration
-            
+
         Returns:
             Validated and sanitized table name
-            
+
         Raises:
             ValueError: If table name is invalid or contains dangerous characters
         """
         if not table_name or not isinstance(table_name, str):
             raise ValueError("Table name must be a non-empty string")
-        
+
         # Remove whitespace
         table_name = table_name.strip()
-        
+
         if not table_name:
             raise ValueError("Table name cannot be empty")
-        
+
         # Maximum length to prevent DoS (PostgreSQL identifier limit is 63 bytes, but we'll be more restrictive)
         if len(table_name) > 63:
-            raise ValueError(f"Table name too long: {len(table_name)} characters (max: 63)")
-        
+            raise ValueError(
+                f"Table name too long: {len(table_name)} characters (max: 63)"
+            )
+
         # Validate format: alphanumeric and underscore only
         # PostgreSQL allows quoted identifiers with special chars, but we restrict for security
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
             raise ValueError(
                 f"Invalid table name format: '{table_name}'. "
                 f"Must start with letter or underscore and contain only alphanumeric characters and underscores."
             )
-        
+
         # Reject SQL keywords that could be used in injection
         sql_keywords = [
-            'select', 'insert', 'update', 'delete', 'drop', 'create', 'alter',
-            'truncate', 'exec', 'execute', 'union', 'script', '--', ';', '/*', '*/',
-            'table', 'database', 'schema', 'user', 'role', 'grant', 'revoke'
+            "select",
+            "insert",
+            "update",
+            "delete",
+            "drop",
+            "create",
+            "alter",
+            "truncate",
+            "exec",
+            "execute",
+            "union",
+            "script",
+            "--",
+            ";",
+            "/*",
+            "*/",
+            "table",
+            "database",
+            "schema",
+            "user",
+            "role",
+            "grant",
+            "revoke",
         ]
         table_name_lower = table_name.lower()
         for keyword in sql_keywords:
             if table_name_lower == keyword:
                 raise ValueError(f"Table name cannot be SQL keyword: '{keyword}'")
-        
+
         # Reject dangerous patterns
-        dangerous_patterns = ['..', '--', ';', '/*', '*/', 'xp_', 'sp_', 'pg_']
+        dangerous_patterns = ["..", "--", ";", "/*", "*/", "xp_", "sp_", "pg_"]
         for pattern in dangerous_patterns:
             if pattern in table_name_lower:
                 raise ValueError(f"Table name contains dangerous pattern: '{pattern}'")
-        
+
         return table_name
-    
+
     def _validate_column_name(self, column_name: str) -> str:
         """
         Validate and sanitize PostgreSQL column name.
-        
+
         Args:
             column_name: The column name to validate
-            
+
         Returns:
             Validated column name
-            
+
         Raises:
             ValueError: If column name is invalid
         """
         if not column_name or not isinstance(column_name, str):
             raise ValueError("Column name must be a non-empty string")
-        
+
         column_name = column_name.strip()
-        
+
         if not column_name:
             raise ValueError("Column name cannot be empty")
-        
+
         if len(column_name) > 63:
-            raise ValueError(f"Column name too long: {len(column_name)} characters (max: 63)")
-        
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', column_name):
+            raise ValueError(
+                f"Column name too long: {len(column_name)} characters (max: 63)"
+            )
+
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", column_name):
             raise ValueError(
                 f"Invalid column name format: '{column_name}'. "
                 f"Must start with letter or underscore and contain only alphanumeric characters and underscores."
             )
-        
+
         return column_name
-    
+
     def _validate_hostname(self, hostname: str) -> bool:
         """
         Validate hostname to prevent SSRF attacks.
-        
+
         Args:
             hostname: The hostname to validate
-            
+
         Returns:
             True if hostname is safe, False otherwise
         """
         if not hostname or not isinstance(hostname, str):
             return False
-        
+
         hostname = hostname.strip().lower()
-        
+
         # Allow localhost for tests (if environment variable is set)
         import os
-        allow_localhost = os.getenv("ALLOW_LOCALHOST_FOR_TESTS", "false").lower() == "true"
-        
+
+        allow_localhost = (
+            os.getenv("ALLOW_LOCALHOST_FOR_TESTS", "false").lower() == "true"
+        )
+
         # Block localhost variants (unless allowed for tests)
         if not allow_localhost:
             # SECURITY: This list is used for validation to BLOCK localhost access, not for binding
             localhost_variants = [
-                'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
-                '127.'
+                "localhost",
+                "127.0.0.1",
+                "0.0.0.0",
+                "::1",
+                "[::1]",
+                "127.",
             ]  # nosec B104
             for variant in localhost_variants:
                 if hostname.startswith(variant):
                     return False
-        
+
         # Block private IP ranges (RFC 1918) - DISABLED FOR INTERNAL NETWORKS
         # Private IPs are now allowed for internal network usage
         # if hostname.startswith(('10.', '172.16.', '172.17.', '172.18.', '172.19.',
@@ -179,28 +217,28 @@ class PostgreSQLModule(BaseModule):
         #                          '172.25.', '172.26.', '172.27.', '172.28.', '172.29.',
         #                          '172.30.', '172.31.', '192.168.')):
         #     return False
-        
+
         # Block link-local addresses (169.254.x.x) - still blocked for security
-        if hostname.startswith('169.254.'):
+        if hostname.startswith("169.254."):
             return False
-        
+
         # Block file:// and other dangerous schemes
-        if '://' in hostname:
+        if "://" in hostname:
             return False
-        
+
         # Block metadata endpoints
-        if 'metadata.google.internal' in hostname or '169.254.169.254' in hostname:
+        if "metadata.google.internal" in hostname or "169.254.169.254" in hostname:
             return False
-        
+
         return True
-    
+
     def _quote_identifier(self, identifier: str) -> str:
         """
         Quote PostgreSQL identifier to prevent injection.
-        
+
         Args:
             identifier: The identifier to quote
-            
+
         Returns:
             Quoted identifier safe for use in SQL
         """
@@ -208,58 +246,62 @@ class PostgreSQLModule(BaseModule):
         # Escape double quotes in the identifier
         escaped = identifier.replace('"', '""')
         return f'"{escaped}"'
-    
+
     def _get_pg_type(self, field_type: str) -> str:
         """
         Map field type to PostgreSQL type.
-        
+
         Args:
             field_type: The field type (string, integer, float, boolean, datetime, json)
-            
+
         Returns:
             PostgreSQL type name
         """
         type_mapping = {
-            'string': 'TEXT',
-            'integer': 'BIGINT',
-            'float': 'DOUBLE PRECISION',
-            'boolean': 'BOOLEAN',
-            'datetime': 'TIMESTAMP WITH TIME ZONE',
-            'json': 'JSONB',
-            'text': 'TEXT',
-            'int': 'BIGINT',
-            'number': 'DOUBLE PRECISION',
-            'bool': 'BOOLEAN',
-            'date': 'DATE',
-            'time': 'TIME',
-            'timestamp': 'TIMESTAMP WITH TIME ZONE'
+            "string": "TEXT",
+            "integer": "BIGINT",
+            "float": "DOUBLE PRECISION",
+            "boolean": "BOOLEAN",
+            "datetime": "TIMESTAMP WITH TIME ZONE",
+            "json": "JSONB",
+            "text": "TEXT",
+            "int": "BIGINT",
+            "number": "DOUBLE PRECISION",
+            "bool": "BOOLEAN",
+            "date": "DATE",
+            "time": "TIME",
+            "timestamp": "TIMESTAMP WITH TIME ZONE",
         }
-        
-        return type_mapping.get(field_type.lower(), 'TEXT')
-    
+
+        return type_mapping.get(field_type.lower(), "TEXT")
+
     async def setup(self) -> None:
         """Initialize PostgreSQL connection pool."""
         if not self.connection_details:
             raise Exception("PostgreSQL connection details not found")
-        
+
         # Support both connection string and individual parameters
-        connection_string = self.connection_details.get('connection_string')
-        
+        connection_string = self.connection_details.get("connection_string")
+
         if connection_string:
             # Security: Validate connection string type
             if not isinstance(connection_string, str):
                 raise ValueError("Connection string must be a string")
-            
+
             # Security: Validate connection string doesn't contain dangerous patterns
             # Parse connection string to extract hostname for SSRF check
             # Format: postgresql://user:pass@host:port/db
-            if connection_string.startswith('postgresql://') or connection_string.startswith('postgres://'):
+            if connection_string.startswith(
+                "postgresql://"
+            ) or connection_string.startswith("postgres://"):
                 try:
-                    parts = connection_string.split('@')
+                    parts = connection_string.split("@")
                     if len(parts) > 1:
-                        host_part = parts[1].split('/')[0].split(':')[0]
+                        host_part = parts[1].split("/")[0].split(":")[0]
                         if not self._validate_hostname(host_part):
-                            raise ValueError("Invalid or unsafe hostname in connection string")
+                            raise ValueError(
+                                "Invalid or unsafe hostname in connection string"
+                            )
                     else:
                         # No @ in connection string, invalid format
                         raise ValueError("Invalid connection string format")
@@ -274,49 +316,48 @@ class PostgreSQLModule(BaseModule):
                 raise ValueError("Invalid connection string format")
         else:
             # Build connection string from individual parameters
-            host = self.connection_details.get('host', 'localhost')
-            port = self.connection_details.get('port', 5432)
-            database = self.connection_details.get('database', 'postgres')
-            user = self.connection_details.get('user', 'postgres')
-            password = self.connection_details.get('password', '')
-            
+            host = self.connection_details.get("host", "localhost")
+            port = self.connection_details.get("port", 5432)
+            database = self.connection_details.get("database", "postgres")
+            user = self.connection_details.get("user", "postgres")
+            password = self.connection_details.get("password", "")
+
             # SSRF prevention: validate hostname
             if not self._validate_hostname(host):
                 raise ValueError("Invalid or unsafe hostname")
-            
+
             # Build connection string
             if password:
-                connection_string = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+                connection_string = (
+                    f"postgresql://{user}:{password}@{host}:{port}/{database}"
+                )
             else:
                 connection_string = f"postgresql://{user}@{host}:{port}/{database}"
-        
+
         # SSL configuration
         ssl_config = {}
-        if self.connection_details.get('ssl', False):
-            ssl_config['ssl'] = 'require'
-            if self.connection_details.get('ssl_ca_cert'):
-                ssl_config['sslrootcert'] = self.connection_details.get('ssl_ca_cert')
-            if self.connection_details.get('ssl_cert'):
-                ssl_config['sslcert'] = self.connection_details.get('ssl_cert')
-            if self.connection_details.get('ssl_key'):
-                ssl_config['sslkey'] = self.connection_details.get('ssl_key')
-        
+        if self.connection_details.get("ssl", False):
+            ssl_config["ssl"] = "require"
+            if self.connection_details.get("ssl_ca_cert"):
+                ssl_config["sslrootcert"] = self.connection_details.get("ssl_ca_cert")
+            if self.connection_details.get("ssl_cert"):
+                ssl_config["sslcert"] = self.connection_details.get("ssl_cert")
+            if self.connection_details.get("ssl_key"):
+                ssl_config["sslkey"] = self.connection_details.get("ssl_key")
+
         try:
             # Create connection pool
-            min_size = self.connection_details.get('pool_min_size', 2)
-            max_size = self.connection_details.get('pool_max_size', 10)
-            
+            min_size = self.connection_details.get("pool_min_size", 2)
+            max_size = self.connection_details.get("pool_max_size", 10)
+
             self.pool = await asyncpg.create_pool(
-                connection_string,
-                min_size=min_size,
-                max_size=max_size,
-                **ssl_config
+                connection_string, min_size=min_size, max_size=max_size, **ssl_config
             )
-            
+
             # Test connection
             async with self.pool.acquire() as conn:
-                await conn.fetchval('SELECT 1')
-            
+                await conn.fetchval("SELECT 1")
+
             # Ensure table exists
             await self._ensure_table()
         except ValueError as e:
@@ -327,16 +368,16 @@ class PostgreSQLModule(BaseModule):
             print(f"Failed to connect to PostgreSQL: {e}")
             # Raise generic error to client (don't expose connection details)
             raise Exception(sanitize_error_message(e, "PostgreSQL connection"))
-    
+
     async def _ensure_table(self) -> None:
         """Ensure the webhook events table exists."""
         if self._table_created:
             return
-        
+
         try:
             quoted_table_name = self._quote_identifier(self.table_name)
-            
-            if self.storage_mode == 'json':
+
+            if self.storage_mode == "json":
                 # JSON mode: simple table with JSONB column
                 create_table_query = f"""
                 CREATE TABLE IF NOT EXISTS {quoted_table_name} (
@@ -348,39 +389,47 @@ class PostgreSQLModule(BaseModule):
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
                 """
-            elif self.storage_mode == 'relational':
+            elif self.storage_mode == "relational":
                 # Relational mode: create columns from schema
-                if not self.schema or 'fields' not in self.schema:
-                    raise ValueError("Relational mode requires schema definition with fields")
-                
+                if not self.schema or "fields" not in self.schema:
+                    raise ValueError(
+                        "Relational mode requires schema definition with fields"
+                    )
+
                 columns = [
                     "id UUID PRIMARY KEY DEFAULT gen_random_uuid()",
                     "webhook_id TEXT NOT NULL",
-                    "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"
+                    "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
                 ]
-                
-                for field_name, field_config in self.schema['fields'].items():
+
+                for field_name, field_config in self.schema["fields"].items():
                     # Security: Validate field_name
                     if not isinstance(field_name, str):
-                        raise ValueError(f"Field name must be a string, got {type(field_name).__name__}")
+                        raise ValueError(
+                            f"Field name must be a string, got {type(field_name).__name__}"
+                        )
                     if not field_name or len(field_name) > 256:
-                        raise ValueError(f"Field name must be non-empty and <= 256 characters")
-                    if any(char in field_name for char in ['\x00', '\n', '\r']):
+                        raise ValueError(
+                            f"Field name must be non-empty and <= 256 characters"
+                        )
+                    if any(char in field_name for char in ["\x00", "\n", "\r"]):
                         raise ValueError("Field name contains dangerous characters")
-                    
-                    column_name = self._validate_column_name(field_config.get('column', field_name))
-                    column_type = self._get_pg_type(field_config.get('type', 'string'))
-                    constraints = field_config.get('constraints', [])
-                    
+
+                    column_name = self._validate_column_name(
+                        field_config.get("column", field_name)
+                    )
+                    column_type = self._get_pg_type(field_config.get("type", "string"))
+                    constraints = field_config.get("constraints", [])
+
                     column_def = f"{self._quote_identifier(column_name)} {column_type}"
-                    
+
                     # Add constraints
                     for constraint in constraints:
-                        if constraint.upper() in ['NOT NULL', 'UNIQUE', 'PRIMARY KEY']:
+                        if constraint.upper() in ["NOT NULL", "UNIQUE", "PRIMARY KEY"]:
                             column_def += f" {constraint.upper()}"
-                    
+
                     columns.append(column_def)
-                
+
                 create_table_query = f"""
                 CREATE TABLE IF NOT EXISTS {quoted_table_name} (
                     {', '.join(columns)}
@@ -392,46 +441,56 @@ class PostgreSQLModule(BaseModule):
                     "id UUID PRIMARY KEY DEFAULT gen_random_uuid()",
                     "webhook_id TEXT NOT NULL",
                     "payload JSONB NOT NULL",
-                    "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"
+                    "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP",
                 ]
-                
+
                 # Add headers column if configured
                 if self.include_headers:
                     columns.append("headers JSONB")
-                
-                if self.schema and 'fields' in self.schema:
-                    for field_name, field_config in self.schema['fields'].items():
+
+                if self.schema and "fields" in self.schema:
+                    for field_name, field_config in self.schema["fields"].items():
                         # Security: Validate field_name
                         if not isinstance(field_name, str):
-                            raise ValueError(f"Field name must be a string, got {type(field_name).__name__}")
+                            raise ValueError(
+                                f"Field name must be a string, got {type(field_name).__name__}"
+                            )
                         if not field_name or len(field_name) > 256:
-                            raise ValueError(f"Field name must be non-empty and <= 256 characters")
-                        if any(char in field_name for char in ['\x00', '\n', '\r']):
+                            raise ValueError(
+                                f"Field name must be non-empty and <= 256 characters"
+                            )
+                        if any(char in field_name for char in ["\x00", "\n", "\r"]):
                             raise ValueError("Field name contains dangerous characters")
-                        
-                        column_name = self._validate_column_name(field_config.get('column', field_name))
-                        column_type = self._get_pg_type(field_config.get('type', 'string'))
-                        constraints = field_config.get('constraints', [])
-                        
-                        column_def = f"{self._quote_identifier(column_name)} {column_type}"
-                        
+
+                        column_name = self._validate_column_name(
+                            field_config.get("column", field_name)
+                        )
+                        column_type = self._get_pg_type(
+                            field_config.get("type", "string")
+                        )
+                        constraints = field_config.get("constraints", [])
+
+                        column_def = (
+                            f"{self._quote_identifier(column_name)} {column_type}"
+                        )
+
                         for constraint in constraints:
-                            if constraint.upper() in ['NOT NULL', 'UNIQUE']:
+                            if constraint.upper() in ["NOT NULL", "UNIQUE"]:
                                 column_def += f" {constraint.upper()}"
-                        
+
                         columns.append(column_def)
-                
+
                 create_table_query = f"""
                 CREATE TABLE IF NOT EXISTS {quoted_table_name} (
                     {', '.join(columns)}
                 )
                 """
-            
+
             async with self.pool.acquire() as conn:
                 await conn.execute(create_table_query)
-            
+
             # Create GIN index on JSONB payload for JSON mode if upsert is enabled
-            if self.storage_mode == 'json' and self.upsert and self.upsert_key:
+            if self.storage_mode == "json" and self.upsert and self.upsert_key:
                 # Create GIN index on payload for efficient JSONB queries
                 # This must happen after table creation
                 # Create a valid index name from the table name
@@ -444,21 +503,25 @@ class PostgreSQLModule(BaseModule):
                 """
                 async with self.pool.acquire() as conn:
                     await conn.execute(index_query)
-            
+
             # Create indexes if specified
-            if self.schema and 'indexes' in self.schema:
-                for index_name, index_config in self.schema['indexes'].items():
+            if self.schema and "indexes" in self.schema:
+                for index_name, index_config in self.schema["indexes"].items():
                     # Security: Validate index name to prevent injection
-                    validated_index_name = self._validate_table_name(index_name)  # Use same validation as table names
-                    index_columns = index_config.get('columns', [])
+                    validated_index_name = self._validate_table_name(
+                        index_name
+                    )  # Use same validation as table names
+                    index_columns = index_config.get("columns", [])
                     if index_columns:
                         # Security: Validate each column name
                         validated_columns = []
                         for col in index_columns:
                             validated_col = self._validate_column_name(col)
-                            validated_columns.append(self._quote_identifier(validated_col))
-                        
-                        quoted_columns = ', '.join(validated_columns)
+                            validated_columns.append(
+                                self._quote_identifier(validated_col)
+                            )
+
+                        quoted_columns = ", ".join(validated_columns)
                         quoted_index_name = self._quote_identifier(validated_index_name)
                         index_query = f"""
                         CREATE INDEX IF NOT EXISTS {quoted_index_name} 
@@ -466,7 +529,7 @@ class PostgreSQLModule(BaseModule):
                         """
                         async with self.pool.acquire() as conn:
                             await conn.execute(index_query)
-            
+
             self._table_created = True
         except ValueError as e:
             # Security: Re-raise validation errors (table/column/index name validation)
@@ -474,26 +537,28 @@ class PostgreSQLModule(BaseModule):
         except Exception as e:
             print(f"Failed to create PostgreSQL table: {e}")
             # Don't raise - table might already exist, but log the error
-    
+
     async def process(self, payload: Any, headers: Dict[str, str]) -> None:
         """Save webhook payload and headers to PostgreSQL."""
         if not self.pool:
             await self.setup()
-        
+
         try:
             # Get webhook_id from config
-            webhook_id = self.config.get('_webhook_id', 'unknown')
-            
+            webhook_id = self.config.get("_webhook_id", "unknown")
+
             # Prepare timestamp
             timestamp = datetime.now(timezone.utc)
-            
+
             quoted_table_name = self._quote_identifier(self.table_name)
-            
-            if self.storage_mode == 'json':
+
+            if self.storage_mode == "json":
                 # JSON mode: insert payload as JSONB
-                payload_json = json.dumps(payload) if not isinstance(payload, str) else payload
+                payload_json = (
+                    json.dumps(payload) if not isinstance(payload, str) else payload
+                )
                 headers_json = json.dumps(headers) if self.include_headers else None
-                
+
                 if self.upsert and self.upsert_key:
                     # Upsert mode: only update on actual unique constraint violations
                     # For JSON mode, we can't easily use ON CONFLICT with JSON paths,
@@ -508,7 +573,9 @@ class PostgreSQLModule(BaseModule):
                     VALUES ($1, $2, $3::jsonb, $4::jsonb)
                     """
                     async with self.pool.acquire() as conn:
-                        await conn.execute(query, webhook_id, timestamp, payload_json, headers_json)
+                        await conn.execute(
+                            query, webhook_id, timestamp, payload_json, headers_json
+                        )
                 else:
                     # Regular insert
                     # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
@@ -518,55 +585,63 @@ class PostgreSQLModule(BaseModule):
                     VALUES ($1, $2, $3::jsonb, $4::jsonb)
                     """
                     async with self.pool.acquire() as conn:
-                        await conn.execute(query, webhook_id, timestamp, payload_json, headers_json)
-            
-            elif self.storage_mode == 'relational':
+                        await conn.execute(
+                            query, webhook_id, timestamp, payload_json, headers_json
+                        )
+
+            elif self.storage_mode == "relational":
                 # Relational mode: map fields to columns
-                if not self.schema or 'fields' not in self.schema:
+                if not self.schema or "fields" not in self.schema:
                     raise ValueError("Relational mode requires schema definition")
-                
-                columns = ['webhook_id']
+
+                columns = ["webhook_id"]
                 values = [webhook_id]
-                placeholders = ['$1']
+                placeholders = ["$1"]
                 param_index = 2
-                
-                for field_name, field_config in self.schema['fields'].items():
-                    column_name = field_config.get('column', field_name)
+
+                for field_name, field_config in self.schema["fields"].items():
+                    column_name = field_config.get("column", field_name)
                     # Get value from payload
-                    value = payload.get(field_name) if isinstance(payload, dict) else None
-                    
+                    value = (
+                        payload.get(field_name) if isinstance(payload, dict) else None
+                    )
+
                     # Apply default if value is None
-                    if value is None and 'default' in field_config:
-                        default = field_config['default']
-                        if default == 'CURRENT_TIMESTAMP':
+                    if value is None and "default" in field_config:
+                        default = field_config["default"]
+                        if default == "CURRENT_TIMESTAMP":
                             value = timestamp
                         else:
                             value = default
-                    
+
                     columns.append(self._quote_identifier(column_name))
                     values.append(value)
-                    placeholders.append(f'${param_index}')
+                    placeholders.append(f"${param_index}")
                     param_index += 1
-                
-                columns_str = ', '.join(columns)
-                placeholders_str = ', '.join(placeholders)
-                
+
+                columns_str = ", ".join(columns)
+                placeholders_str = ", ".join(placeholders)
+
                 if self.upsert and self.upsert_key:
                     # Find upsert key column
                     upsert_col = None
-                    for field_name, field_config in self.schema['fields'].items():
+                    for field_name, field_config in self.schema["fields"].items():
                         if field_name == self.upsert_key:
-                            upsert_col = self._quote_identifier(field_config.get('column', field_name))
+                            upsert_col = self._quote_identifier(
+                                field_config.get("column", field_name)
+                            )
                             break
-                    
+
                     if upsert_col:
                         # Build UPDATE clause
                         update_clauses = []
-                        for i, col in enumerate(columns[1:], start=2):  # Skip webhook_id
+                        for i, col in enumerate(
+                            columns[1:], start=2
+                        ):  # Skip webhook_id
                             update_clauses.append(f"{col} = EXCLUDED.{col}")
-                        
-                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
-                    # Values use parameterized queries, preventing SQL injection
+
+                        # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                        # Values use parameterized queries, preventing SQL injection
                         query = f"""  # nosec B608
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
@@ -574,8 +649,8 @@ class PostgreSQLModule(BaseModule):
                         DO UPDATE SET {', '.join(update_clauses)}
                         """
                     else:
-                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
-                    # Values use parameterized queries, preventing SQL injection
+                        # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                        # Values use parameterized queries, preventing SQL injection
                         query = f"""  # nosec B608
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
@@ -587,62 +662,70 @@ class PostgreSQLModule(BaseModule):
                     INSERT INTO {quoted_table_name} ({columns_str})
                     VALUES ({placeholders_str})
                     """
-                
+
                 async with self.pool.acquire() as conn:
                     await conn.execute(query, *values)
-            
+
             else:  # hybrid mode
                 # Hybrid mode: columns + JSONB payload
-                payload_json = json.dumps(payload) if not isinstance(payload, str) else payload
+                payload_json = (
+                    json.dumps(payload) if not isinstance(payload, str) else payload
+                )
                 headers_json = json.dumps(headers) if self.include_headers else None
-                
-                columns = ['webhook_id', 'payload']
+
+                columns = ["webhook_id", "payload"]
                 values = [webhook_id, payload_json]
-                placeholders = ['$1', '$2']
+                placeholders = ["$1", "$2"]
                 param_index = 3
-                
+
                 # Add headers column if configured
                 if self.include_headers:
-                    columns.append('headers')
+                    columns.append("headers")
                     values.append(headers_json)
-                    placeholders.append(f'${param_index}')
+                    placeholders.append(f"${param_index}")
                     param_index += 1
-                
-                if self.schema and 'fields' in self.schema:
-                    for field_name, field_config in self.schema['fields'].items():
-                        column_name = field_config.get('column', field_name)
-                        value = payload.get(field_name) if isinstance(payload, dict) else None
-                        
-                        if value is None and 'default' in field_config:
-                            default = field_config['default']
-                            if default == 'CURRENT_TIMESTAMP':
+
+                if self.schema and "fields" in self.schema:
+                    for field_name, field_config in self.schema["fields"].items():
+                        column_name = field_config.get("column", field_name)
+                        value = (
+                            payload.get(field_name)
+                            if isinstance(payload, dict)
+                            else None
+                        )
+
+                        if value is None and "default" in field_config:
+                            default = field_config["default"]
+                            if default == "CURRENT_TIMESTAMP":
                                 value = timestamp
                             else:
                                 value = default
-                        
+
                         columns.append(self._quote_identifier(column_name))
                         values.append(value)
-                        placeholders.append(f'${param_index}')
+                        placeholders.append(f"${param_index}")
                         param_index += 1
-                
-                columns_str = ', '.join(columns)
-                placeholders_str = ', '.join(placeholders)
-                
+
+                columns_str = ", ".join(columns)
+                placeholders_str = ", ".join(placeholders)
+
                 if self.upsert and self.upsert_key:
                     upsert_col = None
-                    if self.schema and 'fields' in self.schema:
-                        for field_name, field_config in self.schema['fields'].items():
+                    if self.schema and "fields" in self.schema:
+                        for field_name, field_config in self.schema["fields"].items():
                             if field_name == self.upsert_key:
-                                upsert_col = self._quote_identifier(field_config.get('column', field_name))
+                                upsert_col = self._quote_identifier(
+                                    field_config.get("column", field_name)
+                                )
                                 break
-                    
+
                     if upsert_col:
                         update_clauses = []
                         for i, col in enumerate(columns[1:], start=2):
                             update_clauses.append(f"{col} = EXCLUDED.{col}")
-                        
-                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
-                    # Values use parameterized queries, preventing SQL injection
+
+                        # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                        # Values use parameterized queries, preventing SQL injection
                         query = f"""  # nosec B608
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
@@ -650,8 +733,8 @@ class PostgreSQLModule(BaseModule):
                         DO UPDATE SET {', '.join(update_clauses)}
                         """
                     else:
-                    # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
-                    # Values use parameterized queries, preventing SQL injection
+                        # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
+                        # Values use parameterized queries, preventing SQL injection
                         query = f"""  # nosec B608
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
@@ -663,16 +746,16 @@ class PostgreSQLModule(BaseModule):
                     INSERT INTO {quoted_table_name} ({columns_str})
                     VALUES ({placeholders_str})
                     """
-                
+
                 async with self.pool.acquire() as conn:
                     await conn.execute(query, *values)
-            
+
             print(f"Saved webhook to PostgreSQL table '{self.table_name}'")
         except Exception as e:
             # Log the error but do not crash the webhook processing
             print(f"Failed to save to PostgreSQL: {e}")
             raise  # Re-raise to allow retry mechanism to handle it
-    
+
     async def teardown(self) -> None:
         """Close PostgreSQL connection pool."""
         if self.pool:
@@ -682,4 +765,3 @@ class PostgreSQLModule(BaseModule):
                 # SECURITY: Silently ignore pool close errors during cleanup
                 # This is intentional - close failures during teardown are non-critical
                 pass  # nosec B110
-

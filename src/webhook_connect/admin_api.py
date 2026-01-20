@@ -46,7 +46,7 @@ async def verify_admin_token(authorization: str = Header(None)) -> bool:
         # No token configured, admin API is disabled
         raise HTTPException(
             status_code=403,
-            detail="Admin API disabled. Set WEBHOOK_CONNECT_ADMIN_TOKEN environment variable."
+            detail="Admin API disabled. Set WEBHOOK_CONNECT_ADMIN_TOKEN environment variable.",
         )
 
     if not authorization:
@@ -61,8 +61,10 @@ async def verify_admin_token(authorization: str = Header(None)) -> bool:
 
 # Pydantic models for request/response
 
+
 class ChannelInfo(BaseModel):
     """Channel information response."""
+
     name: str
     webhook_id: str
     created_at: str
@@ -74,6 +76,7 @@ class ChannelInfo(BaseModel):
 
 class ChannelDetailResponse(BaseModel):
     """Detailed channel response."""
+
     name: str
     webhook_id: str
     created_at: str
@@ -84,11 +87,13 @@ class ChannelDetailResponse(BaseModel):
 
 class RotateTokenRequest(BaseModel):
     """Token rotation request."""
+
     grace_period_seconds: int = 3600
 
 
 class RotateTokenResponse(BaseModel):
     """Token rotation response."""
+
     channel: str
     new_token: str
     old_token_expires_at: str
@@ -97,6 +102,7 @@ class RotateTokenResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: str
     buffer: bool
     channels_count: int
@@ -126,9 +132,7 @@ async def health_check():
 
 
 @router.get("/channels", response_model=List[ChannelInfo])
-async def list_channels(
-    _: bool = Depends(verify_admin_token)
-):
+async def list_channels(_: bool = Depends(verify_admin_token)):
     """
     List all registered channels.
 
@@ -141,24 +145,23 @@ async def list_channels(
         config = channel_manager.get_channel(name)
         if config:
             connected = len(channel_manager.get_channel_connections(name))
-            channels.append(ChannelInfo(
-                name=name,
-                webhook_id=config.webhook_id,
-                created_at=config.created_at.isoformat(),
-                ttl_seconds=int(config.ttl.total_seconds()),
-                max_queue_size=config.max_queue_size,
-                max_connections=config.max_connections,
-                connected_clients=connected,
-            ))
+            channels.append(
+                ChannelInfo(
+                    name=name,
+                    webhook_id=config.webhook_id,
+                    created_at=config.created_at.isoformat(),
+                    ttl_seconds=int(config.ttl.total_seconds()),
+                    max_queue_size=config.max_queue_size,
+                    max_connections=config.max_connections,
+                    connected_clients=connected,
+                )
+            )
 
     return channels
 
 
 @router.get("/channels/{channel}", response_model=ChannelDetailResponse)
-async def get_channel_details(
-    channel: str,
-    _: bool = Depends(verify_admin_token)
-):
+async def get_channel_details(channel: str, _: bool = Depends(verify_admin_token)):
     """
     Get detailed information about a channel.
 
@@ -185,9 +188,7 @@ async def get_channel_details(
 
 @router.post("/channels/{channel}/rotate-token", response_model=RotateTokenResponse)
 async def rotate_channel_token(
-    channel: str,
-    request: RotateTokenRequest,
-    _: bool = Depends(verify_admin_token)
+    channel: str, request: RotateTokenRequest, _: bool = Depends(verify_admin_token)
 ):
     """
     Rotate channel authentication token.
@@ -219,9 +220,7 @@ async def rotate_channel_token(
 
 @router.delete("/channels/{channel}/connections/{connection_id}")
 async def disconnect_connection(
-    channel: str,
-    connection_id: str,
-    _: bool = Depends(verify_admin_token)
+    channel: str, connection_id: str, _: bool = Depends(verify_admin_token)
 ):
     """
     Forcefully disconnect a connector.
@@ -243,10 +242,7 @@ async def disconnect_connection(
 
 
 @router.get("/channels/{channel}/stats")
-async def get_channel_stats(
-    channel: str,
-    _: bool = Depends(verify_admin_token)
-):
+async def get_channel_stats(channel: str, _: bool = Depends(verify_admin_token)):
     """
     Get channel statistics.
 
@@ -263,9 +259,7 @@ async def get_channel_stats(
 
 @router.get("/channels/{channel}/dead-letters")
 async def get_dead_letters(
-    channel: str,
-    limit: int = 100,
-    _: bool = Depends(verify_admin_token)
+    channel: str, limit: int = 100, _: bool = Depends(verify_admin_token)
 ):
     """
     Get dead letter messages for a channel.
@@ -287,9 +281,7 @@ async def get_dead_letters(
 
 
 @router.get("/overview")
-async def get_overview(
-    _: bool = Depends(verify_admin_token)
-):
+async def get_overview(_: bool = Depends(verify_admin_token)):
     """
     Get overview of all Webhook Connect activity.
 

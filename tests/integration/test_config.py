@@ -51,4 +51,3 @@ TEST_RABBITMQ_QUEUE_PREFIX = "test_integration_"
 TEST_CLICKHOUSE_TABLE_PREFIX = "test_integration_"
 TEST_KAFKA_TOPIC_PREFIX = "test_integration_"
 TEST_MQTT_TOPIC_PREFIX = "test/integration/"
-

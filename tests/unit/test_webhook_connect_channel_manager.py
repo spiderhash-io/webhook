@@ -60,6 +60,7 @@ class MockBuffer:
 
     async def get_stats(self, channel: str):
         from src.webhook_connect.models import ChannelStats
+
         return ChannelStats(channel=channel, messages_queued=0)
 
     async def health_check(self) -> bool:

@@ -1,6 +1,7 @@
 """
 Tests for CORS support.
 """
+
 import pytest
 import os
 from unittest.mock import patch
@@ -16,8 +17,9 @@ async def test_cors_headers():
         # Reimport to get fresh CORS config
         import importlib
         import src.main
+
         importlib.reload(src.main)
-        
+
         transport = ASGITransport(app=src.main.app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             # Preflight request (OPTIONS)
@@ -26,15 +28,20 @@ async def test_cors_headers():
                 headers={
                     "Origin": "http://example.com",
                     "Access-Control-Request-Method": "POST",
-                    "Access-Control-Request-Headers": "Content-Type, Authorization"
-                }
+                    "Access-Control-Request-Headers": "Content-Type, Authorization",
+                },
             )
-            
+
             assert response.status_code == 200
             # When origin is whitelisted, allow-origin reflects the origin
-            assert response.headers["access-control-allow-origin"] == "http://example.com"
+            assert (
+                response.headers["access-control-allow-origin"] == "http://example.com"
+            )
             assert "POST" in response.headers["access-control-allow-methods"]
-            assert "authorization" in response.headers["access-control-allow-headers"].lower()
+            assert (
+                "authorization"
+                in response.headers["access-control-allow-headers"].lower()
+            )
 
 
 @pytest.mark.asyncio
@@ -45,14 +52,14 @@ async def test_cors_simple_request():
         # Reimport to get fresh CORS config
         import importlib
         import src.main
+
         importlib.reload(src.main)
-        
+
         transport = ASGITransport(app=src.main.app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            response = await ac.get(
-                "/",
-                headers={"Origin": "http://example.com"}
-            )
-            
+            response = await ac.get("/", headers={"Origin": "http://example.com"})
+
             assert response.status_code == 200
-            assert response.headers["access-control-allow-origin"] == "http://example.com"
+            assert (
+                response.headers["access-control-allow-origin"] == "http://example.com"
+            )

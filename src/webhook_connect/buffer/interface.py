@@ -57,7 +57,7 @@ class MessageBufferInterface(ABC):
         self,
         channel: str,
         callback: Callable[[WebhookMessage], Awaitable[None]],
-        prefetch: int = 10
+        prefetch: int = 10,
     ) -> None:
         """
         Subscribe to channel and receive messages via callback.
@@ -182,7 +182,9 @@ class MessageBufferInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_dead_letters(self, channel: str, limit: int = 100) -> List[WebhookMessage]:
+    async def get_dead_letters(
+        self, channel: str, limit: int = 100
+    ) -> List[WebhookMessage]:
         """
         Get dead letter messages for a channel.
 

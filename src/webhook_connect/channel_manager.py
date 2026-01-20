@@ -83,7 +83,7 @@ class ChannelManager:
         webhook_id: str,
         token: str,
         ttl: timedelta = timedelta(hours=24),
-        **kwargs
+        **kwargs,
     ) -> ChannelConfig:
         """
         Register a new channel or update existing.
@@ -176,9 +176,7 @@ class ChannelManager:
         return config.validate_token(token)
 
     async def rotate_token(
-        self,
-        channel: str,
-        grace_period: timedelta = timedelta(hours=1)
+        self, channel: str, grace_period: timedelta = timedelta(hours=1)
     ) -> Optional[str]:
         """
         Rotate channel token with grace period.
@@ -206,7 +204,9 @@ class ChannelManager:
             config.channel_token = new_token
             config.updated_at = datetime.now(timezone.utc)
 
-        logger.info(f"Rotated token for channel {channel}, grace period: {grace_period}")
+        logger.info(
+            f"Rotated token for channel {channel}, grace period: {grace_period}"
+        )
         return new_token
 
     async def publish(self, channel: str, message: WebhookMessage) -> bool:
@@ -235,7 +235,9 @@ class ChannelManager:
         # Note: This is a rough estimate, actual size may vary
         message_size = len(json.dumps(message.to_envelope()).encode())
         if message_size > config.max_message_size:
-            logger.warning(f"Message too large for channel {channel}: {message_size} bytes")
+            logger.warning(
+                f"Message too large for channel {channel}: {message_size} bytes"
+            )
             return False
 
         # Assign sequence number
@@ -278,7 +280,9 @@ class ChannelManager:
             current_count = len(self.channel_connections.get(channel, set()))
 
             if current_count >= config.max_connections:
-                logger.warning(f"Connection rejected: max connections ({config.max_connections}) reached for {channel}")
+                logger.warning(
+                    f"Connection rejected: max connections ({config.max_connections}) reached for {channel}"
+                )
                 return False
 
             self.connections[connection.connection_id] = connection
@@ -324,12 +328,12 @@ class ChannelManager:
         """Get all connections for a channel."""
         connection_ids = self.channel_connections.get(channel, set())
         return [
-            self.connections[cid]
-            for cid in connection_ids
-            if cid in self.connections
+            self.connections[cid] for cid in connection_ids if cid in self.connections
         ]
 
-    async def ack_message(self, channel: str, message_id: str, connection_id: str) -> bool:
+    async def ack_message(
+        self, channel: str, message_id: str, connection_id: str
+    ) -> bool:
         """
         Acknowledge message delivery.
 
@@ -349,11 +353,7 @@ class ChannelManager:
         return await self.buffer.ack(channel, message_id)
 
     async def nack_message(
-        self,
-        channel: str,
-        message_id: str,
-        connection_id: str,
-        retry: bool = True
+        self, channel: str, message_id: str, connection_id: str, retry: bool = True
     ) -> bool:
         """
         Negative acknowledge message.
@@ -402,7 +402,9 @@ class ChannelManager:
             config = self.channels[channel_name]
             result[channel_name] = {
                 "webhook_id": config.webhook_id,
-                "connected_clients": len(self.channel_connections.get(channel_name, set())),
+                "connected_clients": len(
+                    self.channel_connections.get(channel_name, set())
+                ),
                 "max_connections": config.max_connections,
                 "ttl_seconds": int(config.ttl.total_seconds()),
             }
@@ -435,11 +437,11 @@ class ChannelManager:
 
         # Check if buffer has a connected client
         # For Redis buffer
-        if hasattr(self.buffer, 'redis') and self.buffer.redis is not None:
+        if hasattr(self.buffer, "redis") and self.buffer.redis is not None:
             return True
 
         # For RabbitMQ buffer
-        if hasattr(self.buffer, 'connection') and self.buffer.connection is not None:
+        if hasattr(self.buffer, "connection") and self.buffer.connection is not None:
             return True
 
         # Fallback: assume running if buffer exists

@@ -82,7 +82,7 @@ def check_docker_services() -> Dict[str, bool]:
                 capture_output=True,
                 text=True,
                 timeout=5.0,
-                cwd=os.path.join(os.path.dirname(__file__), "../..")
+                cwd=os.path.join(os.path.dirname(__file__), "../.."),
             )
         except FileNotFoundError:
             result = subprocess.run(
@@ -90,7 +90,7 @@ def check_docker_services() -> Dict[str, bool]:
                 capture_output=True,
                 text=True,
                 timeout=5.0,
-                cwd=os.path.join(os.path.dirname(__file__), "../..")
+                cwd=os.path.join(os.path.dirname(__file__), "../.."),
             )
         if result.returncode != 0:
             # Fallback to port checks if docker compose ps fails
@@ -100,13 +100,14 @@ def check_docker_services() -> Dict[str, bool]:
                 "clickhouse": check_clickhouse_health(),
                 "kafka": check_kafka_health(),
             }
-        
+
         # Parse docker-compose output
         services = {}
         for line in result.stdout.strip().split("\n"):
             if not line:
                 continue
             import json
+
             try:
                 service_info = json.loads(line)
                 service_name = service_info.get("Service", "")
@@ -117,11 +118,14 @@ def check_docker_services() -> Dict[str, bool]:
                     services["rabbitmq"] = status == "running"
                 elif "clickhouse" in service_name.lower():
                     services["clickhouse"] = status == "running"
-                elif "redpanda" in service_name.lower() or "kafka" in service_name.lower():
+                elif (
+                    "redpanda" in service_name.lower()
+                    or "kafka" in service_name.lower()
+                ):
                     services["kafka"] = status == "running"
             except json.JSONDecodeError:
                 continue
-        
+
         # If we didn't find services in JSON format, try port checks as fallback
         if not services:
             return {
@@ -130,7 +134,7 @@ def check_docker_services() -> Dict[str, bool]:
                 "clickhouse": check_clickhouse_health(),
                 "kafka": check_kafka_health(),
             }
-        
+
         return {
             "redis": services.get("redis", False),
             "rabbitmq": services.get("rabbitmq", False),
@@ -151,7 +155,7 @@ async def wait_for_service(
     check_func,
     timeout: float = 30.0,
     interval: float = 1.0,
-    service_name: str = "service"
+    service_name: str = "service",
 ) -> bool:
     """Wait for a service to become available."""
     elapsed = 0.0
@@ -168,7 +172,7 @@ async def make_authenticated_request(
     method: str,
     url: str,
     auth_token: Optional[str] = None,
-    **kwargs
+    **kwargs,
 ) -> httpx.Response:
     """Make an authenticated HTTP request."""
     headers = kwargs.pop("headers", {})
@@ -182,7 +186,7 @@ async def cleanup_redis_keys(prefix: str = "test:integration:") -> None:
     try:
         import redis.asyncio as redis
         from tests.integration.test_config import REDIS_URL
-        
+
         r = redis.from_url(REDIS_URL, decode_responses=True)
         keys = await r.keys(f"{prefix}*")
         if keys:
@@ -195,13 +199,13 @@ async def cleanup_redis_keys(prefix: str = "test:integration:") -> None:
 def get_test_webhook_config(module: str = "log") -> Dict[str, Any]:
     """Get a test webhook configuration."""
     from tests.integration.test_config import TEST_WEBHOOK_ID, TEST_AUTH_TOKEN
-    
+
     config = {
         "data_type": "json",
         "module": module,
         "authorization": f"Bearer {TEST_AUTH_TOKEN}",
     }
-    
+
     if module == "rabbitmq":
         config["queue_name"] = f"test_integration_queue"
         config["connection"] = "rabbitmq_test"
@@ -210,9 +214,6 @@ def get_test_webhook_config(module: str = "log") -> Dict[str, Any]:
         config["connection"] = "redis_test"
     elif module == "clickhouse":
         config["connection"] = "clickhouse_test"
-        config["module-config"] = {
-            "table": "test_integration_logs"
-        }
-    
-    return config
+        config["module-config"] = {"table": "test_integration_logs"}
 
+    return config

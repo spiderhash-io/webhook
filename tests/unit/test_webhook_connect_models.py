@@ -49,7 +49,7 @@ class TestWebhookMessage:
             channel="c",
             webhook_id="w",
             payload={},
-            expires_at=datetime.now(timezone.utc) - timedelta(hours=1)
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
         )
         assert msg.is_expired() is True
 
@@ -58,7 +58,7 @@ class TestWebhookMessage:
             channel="c",
             webhook_id="w",
             payload={},
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=1)
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
         assert msg2.is_expired() is False
 

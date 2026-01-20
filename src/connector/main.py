@@ -147,9 +147,15 @@ class LocalConnector:
         """Get connector status."""
         return {
             "running": self._running,
-            "connected": self.client.state == ConnectionState.CONNECTED if self.client else False,
+            "connected": (
+                self.client.state == ConnectionState.CONNECTED if self.client else False
+            ),
             "connection_id": self.client.connection_id if self.client else None,
-            "uptime_seconds": (datetime.now(timezone.utc) - self._start_time).total_seconds() if self._start_time else 0,
+            "uptime_seconds": (
+                (datetime.now(timezone.utc) - self._start_time).total_seconds()
+                if self._start_time
+                else 0
+            ),
             "processor_stats": self.processor.get_stats() if self.processor else {},
             "config": self.config.to_dict(),
         }
@@ -161,9 +167,7 @@ def setup_logging(level: str = "INFO", format_str: Optional[str] = None) -> None
     log_format = format_str or "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     logging.basicConfig(
-        level=log_level,
-        format=log_format,
-        handlers=[logging.StreamHandler(sys.stdout)]
+        level=log_level, format=log_format, handlers=[logging.StreamHandler(sys.stdout)]
     )
 
     # Set aiohttp logging level
@@ -191,57 +195,41 @@ Examples:
     export CONNECTOR_CHANNEL=my-channel
     export CONNECTOR_TOKEN=secret123
     %(prog)s --target-url http://localhost:8000/webhook
-        """
+        """,
     )
 
     parser.add_argument(
-        "--config", "-c",
-        help="Path to configuration file (JSON or YAML)"
+        "--config", "-c", help="Path to configuration file (JSON or YAML)"
     )
 
-    parser.add_argument(
-        "--cloud-url",
-        help="Cloud Receiver URL"
-    )
+    parser.add_argument("--cloud-url", help="Cloud Receiver URL")
 
-    parser.add_argument(
-        "--channel",
-        help="Channel name to subscribe to"
-    )
+    parser.add_argument("--channel", help="Channel name to subscribe to")
 
-    parser.add_argument(
-        "--token",
-        help="Channel authentication token"
-    )
+    parser.add_argument("--token", help="Channel authentication token")
 
-    parser.add_argument(
-        "--target-url",
-        help="Default target URL for webhooks"
-    )
+    parser.add_argument("--target-url", help="Default target URL for webhooks")
 
     parser.add_argument(
         "--protocol",
         choices=["websocket", "sse"],
         default="websocket",
-        help="Connection protocol (default: websocket)"
+        help="Connection protocol (default: websocket)",
     )
 
     parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         default="INFO",
-        help="Logging level (default: INFO)"
+        help="Logging level (default: INFO)",
     )
 
-    parser.add_argument(
-        "--connector-id",
-        help="Unique identifier for this connector"
-    )
+    parser.add_argument("--connector-id", help="Unique identifier for this connector")
 
     parser.add_argument(
         "--no-verify-ssl",
         action="store_true",
-        help="Disable SSL certificate verification"
+        help="Disable SSL certificate verification",
     )
 
     return parser.parse_args()
@@ -329,14 +317,16 @@ def main() -> int:
 
     # Print startup banner
     print("\n" + "=" * 60)
-    print("""
+    print(
+        """
     ██╗      ██████╗  ██████╗ █████╗ ██╗
     ██║     ██╔═══██╗██╔════╝██╔══██╗██║
     ██║     ██║   ██║██║     ███████║██║
     ██║     ██║   ██║██║     ██╔══██║██║
     ███████╗╚██████╔╝╚██████╗██║  ██║███████╗
     ╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝╚══════╝
-    """)
+    """
+    )
     print("    Webhook Connect - Local Connector")
     print("=" * 60)
     print(f"  Channel:   {config.channel}")

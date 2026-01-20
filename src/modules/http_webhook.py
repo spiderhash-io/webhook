@@ -8,23 +8,23 @@ from src.modules.base import BaseModule
 
 class HTTPWebhookModule(BaseModule):
     """Module for forwarding webhook payloads to another HTTP endpoint."""
-    
+
     # Valid HTTP header name pattern (RFC 7230)
     # Header names: token = 1*tchar, where tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." / "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
-    VALID_HEADER_NAME_PATTERN = re.compile(r'^[!#$%&\'*+\-.^_`|~0-9A-Za-z]+$')
-    
+    VALID_HEADER_NAME_PATTERN = re.compile(r"^[!#$%&\'*+\-.^_`|~0-9A-Za-z]+$")
+
     # Dangerous characters in header values that could lead to injection
     # Includes standard newlines, Unicode line/paragraph separators, and control chars
-    DANGEROUS_CHARS = ['\r', '\n', '\0', '\u2028', '\u2029', '\u000B', '\u000C']
-    
+    DANGEROUS_CHARS = ["\r", "\n", "\0", "\u2028", "\u2029", "\u000b", "\u000c"]
+
     # Octal IP detection patterns (compiled once at class load time for performance)
-    OCTAL_PATTERN = re.compile(r'^0[0-7]+$')
-    DECIMAL_PATTERN = re.compile(r'^[0-9]+$')
-    
+    OCTAL_PATTERN = re.compile(r"^0[0-7]+$")
+    DECIMAL_PATTERN = re.compile(r"^[0-9]+$")
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         # Get whitelist of allowed headers from config (optional)
-        self.allowed_headers = self.module_config.get('allowed_headers', None)
+        self.allowed_headers = self.module_config.get("allowed_headers", None)
         if self.allowed_headers is not None and isinstance(self.allowed_headers, list):
             # Empty list means block all headers
             if len(self.allowed_headers) == 0:
@@ -34,50 +34,50 @@ class HTTPWebhookModule(BaseModule):
                 self.allowed_headers = {h.lower() for h in self.allowed_headers}
         else:
             self.allowed_headers = None
-        
+
         # Validate URL during initialization to prevent SSRF attacks
-        url = self.module_config.get('url')
+        url = self.module_config.get("url")
         if url:
             self._validated_url = self._validate_url(url)
         else:
             self._validated_url = None
-    
+
     def _validate_header_name(self, name: str) -> bool:
         """
         Validate HTTP header name to prevent injection.
-        
+
         Args:
             name: Header name to validate
-            
+
         Returns:
             True if valid, False otherwise
         """
         if not name or not isinstance(name, str):
             return False
-        
+
         # Check length (RFC 7230 doesn't specify max, but we'll use a reasonable limit)
         if len(name) > 200:
             return False
-        
+
         # Validate against RFC 7230 token pattern
         return bool(self.VALID_HEADER_NAME_PATTERN.match(name))
-    
+
     def _sanitize_header_value(self, value: str) -> str:
         """
         Sanitize HTTP header value to prevent injection attacks.
-        
+
         Args:
             value: Header value to sanitize
-            
+
         Returns:
             Sanitized header value
-            
+
         Raises:
             ValueError: If value contains dangerous characters
         """
         if not isinstance(value, str):
             value = str(value)
-        
+
         # Check for dangerous characters (newlines, carriage returns, null bytes)
         for char in self.DANGEROUS_CHARS:
             if char in value:
@@ -85,38 +85,48 @@ class HTTPWebhookModule(BaseModule):
                     f"Header value contains forbidden character: {repr(char)}. "
                     f"Header injection attempt detected."
                 )
-        
+
         # Remove leading/trailing whitespace (but preserve internal whitespace)
         value = value.strip()
-        
+
         # Check length (RFC 7230 doesn't specify max, but we'll use a reasonable limit)
         if len(value) > 8192:  # Common HTTP header value limit
-            raise ValueError(f"Header value too long: {len(value)} characters (max: 8192)")
-        
+            raise ValueError(
+                f"Header value too long: {len(value)} characters (max: 8192)"
+            )
+
         return value
-    
+
     def _sanitize_headers(self, headers: Dict[str, str]) -> Dict[str, str]:
         """
         Sanitize and validate all headers to prevent injection attacks.
-        
+
         Args:
             headers: Dictionary of headers to sanitize
-            
+
         Returns:
             Dictionary of sanitized headers
-            
+
         Raises:
             ValueError: If any header name or value is invalid
         """
         # Security fix: Filter hop-by-hop headers to prevent HTTP request smuggling
         HOP_BY_HOP_HEADERS = {
-            'host', 'connection', 'keep-alive', 'transfer-encoding',
-            'upgrade', 'proxy-connection', 'proxy-authenticate',
-            'proxy-authorization', 'te', 'trailer', 'content-length'
+            "host",
+            "connection",
+            "keep-alive",
+            "transfer-encoding",
+            "upgrade",
+            "proxy-connection",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+            "content-length",
         }
 
         sanitized = {}
-        
+
         for name, value in headers.items():
             # Security fix: Skip hop-by-hop headers
             if name.lower() in HOP_BY_HOP_HEADERS:
@@ -125,7 +135,7 @@ class HTTPWebhookModule(BaseModule):
             if not self._validate_header_name(name):
                 # Skip invalid header names instead of raising to be more resilient
                 continue
-            
+
             # Check whitelist if configured
             if self.allowed_headers is not None:
                 # Empty set means block all headers
@@ -135,7 +145,7 @@ class HTTPWebhookModule(BaseModule):
                 elif name.lower() not in self.allowed_headers:
                     # Skip headers not in whitelist
                     continue
-            
+
             # Sanitize header value
             try:
                 sanitized_value = self._sanitize_header_value(value)
@@ -145,32 +155,32 @@ class HTTPWebhookModule(BaseModule):
                 # Log the error but continue processing
                 print(f"Warning: Skipping invalid header '{name}': {e}")
                 continue
-        
+
         return sanitized
-    
+
     def _validate_url(self, url: str) -> str:
         """
         Validate URL to prevent SSRF attacks.
-        
+
         This function:
         - Only allows http:// and https:// schemes
         - Blocks private IP ranges (RFC 1918, localhost, link-local)
         - Blocks file://, gopher://, and other dangerous schemes
         - Validates URL format
         - Optionally allows whitelisting specific domains/IPs
-        
+
         Args:
             url: URL to validate
-            
+
         Returns:
             Validated URL string
-            
+
         Raises:
             ValueError: If URL is invalid or poses SSRF risk
         """
         if not url or not isinstance(url, str):
             raise ValueError("URL must be a non-empty string")
-        
+
         url = url.strip()
         if not url:
             raise ValueError("URL cannot be empty")
@@ -178,42 +188,46 @@ class HTTPWebhookModule(BaseModule):
         # Security fix: Reject extremely long URLs to prevent DoS
         MAX_URL_LENGTH = 8192  # Common HTTP URL length limit
         if len(url) > MAX_URL_LENGTH:
-            raise ValueError(f"URL too long: {len(url)} characters (max: {MAX_URL_LENGTH})")
+            raise ValueError(
+                f"URL too long: {len(url)} characters (max: {MAX_URL_LENGTH})"
+            )
 
         # Security fix: Reject URLs with null bytes
-        if '\x00' in url or '%00' in url.lower() or '\0' in url:
-            raise ValueError("URL contains null byte, which is not allowed for security reasons")
+        if "\x00" in url or "%00" in url.lower() or "\0" in url:
+            raise ValueError(
+                "URL contains null byte, which is not allowed for security reasons"
+            )
 
         # Parse URL
         try:
             parsed = urlparse(url)
         except Exception as e:
             raise ValueError(f"Invalid URL format: {str(e)}")
-        
+
         # Only allow http and https schemes
-        allowed_schemes = {'http', 'https'}
+        allowed_schemes = {"http", "https"}
         if parsed.scheme.lower() not in allowed_schemes:
             raise ValueError(
                 f"URL scheme '{parsed.scheme}' is not allowed. "
                 f"Only http:// and https:// are permitted."
             )
-        
+
         # Block URLs without hostname
         if not parsed.netloc:
             raise ValueError("URL must include a hostname")
-        
+
         # Extract hostname (remove port if present, handle IPv6 brackets)
         # IPv6 addresses in URLs are enclosed in brackets: [2001:db8::1]
         # The netloc will be like "[2001:db8::1]:8080" or just "[2001:db8::1]"
         netloc = parsed.netloc
         # Check if it's an IPv6 address (starts with [)
-        if netloc.startswith('['):
+        if netloc.startswith("["):
             # Extract IPv6 address (everything between [ and ])
-            end_bracket = netloc.find(']')
+            end_bracket = netloc.find("]")
             if end_bracket != -1:
                 hostname = netloc[1:end_bracket]  # Remove brackets
                 # Port might be after the closing bracket
-                if end_bracket + 1 < len(netloc) and netloc[end_bracket + 1] == ':':
+                if end_bracket + 1 < len(netloc) and netloc[end_bracket + 1] == ":":
                     # Port is present, already extracted hostname
                     pass
             else:
@@ -222,14 +236,14 @@ class HTTPWebhookModule(BaseModule):
         else:
             # Regular hostname or IPv4, extract before first colon (port)
             # Handle userinfo (user:pass@host) by splitting on @ first
-            if '@' in netloc:
+            if "@" in netloc:
                 # Extract hostname part after @
-                hostname = netloc.split('@')[-1].split(':')[0]
+                hostname = netloc.split("@")[-1].split(":")[0]
             else:
-                hostname = netloc.split(':')[0]
-        
+                hostname = netloc.split(":")[0]
+
         # Check for whitelist in config (optional)
-        allowed_hosts = self.module_config.get('allowed_hosts', None)
+        allowed_hosts = self.module_config.get("allowed_hosts", None)
         if allowed_hosts and isinstance(allowed_hosts, list):
             # If whitelist is configured, only allow those hosts
             allowed_hosts_lower = {h.lower().strip() for h in allowed_hosts if h}
@@ -239,15 +253,15 @@ class HTTPWebhookModule(BaseModule):
                 )
             # If whitelisted, skip further validation
             return url
-        
+
         # Normalize and check for octal IP formats (0177.0.0.1, 127.0.00.1, etc.)
         # Python's urlparse doesn't interpret octal, but we should catch common patterns
-        parts = hostname.split('.')
+        parts = hostname.split(".")
         if len(parts) == 4:
             try:
                 decimal_parts = []
                 has_octal = False
-                
+
                 for part in parts:
                     # Check if part looks like octal (starts with 0, has more digits, all 0-7)
                     # Examples: 0177, 00, 000, 001 (but not 0, 08, 09, 010)
@@ -261,11 +275,11 @@ class HTTPWebhookModule(BaseModule):
                     else:
                         # Not numeric, skip octal check
                         break
-                
+
                 # Only check if we found octal parts and all 4 parts were numeric
                 if has_octal and len(decimal_parts) == 4:
                     # Convert to normalized IP
-                    normalized_ip = '.'.join(str(p) for p in decimal_parts)
+                    normalized_ip = ".".join(str(p) for p in decimal_parts)
                     # Check if normalized IP is localhost or private
                     try:
                         ip = ipaddress.ip_address(normalized_ip)
@@ -285,55 +299,62 @@ class HTTPWebhookModule(BaseModule):
                 pass
             except (AttributeError, TypeError):
                 pass  # Not a valid octal IP, continue
-        
+
         # Block localhost and variations
         # SECURITY: This set is used for validation to BLOCK localhost access, not for binding
         localhost_variants = {
-            'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]',
-            '127.1', '127.0.1', '127.000.000.001', '0177.0.0.1',  # Octal
-            '0x7f.0.0.1', '2130706433', '0x7f000001',  # Decimal/Hex
+            "localhost",
+            "127.0.0.1",
+            "0.0.0.0",
+            "::1",
+            "[::1]",
+            "127.1",
+            "127.0.1",
+            "127.000.000.001",
+            "0177.0.0.1",  # Octal
+            "0x7f.0.0.1",
+            "2130706433",
+            "0x7f000001",  # Decimal/Hex
         }  # nosec B104
         if hostname.lower() in localhost_variants:
-            raise ValueError(
-                f"Access to localhost is not allowed for security reasons"
-            )
-        
+            raise ValueError(f"Access to localhost is not allowed for security reasons")
+
         # Block private IP ranges (RFC 1918)
         # Also block link-local (169.254.0.0/16) and multicast (224.0.0.0/4)
         try:
             # Try to parse as IP address
             ip = ipaddress.ip_address(hostname)
-            
+
             # Block link-local addresses FIRST (169.254.0.0/16) - these are often used for metadata
             if ip.is_link_local:
                 raise ValueError(
                     f"Access to link-local address '{hostname}' is not allowed for security reasons"
                 )
-            
+
             # Block loopback (should be caught by localhost check, but double-check)
             if ip.is_loopback:
                 raise ValueError(
                     f"Access to loopback address '{hostname}' is not allowed for security reasons"
                 )
-            
+
             # Block multicast addresses
             if ip.is_multicast:
                 raise ValueError(
                     f"Access to multicast address '{hostname}' is not allowed for security reasons"
                 )
-            
+
             # Block reserved addresses (0.0.0.0/8, etc.)
             if ip.is_reserved:
                 raise ValueError(
                     f"Access to reserved IP address '{hostname}' is not allowed for security reasons"
                 )
-            
+
             # Block private IPs (RFC 1918) - check after link-local
             if ip.is_private:
                 raise ValueError(
                     f"Access to private IP address '{hostname}' is not allowed for security reasons"
                 )
-            
+
         except ValueError as e:
             # If ValueError is raised by ipaddress, it might be our validation error
             # Re-raise it
@@ -346,15 +367,15 @@ class HTTPWebhookModule(BaseModule):
             # Not an IP address, continue with hostname validation
             # SECURITY: This is intentional control flow - IP parsing failure means it's a hostname
             pass  # nosec B110
-        
+
         # Block common cloud metadata endpoints (even if hostname resolves to public IP)
         dangerous_hostnames = {
-            'metadata.google.internal',
-            '169.254.169.254',  # AWS, GCP, Azure metadata
-            'metadata',  # Short form
-            'metadata.azure.com',
-            '100.100.100.200',  # Alibaba Cloud metadata
-            '192.0.0.192',  # Oracle Cloud metadata
+            "metadata.google.internal",
+            "169.254.169.254",  # AWS, GCP, Azure metadata
+            "metadata",  # Short form
+            "metadata.azure.com",
+            "100.100.100.200",  # Alibaba Cloud metadata
+            "192.0.0.192",  # Oracle Cloud metadata
         }
         # Also check if hostname contains metadata-related patterns
         hostname_lower = hostname.lower()
@@ -363,30 +384,39 @@ class HTTPWebhookModule(BaseModule):
                 f"Access to metadata service '{hostname}' is not allowed for security reasons"
             )
         # Check for metadata in hostname (e.g., metadata.example.com)
-        if 'metadata' in hostname_lower and ('internal' in hostname_lower or 'azure' in hostname_lower or 'google' in hostname_lower):
+        if "metadata" in hostname_lower and (
+            "internal" in hostname_lower
+            or "azure" in hostname_lower
+            or "google" in hostname_lower
+        ):
             raise ValueError(
                 f"Access to metadata service '{hostname}' is not allowed for security reasons"
             )
-        
+
         # Block hostnames that look like IP addresses in unusual formats
         # (already handled by ipaddress, but check for common bypass attempts)
-        if re.match(r'^0+\.0+\.0+\.0+$', hostname):
+        if re.match(r"^0+\.0+\.0+\.0+$", hostname):
             raise ValueError("Invalid hostname format")
-        
+
         # Validate hostname format (basic check)
         # Hostname should be valid DNS name or IP
         # IPv6 addresses are already validated by ipaddress.ip_address above
         if not self._is_valid_ip(hostname):
             # Block purely numeric hostnames (invalid DNS, potential IP encoding bypass)
-            if re.match(r'^[0-9]+$', hostname):
-                raise ValueError(f"Invalid hostname format: '{hostname}' (numeric-only hostnames are not allowed)")
-            
+            if re.match(r"^[0-9]+$", hostname):
+                raise ValueError(
+                    f"Invalid hostname format: '{hostname}' (numeric-only hostnames are not allowed)"
+                )
+
             # Check DNS hostname format
-            if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$', hostname):
+            if not re.match(
+                r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$",
+                hostname,
+            ):
                 raise ValueError(f"Invalid hostname format: '{hostname}'")
-        
+
         return url
-    
+
     def _is_valid_ip(self, hostname: str) -> bool:
         """Check if hostname is a valid IP address."""
         try:
@@ -394,11 +424,11 @@ class HTTPWebhookModule(BaseModule):
             return True
         except ValueError:
             return False
-    
+
     async def process(self, payload: Any, headers: Dict[str, str]) -> None:
         """
         Forward payload to configured HTTP endpoint.
-        
+
         This method:
         - Uses the URL validated at init time to prevent SSRF/DNS rebinding
         - Forwards JSON payload using httpx with configurable timeout
@@ -409,9 +439,9 @@ class HTTPWebhookModule(BaseModule):
         """
         # URL must have been validated at initialization
         url = self._validated_url
-        method = self.module_config.get('method', 'POST').upper()
-        forward_headers = self.module_config.get('forward_headers', False)
-        timeout = self.module_config.get('timeout', 30)
+        method = self.module_config.get("method", "POST").upper()
+        forward_headers = self.module_config.get("forward_headers", False)
+        timeout = self.module_config.get("timeout", 30)
 
         # If URL was never configured/validated, refuse to process
         if not url:
@@ -419,7 +449,7 @@ class HTTPWebhookModule(BaseModule):
 
         # Double‑check that module-config URL (if present) matches validated URL.
         # This protects against attempts to mutate the URL after initialization.
-        config_url = self.module_config.get('url')
+        config_url = self.module_config.get("url")
         if config_url is not None:
             try:
                 normalized_config_url = self._validate_url(config_url)
@@ -438,7 +468,7 @@ class HTTPWebhookModule(BaseModule):
             request_headers.update(self._sanitize_headers(headers))
 
         # Add/override with custom headers from configuration
-        custom_headers = self.module_config.get('headers', {})
+        custom_headers = self.module_config.get("headers", {})
         if custom_headers:
             sanitized_custom = self._sanitize_headers(custom_headers)
             request_headers.update(sanitized_custom)
@@ -446,12 +476,18 @@ class HTTPWebhookModule(BaseModule):
         # Perform HTTP request
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                if method == 'POST':
-                    response = await client.post(url, json=payload, headers=request_headers)
-                elif method == 'PUT':
-                    response = await client.put(url, json=payload, headers=request_headers)
-                elif method == 'PATCH':
-                    response = await client.patch(url, json=payload, headers=request_headers)
+                if method == "POST":
+                    response = await client.post(
+                        url, json=payload, headers=request_headers
+                    )
+                elif method == "PUT":
+                    response = await client.put(
+                        url, json=payload, headers=request_headers
+                    )
+                elif method == "PATCH":
+                    response = await client.patch(
+                        url, json=payload, headers=request_headers
+                    )
                 else:
                     raise Exception(f"Unsupported HTTP method: {method}")
 
@@ -462,4 +498,5 @@ class HTTPWebhookModule(BaseModule):
             print(f"Failed to forward HTTP webhook to {url}: {e}")
             # Raise generic, sanitized error to caller
             from src.utils import sanitize_error_message
+
             raise Exception(sanitize_error_message(e, "HTTP webhook forwarding"))

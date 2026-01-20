@@ -73,7 +73,9 @@ class MockChannelManager:
         conn_ids = self.channel_connections.get(channel, [])
         return [self.connections[c] for c in conn_ids if c in self.connections]
 
-    async def ack_message(self, channel: str, message_id: str, connection_id: str) -> bool:
+    async def ack_message(
+        self, channel: str, message_id: str, connection_id: str
+    ) -> bool:
         conn = self.connections.get(connection_id)
         if conn and message_id in conn.in_flight_messages:
             conn.in_flight_messages.discard(message_id)
@@ -81,7 +83,9 @@ class MockChannelManager:
             return True
         return False
 
-    async def nack_message(self, channel: str, message_id: str, connection_id: str, retry: bool = True) -> bool:
+    async def nack_message(
+        self, channel: str, message_id: str, connection_id: str, retry: bool = True
+    ) -> bool:
         conn = self.connections.get(connection_id)
         if conn and message_id in conn.in_flight_messages:
             conn.in_flight_messages.discard(message_id)
@@ -165,7 +169,7 @@ class TestSSEEndpoint:
         """Test SSE endpoint rejects invalid token."""
         response = client.get(
             "/connect/stream/test-channel/sse",
-            headers={"Authorization": "Bearer wrong-token"}
+            headers={"Authorization": "Bearer wrong-token"},
         )
         assert response.status_code == 401
         assert "Invalid channel token" in response.json()["detail"]
@@ -175,7 +179,7 @@ class TestSSEEndpoint:
         # Add valid token check that passes but channel doesn't exist
         response = client.get(
             "/connect/stream/unknown-channel/sse",
-            headers={"Authorization": "Bearer test-token"}
+            headers={"Authorization": "Bearer test-token"},
         )
         assert response.status_code == 401  # Token validation fails first
 
@@ -196,7 +200,9 @@ class TestSSEEndpoint:
                     "/connect/stream/test-channel/sse?token=test-token-123",
                 ) as response:
                     assert response.status_code == 200
-                    assert "text/event-stream" in response.headers.get("content-type", "")
+                    assert "text/event-stream" in response.headers.get(
+                        "content-type", ""
+                    )
                     return True
 
         try:
@@ -222,7 +228,9 @@ class TestSSEEndpoint:
                     headers={"Authorization": "Bearer test-token-123"},
                 ) as response:
                     assert response.status_code == 200
-                    assert "text/event-stream" in response.headers.get("content-type", "")
+                    assert "text/event-stream" in response.headers.get(
+                        "content-type", ""
+                    )
                     return True
 
         try:

@@ -18,6 +18,7 @@ import uuid
 
 class ConnectionProtocol(Enum):
     """Protocol used by connector to receive messages."""
+
     WEBSOCKET = "websocket"
     SSE = "sse"
     LONG_POLL = "long_poll"
@@ -25,6 +26,7 @@ class ConnectionProtocol(Enum):
 
 class ConnectionState(Enum):
     """State of a connector connection."""
+
     CONNECTING = "connecting"
     CONNECTED = "connected"
     DISCONNECTING = "disconnecting"
@@ -33,17 +35,19 @@ class ConnectionState(Enum):
 
 class AckStatus(Enum):
     """Status of message acknowledgment."""
-    ACK = "ack"              # Successfully processed
-    NACK_RETRY = "nack_retry"      # Failed, should retry
-    NACK_REJECT = "nack_reject"    # Failed, don't retry (dead letter)
+
+    ACK = "ack"  # Successfully processed
+    NACK_RETRY = "nack_retry"  # Failed, should retry
+    NACK_REJECT = "nack_reject"  # Failed, don't retry (dead letter)
 
 
 class MessageState(Enum):
     """State of a message in the queue."""
-    PENDING = "pending"           # Waiting to be delivered
-    IN_FLIGHT = "in_flight"       # Delivered, waiting for ACK
-    DELIVERED = "delivered"       # Successfully acknowledged
-    EXPIRED = "expired"           # TTL exceeded
+
+    PENDING = "pending"  # Waiting to be delivered
+    IN_FLIGHT = "in_flight"  # Delivered, waiting for ACK
+    DELIVERED = "delivered"  # Successfully acknowledged
+    EXPIRED = "expired"  # TTL exceeded
     DEAD_LETTERED = "dead_lettered"  # Permanently failed
 
 
@@ -51,21 +55,21 @@ class MessageState(Enum):
 class ChannelConfig:
     """Configuration for a webhook connect channel."""
 
-    name: str                           # Unique channel identifier
-    webhook_id: str                     # Associated webhook endpoint ID
-    channel_token: str                  # Authentication token for connectors
+    name: str  # Unique channel identifier
+    webhook_id: str  # Associated webhook endpoint ID
+    channel_token: str  # Authentication token for connectors
 
     # Queue settings
     ttl: timedelta = field(default_factory=lambda: timedelta(hours=24))
-    max_queue_size: int = 10000               # Maximum messages in queue
+    max_queue_size: int = 10000  # Maximum messages in queue
     max_message_size: int = 10 * 1024 * 1024  # 10MB max payload
 
     # Delivery settings
-    max_in_flight: int = 100            # Max unacknowledged messages per client
+    max_in_flight: int = 100  # Max unacknowledged messages per client
     ack_timeout: timedelta = field(default_factory=lambda: timedelta(seconds=30))
 
     # Connection settings
-    max_connections: int = 10           # Max concurrent connectors
+    max_connections: int = 10  # Max concurrent connectors
     heartbeat_interval: timedelta = field(default_factory=lambda: timedelta(seconds=30))
 
     # Optional settings
@@ -141,8 +145,8 @@ class WebhookMessage:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     # Delivery tracking
-    sequence: int = 0                    # Monotonic sequence number
-    delivery_count: int = 0              # Number of delivery attempts
+    sequence: int = 0  # Monotonic sequence number
+    delivery_count: int = 0  # Number of delivery attempts
     last_delivered_at: Optional[datetime] = None
     last_delivered_to: Optional[str] = None  # Connection ID
 
@@ -167,7 +171,7 @@ class WebhookMessage:
             "webhook_id": self.webhook_id,
             "timestamp": self.received_at.isoformat(),
             "headers": self.headers,
-            "payload": self.payload
+            "payload": self.payload,
         }
 
     def to_envelope(self) -> Dict[str, Any]:
@@ -193,8 +197,16 @@ class WebhookMessage:
             message_id=data.get("message_id", f"msg_{uuid.uuid4().hex[:16]}"),
             channel=data.get("channel", ""),
             webhook_id=data.get("webhook_id", ""),
-            received_at=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else datetime.now(timezone.utc),
-            expires_at=datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None,
+            received_at=(
+                datetime.fromisoformat(data["timestamp"])
+                if data.get("timestamp")
+                else datetime.now(timezone.utc)
+            ),
+            expires_at=(
+                datetime.fromisoformat(data["expires_at"])
+                if data.get("expires_at")
+                else None
+            ),
             metadata=data.get("metadata", {}),
             headers=data.get("headers", {}),
             payload=data.get("payload"),
@@ -209,7 +221,7 @@ class ConnectorConnection:
     """An active connector connection."""
 
     connection_id: str
-    connector_id: str                    # Client-provided identifier
+    connector_id: str  # Client-provided identifier
     channel: str
     protocol: ConnectionProtocol
 
@@ -239,8 +251,12 @@ class ConnectorConnection:
             "channel": self.channel,
             "protocol": self.protocol.value,
             "connected_at": self.connected_at.isoformat(),
-            "last_heartbeat_at": self.last_heartbeat_at.isoformat() if self.last_heartbeat_at else None,
-            "last_message_at": self.last_message_at.isoformat() if self.last_message_at else None,
+            "last_heartbeat_at": (
+                self.last_heartbeat_at.isoformat() if self.last_heartbeat_at else None
+            ),
+            "last_message_at": (
+                self.last_message_at.isoformat() if self.last_message_at else None
+            ),
             "state": self.state.value,
             "in_flight_count": len(self.in_flight_messages),
             "messages_received": self.messages_received,
@@ -281,8 +297,11 @@ class MessageAck:
         return cls(
             message_id=data.get("message_id", ""),
             status=status,
-            processed_at=datetime.fromisoformat(data["processed_at"])
-                if data.get("processed_at") else datetime.now(timezone.utc),
+            processed_at=(
+                datetime.fromisoformat(data["processed_at"])
+                if data.get("processed_at")
+                else datetime.now(timezone.utc)
+            ),
             connection_id=connection_id,
             error_code=data.get("error_code"),
             error_message=data.get("error") or data.get("message"),

@@ -82,7 +82,9 @@ class WebhookConnectModule(BaseModule):
         self.max_in_flight = self.module_config.get("max_in_flight", 100)
 
         # Get webhook_id from config (set by webhook handler as _webhook_id)
-        self.webhook_id = config.get("_webhook_id") or config.get("webhook_id", "unknown")
+        self.webhook_id = config.get("_webhook_id") or config.get(
+            "webhook_id", "unknown"
+        )
 
         # Setup tracking
         self._setup_done = False
@@ -91,7 +93,9 @@ class WebhookConnectModule(BaseModule):
         if not self.channel_name:
             raise ValueError("WebhookConnectModule requires 'channel' in module-config")
         if not self.channel_token:
-            raise ValueError("WebhookConnectModule requires 'channel_token' in module-config")
+            raise ValueError(
+                "WebhookConnectModule requires 'channel_token' in module-config"
+            )
 
     async def setup(self) -> None:
         """
@@ -101,7 +105,9 @@ class WebhookConnectModule(BaseModule):
         """
         channel_manager = self.get_channel_manager()
         if not channel_manager:
-            logger.warning("ChannelManager not available, webhook_connect will not function")
+            logger.warning(
+                "ChannelManager not available, webhook_connect will not function"
+            )
             return
 
         # Register or update channel
@@ -150,14 +156,16 @@ class WebhookConnectModule(BaseModule):
             expires_at=datetime.now(timezone.utc) + timedelta(seconds=self.ttl_seconds),
             metadata={
                 "source": "webhook_connect_module",
-            }
+            },
         )
 
         # Publish to channel
         success = await channel_manager.publish(self.channel_name, message)
 
         if not success:
-            raise Exception(f"Failed to queue message to channel {self.channel_name} (queue may be full)")
+            raise Exception(
+                f"Failed to queue message to channel {self.channel_name} (queue may be full)"
+            )
 
         logger.debug(
             f"Queued webhook to channel {self.channel_name}: "

@@ -4,6 +4,7 @@ ClickHouse Analytics Service
 This service handles saving statistics and logs to ClickHouse database
 for analytics and monitoring purposes.
 """
+
 from typing import Dict, Optional, Any, List, Tuple
 import asyncio
 from datetime import datetime, timezone
@@ -16,11 +17,16 @@ from src.utils import sanitize_error_message
 
 class ClickHouseAnalytics:
     """Service for saving analytics data to ClickHouse."""
-    
-    def __init__(self, connection_config: Optional[Dict] = None, batch_size: int = 1000, flush_interval: float = 2.0):
+
+    def __init__(
+        self,
+        connection_config: Optional[Dict] = None,
+        batch_size: int = 1000,
+        flush_interval: float = 2.0,
+    ):
         """
         Initialize ClickHouse analytics service.
-        
+
         Args:
             connection_config: ClickHouse connection configuration dict
                 with keys: host, port, database, user, password
@@ -31,25 +37,25 @@ class ClickHouseAnalytics:
         self.client: Optional[Client] = None
         self.stats_table_created = False
         self.logs_table_created = False
-        
+
         # Batching settings
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self.queue: Optional[asyncio.Queue] = None
         self._worker_task: Optional[asyncio.Task] = None
         self._running = False
-    
+
     async def connect(self) -> None:
         """Establish connection to ClickHouse."""
         if not self.connection_config:
             raise Exception("ClickHouse connection config not provided")
-        
-        host = self.connection_config.get('host', 'localhost')
-        port = self.connection_config.get('port', 9000)
-        database = self.connection_config.get('database', 'default')
-        user = self.connection_config.get('user', 'default')
-        password = self.connection_config.get('password', '') or None
-        
+
+        host = self.connection_config.get("host", "localhost")
+        port = self.connection_config.get("port", 9000)
+        database = self.connection_config.get("database", "default")
+        user = self.connection_config.get("user", "default")
+        password = self.connection_config.get("password", "") or None
+
         try:
             # SECURITY: Validate host to prevent SSRF attacks
             try:
@@ -57,45 +63,47 @@ class ClickHouseAnalytics:
             except ValueError as e:
                 # Re-raise validation errors
                 raise ValueError(f"Host validation failed: {str(e)}")
-            
+
             # Run synchronous client creation in thread pool
             loop = asyncio.get_running_loop()
-            
+
             def create_client():
                 # For ClickHouse with no password, don't pass password parameter at all
                 kwargs = {
-                    'host': validated_host,
-                    'port': port,
-                    'database': database,
-                    'user': user,
-                    'secure': False  # Disable SSL for local connections
+                    "host": validated_host,
+                    "port": port,
+                    "database": database,
+                    "user": user,
+                    "secure": False,  # Disable SSL for local connections
                 }
                 if password and str(password).strip():
-                    kwargs['password'] = str(password).strip()
+                    kwargs["password"] = str(password).strip()
                 return Client(**kwargs)
-            
+
             self.client = await loop.run_in_executor(None, create_client)
             # Test connection
-            await loop.run_in_executor(None, lambda: self.client.execute('SELECT 1'))
+            await loop.run_in_executor(None, lambda: self.client.execute("SELECT 1"))
             await self._ensure_tables()
-            
+
             # Start background worker
             self.queue = asyncio.Queue()
             self._running = True
             self._worker_task = asyncio.create_task(self._worker())
             print("ClickHouse analytics worker started")
-            
+
         except Exception as e:
             # SECURITY: Sanitize error messages to prevent information disclosure
-            sanitized_error = sanitize_error_message(e, "ClickHouse Analytics connection")
+            sanitized_error = sanitize_error_message(
+                e, "ClickHouse Analytics connection"
+            )
             print(f"Failed to connect to ClickHouse for analytics: {sanitized_error}")
             raise
-    
+
     async def _ensure_tables(self) -> None:
         """Ensure required tables exist."""
         if not self.client:
             return
-        
+
         # Create webhook_stats table
         if not self.stats_table_created:
             try:
@@ -119,13 +127,17 @@ class ClickHouseAnalytics:
                 PARTITION BY toYYYYMM(timestamp)
                 """
                 loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, lambda: self.client.execute(create_stats_table))
+                await loop.run_in_executor(
+                    None, lambda: self.client.execute(create_stats_table)
+                )
                 self.stats_table_created = True
             except Exception as e:
                 # SECURITY: Sanitize error messages to prevent information disclosure
                 sanitized_error = sanitize_error_message(e, "table creation")
-                print(f"Failed to create stats table (might already exist): {sanitized_error}")
-        
+                print(
+                    f"Failed to create stats table (might already exist): {sanitized_error}"
+                )
+
         # Create webhook_logs table (for general logging)
         if not self.logs_table_created:
             try:
@@ -142,64 +154,81 @@ class ClickHouseAnalytics:
                 PARTITION BY toYYYYMM(timestamp)
                 """
                 loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, lambda: self.client.execute(create_logs_table))
+                await loop.run_in_executor(
+                    None, lambda: self.client.execute(create_logs_table)
+                )
                 self.logs_table_created = True
             except Exception as e:
                 # SECURITY: Sanitize error messages to prevent information disclosure
                 sanitized_error = sanitize_error_message(e, "table creation")
-                print(f"Failed to create logs table (might already exist): {sanitized_error}")
+                print(
+                    f"Failed to create logs table (might already exist): {sanitized_error}"
+                )
 
     async def _worker(self):
         """Background worker to flush logs and stats to ClickHouse."""
         log_buffer: List[Tuple] = []
         stats_buffer: List[Tuple] = []
         last_flush = datetime.now(timezone.utc)
-        
-        while self._running or (self.queue and not self.queue.empty()) or log_buffer or stats_buffer:
+
+        while (
+            self._running
+            or (self.queue and not self.queue.empty())
+            or log_buffer
+            or stats_buffer
+        ):
             try:
                 # Calculate timeout for next flush
                 now = datetime.now(timezone.utc)
                 time_since_flush = (now - last_flush).total_seconds()
                 timeout = max(0.1, self.flush_interval - time_since_flush)
-                
+
                 try:
                     if self.queue:
                         # Wait for new item
                         item = await asyncio.wait_for(self.queue.get(), timeout=timeout)
                         item_type, item_data = item
-                        
-                        if item_type == 'log':
+
+                        if item_type == "log":
                             log_buffer.append(item_data)
-                        elif item_type == 'stats':
+                        elif item_type == "stats":
                             # item_data is a list of records
                             stats_buffer.extend(item_data)
-                        
+
                         self.queue.task_done()
                 except asyncio.TimeoutError:
                     pass  # Timeout reached, proceed to flush check
                 except asyncio.CancelledError:
                     break
-                
+
                 # Check if we need to flush
                 now = datetime.now(timezone.utc)
                 time_since_flush = (now - last_flush).total_seconds()
                 should_flush = time_since_flush >= self.flush_interval
-                
+
                 if log_buffer and (len(log_buffer) >= self.batch_size or should_flush):
                     await self._flush_logs(log_buffer)
                     log_buffer = []
-                
-                if stats_buffer and (len(stats_buffer) >= self.batch_size or should_flush):
+
+                if stats_buffer and (
+                    len(stats_buffer) >= self.batch_size or should_flush
+                ):
                     await self._flush_stats(stats_buffer)
                     stats_buffer = []
-                
+
                 if should_flush:
                     last_flush = now
-                    
+
                 # If we are stopping and queue is empty and buffers are empty, break
-                if not self._running and self.queue and self.queue.empty() and not log_buffer and not stats_buffer:
+                if (
+                    not self._running
+                    and self.queue
+                    and self.queue.empty()
+                    and not log_buffer
+                    and not stats_buffer
+                ):
                     break
-                    
+
             except Exception as e:
                 # SECURITY: Sanitize error messages to prevent information disclosure
                 sanitized_error = sanitize_error_message(e, "ClickHouse worker")
@@ -210,7 +239,7 @@ class ClickHouseAnalytics:
         """Flush logs buffer to ClickHouse."""
         if not self.client or not buffer:
             return
-            
+
         try:
             insert_query = """
             INSERT INTO webhook_logs (id, webhook_id, timestamp, payload, headers)
@@ -218,8 +247,7 @@ class ClickHouseAnalytics:
             """
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
-                None,
-                lambda: self.client.execute(insert_query, buffer)
+                None, lambda: self.client.execute(insert_query, buffer)
             )
             # print(f"Flushed {len(buffer)} logs to ClickHouse")
         except Exception as e:
@@ -231,7 +259,7 @@ class ClickHouseAnalytics:
         """Flush stats buffer to ClickHouse."""
         if not self.client or not buffer:
             return
-            
+
         try:
             insert_query = """
             INSERT INTO webhook_stats (
@@ -241,8 +269,7 @@ class ClickHouseAnalytics:
             """
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
-                None,
-                lambda: self.client.execute(insert_query, buffer)
+                None, lambda: self.client.execute(insert_query, buffer)
             )
             print(f"Flushed {len(buffer)} stats records to ClickHouse")
         except Exception as e:
@@ -253,7 +280,7 @@ class ClickHouseAnalytics:
     async def save_stats(self, stats: Dict[str, Dict]) -> None:
         """
         Save webhook statistics to ClickHouse.
-        
+
         Args:
             stats: Dictionary of webhook_id -> stats dict
                 Stats dict should contain: total, minute, 5_minutes, 15_minutes,
@@ -271,36 +298,40 @@ class ClickHouseAnalytics:
             records = []
             for webhook_id, webhook_stats in stats.items():
                 record_id = str(uuid.uuid4())
-                records.append((
-                    record_id,
-                    webhook_id,
-                    timestamp,
-                    webhook_stats.get('total', 0),
-                    webhook_stats.get('minute', 0),
-                    webhook_stats.get('5_minutes', 0),
-                    webhook_stats.get('15_minutes', 0),
-                    webhook_stats.get('30_minutes', 0),
-                    webhook_stats.get('hour', 0),
-                    webhook_stats.get('day', 0),
-                    webhook_stats.get('week', 0),
-                    webhook_stats.get('month', 0),
-                ))
-            
+                records.append(
+                    (
+                        record_id,
+                        webhook_id,
+                        timestamp,
+                        webhook_stats.get("total", 0),
+                        webhook_stats.get("minute", 0),
+                        webhook_stats.get("5_minutes", 0),
+                        webhook_stats.get("15_minutes", 0),
+                        webhook_stats.get("30_minutes", 0),
+                        webhook_stats.get("hour", 0),
+                        webhook_stats.get("day", 0),
+                        webhook_stats.get("week", 0),
+                        webhook_stats.get("month", 0),
+                    )
+                )
+
             if records:
-                await self.queue.put(('stats', records))
-                
+                await self.queue.put(("stats", records))
+
         except Exception as e:
             # SECURITY: Sanitize error messages to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "stats queue")
             print(f"Failed to queue stats for ClickHouse: {sanitized_error}")
-    
-    async def save_log(self, webhook_id: str, payload: Any, headers: Dict[str, str]) -> None:
+
+    async def save_log(
+        self, webhook_id: str, payload: Any, headers: Dict[str, str]
+    ) -> None:
         """
         Save a webhook log entry to ClickHouse.
-        
+
         Credentials are automatically cleaned from payload and headers before logging
         to prevent credential exposure in analytics data.
-        
+
         Args:
             webhook_id: The webhook identifier
             payload: The webhook payload
@@ -311,15 +342,15 @@ class ClickHouseAnalytics:
                 await self.connect()
             if not self.queue:
                 return
-        
+
         try:
             # Clean credentials from payload and headers before logging
             # Use default cleanup (mask mode) to ensure credentials are never logged
             from src.utils import CredentialCleaner
             import copy
-            
-            cleaner = CredentialCleaner(mode='mask')  # Always mask for logging
-            
+
+            cleaner = CredentialCleaner(mode="mask")  # Always mask for logging
+
             # Clean payload (deep copy to avoid modifying original)
             # Handle recursion errors for extremely deeply nested structures
             try:
@@ -329,36 +360,45 @@ class ClickHouseAnalytics:
                     cleaned_payload = payload  # For blob data, no cleaning needed
             except RecursionError:
                 # For extremely deeply nested payloads, use a truncated version
-                cleaned_payload = {"error": "Payload too deeply nested to clean", "type": type(payload).__name__}
-            
+                cleaned_payload = {
+                    "error": "Payload too deeply nested to clean",
+                    "type": type(payload).__name__,
+                }
+
             # Clean headers
             cleaned_headers = cleaner.clean_headers(headers)
-            
+
             record_id = str(uuid.uuid4())
             # SECURITY: Use timezone-aware datetime (datetime.utcnow() is deprecated)
             timestamp = datetime.now(timezone.utc)
-            
+
             # Serialize to JSON strings
             # Handle recursion errors during JSON serialization
             try:
-                payload_str = json.dumps(cleaned_payload) if isinstance(cleaned_payload, (dict, list)) else str(cleaned_payload)
+                payload_str = (
+                    json.dumps(cleaned_payload)
+                    if isinstance(cleaned_payload, (dict, list))
+                    else str(cleaned_payload)
+                )
             except (RecursionError, ValueError) as json_error:
                 # If JSON serialization fails due to recursion, use a simplified version
                 payload_str = '{"error": "Payload too deeply nested to serialize"}'
-            
+
             headers_str = json.dumps(cleaned_headers)
-            
-            await self.queue.put(('log', (record_id, webhook_id, timestamp, payload_str, headers_str)))
-            
+
+            await self.queue.put(
+                ("log", (record_id, webhook_id, timestamp, payload_str, headers_str))
+            )
+
         except Exception as e:
             # SECURITY: Sanitize error messages to prevent information disclosure
             sanitized_error = sanitize_error_message(e, "log queue")
             print(f"Failed to queue log for ClickHouse: {sanitized_error}")
-    
+
     async def disconnect(self) -> None:
         """Close ClickHouse connection."""
         self._running = False
-        
+
         # Wait for worker to finish flushing
         if self._worker_task:
             try:
@@ -370,7 +410,7 @@ class ClickHouseAnalytics:
                 # SECURITY: Sanitize error messages to prevent information disclosure
                 sanitized_error = sanitize_error_message(e, "worker shutdown")
                 print(f"Error waiting for ClickHouse worker: {sanitized_error}")
-        
+
         if self.client:
             try:
                 loop = asyncio.get_running_loop()

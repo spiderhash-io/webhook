@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TargetConfig:
     """Configuration for a webhook delivery target."""
+
     url: str
     method: str = "POST"
     headers: Dict[str, str] = field(default_factory=dict)
@@ -100,6 +101,7 @@ class ConnectorConfig:
             if file_path.suffix in [".yaml", ".yml"]:
                 try:
                     import yaml
+
                     data = yaml.safe_load(f)
                 except ImportError:
                     raise ImportError("PyYAML is required to load YAML config files")
@@ -115,11 +117,24 @@ class ConnectorConfig:
 
         # Simple fields
         simple_fields = [
-            "cloud_url", "channel", "token", "protocol",
-            "reconnect_delay", "max_reconnect_delay", "reconnect_backoff_multiplier",
-            "heartbeat_timeout", "connection_timeout", "max_concurrent_requests",
-            "ack_timeout", "log_level", "log_format", "verify_ssl",
-            "ca_cert_path", "client_cert_path", "client_key_path", "connector_id"
+            "cloud_url",
+            "channel",
+            "token",
+            "protocol",
+            "reconnect_delay",
+            "max_reconnect_delay",
+            "reconnect_backoff_multiplier",
+            "heartbeat_timeout",
+            "connection_timeout",
+            "max_concurrent_requests",
+            "ack_timeout",
+            "log_level",
+            "log_format",
+            "verify_ssl",
+            "ca_cert_path",
+            "client_cert_path",
+            "client_key_path",
+            "connector_id",
         ]
 
         for field_name in simple_fields:
@@ -205,11 +220,19 @@ class ConnectorConfig:
 
         # Merge environment overrides
         for field_name in [
-            "cloud_url", "channel", "token", "protocol",
-            "reconnect_delay", "max_reconnect_delay",
-            "heartbeat_timeout", "connection_timeout",
-            "max_concurrent_requests", "ack_timeout",
-            "log_level", "verify_ssl", "connector_id"
+            "cloud_url",
+            "channel",
+            "token",
+            "protocol",
+            "reconnect_delay",
+            "max_reconnect_delay",
+            "heartbeat_timeout",
+            "connection_timeout",
+            "max_concurrent_requests",
+            "ack_timeout",
+            "log_level",
+            "verify_ssl",
+            "connector_id",
         ]:
             env_value = getattr(env_config, field_name)
             # Only override if env value is different from default
@@ -242,7 +265,9 @@ class ConnectorConfig:
             errors.append("token is required")
 
         if self.protocol not in ["websocket", "sse"]:
-            errors.append(f"protocol must be 'websocket' or 'sse', got '{self.protocol}'")
+            errors.append(
+                f"protocol must be 'websocket' or 'sse', got '{self.protocol}'"
+            )
 
         if not self.default_target and not self.targets:
             errors.append("Either default_target or targets must be configured")

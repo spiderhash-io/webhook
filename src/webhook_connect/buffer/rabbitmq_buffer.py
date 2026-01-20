@@ -31,7 +31,7 @@ class RabbitMQBuffer(MessageBufferInterface):
         self,
         url: str = "amqp://guest:guest@localhost:5672/",
         exchange_name: str = "webhook_connect",
-        prefetch_count: int = 100
+        prefetch_count: int = 100,
     ):
         """
         Initialize RabbitMQ buffer.
@@ -78,16 +78,12 @@ class RabbitMQBuffer(MessageBufferInterface):
 
             # Create main exchange for webhook messages
             self.exchange = await self.channel.declare_exchange(
-                self.exchange_name,
-                ExchangeType.DIRECT,
-                durable=True
+                self.exchange_name, ExchangeType.DIRECT, durable=True
             )
 
             # Create dead letter exchange
             self.dlx_exchange = await self.channel.declare_exchange(
-                f"{self.exchange_name}.dlx",
-                ExchangeType.DIRECT,
-                durable=True
+                f"{self.exchange_name}.dlx", ExchangeType.DIRECT, durable=True
             )
 
             logger.info(f"Connected to RabbitMQ: {self.url}")
@@ -116,11 +112,7 @@ class RabbitMQBuffer(MessageBufferInterface):
 
         # Create dead letter queue first
         dlq = await self.channel.declare_queue(
-            dlq_name,
-            durable=True,
-            arguments={
-                "x-queue-type": "classic"
-            }
+            dlq_name, durable=True, arguments={"x-queue-type": "classic"}
         )
         await dlq.bind(self.dlx_exchange, routing_key=routing_key)
 
@@ -132,18 +124,14 @@ class RabbitMQBuffer(MessageBufferInterface):
                 "x-dead-letter-exchange": f"{self.exchange_name}.dlx",
                 "x-dead-letter-routing-key": routing_key,
                 "x-message-ttl": ttl_seconds * 1000,  # Convert to milliseconds
-                "x-queue-type": "classic"
-            }
+                "x-queue-type": "classic",
+            },
         )
         await queue.bind(self.exchange, routing_key=routing_key)
 
         # Initialize stats for this channel
         if channel not in self._stats:
-            self._stats[channel] = {
-                "delivered": 0,
-                "expired": 0,
-                "dead_lettered": 0
-            }
+            self._stats[channel] = {"delivered": 0, "expired": 0, "dead_lettered": 0}
 
         logger.info(f"Ensured channel queue: {queue_name} with TTL {ttl_seconds}s")
 
@@ -162,10 +150,7 @@ class RabbitMQBuffer(MessageBufferInterface):
                 message_id=message.message_id,
                 timestamp=message.received_at,
                 delivery_mode=DeliveryMode.PERSISTENT,
-                headers={
-                    "channel": channel,
-                    "webhook_id": message.webhook_id
-                }
+                headers={"channel": channel, "webhook_id": message.webhook_id},
             )
 
             # Publish to exchange
@@ -183,7 +168,7 @@ class RabbitMQBuffer(MessageBufferInterface):
         self,
         channel: str,
         callback: Callable[[WebhookMessage], Awaitable[None]],
-        prefetch: int = 10
+        prefetch: int = 10,
     ) -> None:
         """Subscribe to channel and receive messages via callback."""
         if not self.channel:
@@ -286,7 +271,8 @@ class RabbitMQBuffer(MessageBufferInterface):
         async with self._in_flight_lock:
             # Count messages for this channel
             count = sum(
-                1 for msg in self._in_flight.values()
+                1
+                for msg in self._in_flight.values()
                 if msg.headers and msg.headers.get("channel") == channel
             )
         return count
@@ -305,7 +291,7 @@ class RabbitMQBuffer(MessageBufferInterface):
             messages_delivered=stats.get("delivered", 0),
             messages_expired=stats.get("expired", 0),
             messages_dead_lettered=stats.get("dead_lettered", 0),
-            connected_clients=0  # Will be filled by ChannelManager
+            connected_clients=0,  # Will be filled by ChannelManager
         )
 
     async def cleanup_expired(self, channel: str) -> int:
@@ -336,7 +322,9 @@ class RabbitMQBuffer(MessageBufferInterface):
             logger.error(f"Failed to delete channel {channel}: {e}")
             return False
 
-    async def get_dead_letters(self, channel: str, limit: int = 100) -> List[WebhookMessage]:
+    async def get_dead_letters(
+        self, channel: str, limit: int = 100
+    ) -> List[WebhookMessage]:
         """Get dead letter messages for a channel."""
         if not self.channel:
             return []

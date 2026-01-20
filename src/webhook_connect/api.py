@@ -11,7 +11,14 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, Callable, Awaitable
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Header, Query
+from fastapi import (
+    APIRouter,
+    WebSocket,
+    WebSocketDisconnect,
+    HTTPException,
+    Header,
+    Query,
+)
 from fastapi.responses import StreamingResponse
 from starlette.websockets import WebSocketState
 
@@ -75,7 +82,9 @@ async def websocket_stream(
     # Validate token
     if not channel_manager.validate_token(channel, token):
         await websocket.close(code=4001, reason="Invalid channel token")
-        logger.warning(f"WebSocket connection rejected: invalid token for channel {channel}")
+        logger.warning(
+            f"WebSocket connection rejected: invalid token for channel {channel}"
+        )
         return
 
     # Check if channel exists
@@ -102,25 +111,33 @@ async def websocket_stream(
     # Register connection
     if not await channel_manager.add_connection(connection):
         await websocket.close(code=4003, reason="Max connections reached")
-        logger.warning(f"WebSocket connection rejected: max connections for channel {channel}")
+        logger.warning(
+            f"WebSocket connection rejected: max connections for channel {channel}"
+        )
         return
 
-    logger.info(f"WebSocket connection established: {connection.connection_id} for channel {channel}")
+    logger.info(
+        f"WebSocket connection established: {connection.connection_id} for channel {channel}"
+    )
 
     try:
         # Send connected message
-        await websocket.send_json({
-            "type": "connected",
-            "connection_id": connection.connection_id,
-            "channel": channel,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "connection_id": connection.connection_id,
+                "channel": channel,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         # Start message streaming and client message handling
         await asyncio.gather(
             _stream_messages_ws(websocket, channel, connection, channel_manager),
             _handle_client_messages_ws(websocket, channel, connection, channel_manager),
-            _send_heartbeats_ws(websocket, connection, channel_config.heartbeat_interval.total_seconds()),
+            _send_heartbeats_ws(
+                websocket, connection, channel_config.heartbeat_interval.total_seconds()
+            ),
         )
 
     except WebSocketDisconnect:
@@ -137,7 +154,7 @@ async def _stream_messages_ws(
     websocket: WebSocket,
     channel: str,
     connection: ConnectorConnection,
-    channel_manager: ChannelManager
+    channel_manager: ChannelManager,
 ) -> None:
     """Stream messages from buffer to WebSocket."""
     channel_config = channel_manager.get_channel(channel)
@@ -173,7 +190,9 @@ async def _stream_messages_ws(
             await websocket.send_json(message.to_wire_format())
             connection.messages_received += 1
             connection.last_message_at = datetime.now(timezone.utc)
-            logger.debug(f"Sent message {message.message_id} to {connection.connection_id}")
+            logger.debug(
+                f"Sent message {message.message_id} to {connection.connection_id}"
+            )
         except Exception as e:
             # Remove from in-flight on send failure
             connection.in_flight_messages.discard(message.message_id)
@@ -192,7 +211,7 @@ async def _handle_client_messages_ws(
     websocket: WebSocket,
     channel: str,
     connection: ConnectorConnection,
-    channel_manager: ChannelManager
+    channel_manager: ChannelManager,
 ) -> None:
     """Handle ACK/NACK messages from WebSocket client."""
     while websocket.client_state == WebSocketState.CONNECTED:
@@ -203,14 +222,18 @@ async def _handle_client_messages_ws(
             if msg_type == "ack":
                 message_id = data.get("message_id")
                 if message_id and message_id in connection.in_flight_messages:
-                    await channel_manager.ack_message(channel, message_id, connection.connection_id)
+                    await channel_manager.ack_message(
+                        channel, message_id, connection.connection_id
+                    )
                     logger.debug(f"ACK received for {message_id}")
 
             elif msg_type == "nack":
                 message_id = data.get("message_id")
                 retry = data.get("retry", True)
                 if message_id and message_id in connection.in_flight_messages:
-                    await channel_manager.nack_message(channel, message_id, connection.connection_id, retry=retry)
+                    await channel_manager.nack_message(
+                        channel, message_id, connection.connection_id, retry=retry
+                    )
                     logger.debug(f"NACK received for {message_id}, retry={retry}")
 
             elif msg_type == "heartbeat":
@@ -224,20 +247,20 @@ async def _handle_client_messages_ws(
 
 
 async def _send_heartbeats_ws(
-    websocket: WebSocket,
-    connection: ConnectorConnection,
-    interval_seconds: float
+    websocket: WebSocket, connection: ConnectorConnection, interval_seconds: float
 ) -> None:
     """Send periodic heartbeats to WebSocket client."""
     while websocket.client_state == WebSocketState.CONNECTED:
         try:
             await asyncio.sleep(interval_seconds)
             if websocket.client_state == WebSocketState.CONNECTED:
-                await websocket.send_json({
-                    "type": "heartbeat",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "server_time": datetime.now(timezone.utc).isoformat()
-                })
+                await websocket.send_json(
+                    {
+                        "type": "heartbeat",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "server_time": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
         except Exception:
             break
 
@@ -292,7 +315,7 @@ async def sse_stream(
 
         # Register connection
         if not await channel_manager.add_connection(connection):
-            yield f"event: error\ndata: {{\"error\": \"max_connections_reached\"}}\n\n"
+            yield f'event: error\ndata: {{"error": "max_connections_reached"}}\n\n'
             return
 
         try:
@@ -330,7 +353,7 @@ async def sse_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # Disable nginx buffering
-        }
+        },
     )
 
 

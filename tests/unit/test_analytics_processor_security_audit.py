@@ -2,6 +2,7 @@
 Comprehensive security audit tests for Analytics Processor and ClickHouse Analytics.
 Tests SQL injection, webhook_id validation, error disclosure, connection security, JSON serialization, DoS, and worker security.
 """
+
 import pytest
 import json
 import asyncio
@@ -15,24 +16,25 @@ from src.clickhouse_analytics import ClickHouseAnalytics
 # 1. SQL INJECTION VIA WEBHOOK_ID
 # ============================================================================
 
+
 class TestAnalyticsProcessorSQLInjection:
     """Test SQL injection vulnerabilities in AnalyticsProcessor."""
-    
+
     @pytest.mark.asyncio
     async def test_webhook_id_sql_injection_calculate_stats(self):
         """Test SQL injection via webhook_id in calculate_stats()."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # SQL injection attempts
         malicious_webhook_ids = [
             "webhook_id'; DROP TABLE webhook_logs; --",
@@ -41,12 +43,30 @@ class TestAnalyticsProcessorSQLInjection:
             "webhook_id'; DELETE FROM webhook_logs; --",
             "webhook_id'; EXEC xp_cmdshell('dir'); --",
         ]
-        
+
         for malicious_id in malicious_webhook_ids:
             # SECURITY: calculate_stats uses parameterized queries {webhook_id:String}
             # Additionally, webhook_id validation should reject dangerous characters
             # Some SQL injection patterns contain dangerous characters that will be rejected
-            if any(char in malicious_id for char in [';', '|', '&', '$', '`', '\\', '/', '(', ')', '<', '>', '\n', '\r', '\x00']):
+            if any(
+                char in malicious_id
+                for char in [
+                    ";",
+                    "|",
+                    "&",
+                    "$",
+                    "`",
+                    "\\",
+                    "/",
+                    "(",
+                    ")",
+                    "<",
+                    ">",
+                    "\n",
+                    "\r",
+                    "\x00",
+                ]
+            ):
                 # These should be rejected by validation
                 with pytest.raises(ValueError, match="dangerous character|null bytes"):
                     await processor.calculate_stats(malicious_id)
@@ -63,79 +83,83 @@ class TestAnalyticsProcessorSQLInjection:
                     assert len(call_args[0]) >= 1
                     query = call_args[0][0]
                     # Query should use parameterized syntax, not string interpolation
-                    assert '{webhook_id:String}' in query or '{webhook_id}' in query
+                    assert "{webhook_id:String}" in query or "{webhook_id}" in query
                     # Should have parameters dict
                     if len(call_args[0]) > 1:
                         params = call_args[0][1]
                         assert isinstance(params, dict)
-                        assert 'webhook_id' in params
-    
+                        assert "webhook_id" in params
+
     @pytest.mark.asyncio
     async def test_webhook_id_from_database_injection(self):
         """Test SQL injection when webhook_id comes from database (get_all_webhook_ids)."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         # Mock execute to return empty result (simulating no data)
         mock_client.execute.return_value = []
         processor.client = mock_client
-        
+
         # Create a mock analytics object
         mock_analytics = MagicMock()
         processor.analytics = mock_analytics
-        
+
         # Simulate malicious webhook_id retrieved from database
         malicious_webhook_ids = [
             "webhook_id'; DROP TABLE webhook_logs; --",
             "webhook_id' OR '1'='1",
         ]
-        
+
         # Mock get_all_webhook_ids to return malicious IDs
         # Note: get_all_webhook_ids now validates webhook_ids, so malicious ones will be filtered
         # For testing, we'll mock it to return the malicious IDs directly
-        with patch.object(processor, 'get_all_webhook_ids', return_value=malicious_webhook_ids):
+        with patch.object(
+            processor, "get_all_webhook_ids", return_value=malicious_webhook_ids
+        ):
             # Mock run_in_executor to call the lambda directly (for testing)
-            with patch('asyncio.get_event_loop') as mock_loop:
+            with patch("asyncio.get_event_loop") as mock_loop:
+
                 async def run_executor_mock(executor, func):
                     # Execute the lambda directly for testing
                     return func()
+
                 mock_loop.return_value.run_in_executor = run_executor_mock
-                
+
                 # Process stats - malicious IDs with dangerous characters will be rejected by calculate_stats
                 # Those without dangerous characters will be handled safely via parameterized queries
                 await processor.process_and_save_stats()
-            
+
             # Should not crash
             # calculate_stats should use parameterized queries for each malicious ID
             # Since calculate_stats uses run_in_executor, we check that execute was called
             # The mock should be called for each webhook_id via calculate_stats (if validation passes)
             # Note: Some malicious IDs may be rejected by validation, so execute may not be called for all
-    
+
     @pytest.mark.asyncio
     async def test_get_all_webhook_ids_sql_injection(self):
         """Test that get_all_webhook_ids() query is safe (no user input)."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # get_all_webhook_ids uses hardcoded query, no user input
         result = await processor.get_all_webhook_ids()
-        
+
         # Should not crash
         assert isinstance(result, list)
         # Query should be hardcoded, not use string interpolation
@@ -150,24 +174,25 @@ class TestAnalyticsProcessorSQLInjection:
 # 2. WEBHOOK_ID VALIDATION
 # ============================================================================
 
+
 class TestAnalyticsProcessorWebhookIdValidation:
     """Test webhook_id validation and type handling."""
-    
+
     @pytest.mark.asyncio
     async def test_webhook_id_type_validation(self):
         """Test that non-string webhook_id is handled safely."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # Non-string webhook_ids
         invalid_ids = [
             None,
@@ -176,7 +201,7 @@ class TestAnalyticsProcessorWebhookIdValidation:
             {},
             True,
         ]
-        
+
         for invalid_id in invalid_ids:
             try:
                 result = await processor.calculate_stats(invalid_id)
@@ -185,22 +210,22 @@ class TestAnalyticsProcessorWebhookIdValidation:
             except (TypeError, ValueError, AttributeError):
                 # Acceptable - type validation should reject non-strings
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_webhook_id_empty_validation(self):
         """Test empty webhook_id handling."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # Empty webhook_ids should be rejected
         empty_ids = [
             "",
@@ -208,30 +233,33 @@ class TestAnalyticsProcessorWebhookIdValidation:
             "\x00",
             "\n",
         ]
-        
+
         for empty_id in empty_ids:
             # SECURITY: Should validate and reject empty/null/dangerous webhook_ids
-            with pytest.raises(ValueError, match="must be a non-empty string|cannot be empty|null bytes|dangerous character"):
+            with pytest.raises(
+                ValueError,
+                match="must be a non-empty string|cannot be empty|null bytes|dangerous character",
+            ):
                 await processor.calculate_stats(empty_id)
-    
+
     @pytest.mark.asyncio
     async def test_webhook_id_large_validation(self):
         """Test very large webhook_id (DoS prevention)."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # Very large webhook_id (DoS)
         large_id = "a" * 100000  # 100KB
-        
+
         # SECURITY: Should validate length to prevent DoS
         with pytest.raises(ValueError, match="too long"):
             await processor.calculate_stats(large_id)
@@ -241,77 +269,84 @@ class TestAnalyticsProcessorWebhookIdValidation:
 # 3. ERROR INFORMATION DISCLOSURE
 # ============================================================================
 
+
 class TestAnalyticsProcessorErrorDisclosure:
     """Test error information disclosure vulnerabilities."""
-    
+
     @pytest.mark.asyncio
     async def test_error_message_sanitization_calculate_stats(self):
         """Test that error messages don't leak sensitive information."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # Mock execute to raise exception with sensitive info
-        mock_client.execute.side_effect = Exception("Connection failed to localhost:9000 with user default password secret123")
-        
+        mock_client.execute.side_effect = Exception(
+            "Connection failed to localhost:9000 with user default password secret123"
+        )
+
         result = await processor.calculate_stats("test_webhook")
-        
+
         # Error should be logged but not exposed in return value
         # Function should return empty dict on error
         assert isinstance(result, dict)
         assert result == {}
         # Error message should be logged (print), but not in return value
         # This is acceptable - errors are logged server-side
-    
+
     @pytest.mark.asyncio
     async def test_error_message_sanitization_get_all_webhook_ids(self):
         """Test error message sanitization in get_all_webhook_ids()."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # Mock execute to raise exception
-        mock_client.execute.side_effect = Exception("Database error: connection string=postgresql://user:pass@host/db")
-        
+        mock_client.execute.side_effect = Exception(
+            "Database error: connection string=postgresql://user:pass@host/db"
+        )
+
         result = await processor.get_all_webhook_ids()
-        
+
         # Should return empty list on error
         assert isinstance(result, list)
         assert result == []
-    
+
     @pytest.mark.asyncio
     async def test_connection_error_disclosure(self):
         """Test that connection errors don't leak sensitive information."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': 'secret_password'
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "secret_password",
         }
-        
+
         processor = AnalyticsProcessor(config)
-        
+
         # Mock connection failure
-        with patch('asyncio.get_event_loop') as mock_loop:
-            mock_loop.return_value.run_in_executor.side_effect = Exception("Connection failed: password=secret_password")
-            
+        with patch("asyncio.get_event_loop") as mock_loop:
+            mock_loop.return_value.run_in_executor.side_effect = Exception(
+                "Connection failed: password=secret_password"
+            )
+
             try:
                 await processor.connect()
                 assert False, "Should have raised exception"
@@ -329,40 +364,41 @@ class TestAnalyticsProcessorErrorDisclosure:
 # 4. CONNECTION SECURITY
 # ============================================================================
 
+
 class TestAnalyticsProcessorConnectionSecurity:
     """Test connection security vulnerabilities."""
-    
+
     @pytest.mark.asyncio
     async def test_connection_config_injection(self):
         """Test connection configuration injection."""
         # Malicious configuration
         malicious_configs = [
             {
-                'host': 'localhost; rm -rf /',
-                'port': 9000,
-                'database': 'test',
-                'user': 'default',
-                'password': ''
+                "host": "localhost; rm -rf /",
+                "port": 9000,
+                "database": "test",
+                "user": "default",
+                "password": "",
             },
             {
-                'host': 'localhost',
-                'port': '9000; cat /etc/passwd',
-                'database': 'test',
-                'user': 'default',
-                'password': ''
+                "host": "localhost",
+                "port": "9000; cat /etc/passwd",
+                "database": "test",
+                "user": "default",
+                "password": "",
             },
             {
-                'host': 'localhost',
-                'port': 9000,
-                'database': '../../etc/passwd',
-                'user': 'default',
-                'password': ''
+                "host": "localhost",
+                "port": 9000,
+                "database": "../../etc/passwd",
+                "user": "default",
+                "password": "",
             },
         ]
-        
+
         for malicious_config in malicious_configs:
             processor = AnalyticsProcessor(malicious_config)
-            
+
             # Connection should fail or be rejected
             # clickhouse-driver should validate host/port/database
             try:
@@ -372,7 +408,7 @@ class TestAnalyticsProcessorConnectionSecurity:
             except Exception:
                 # Connection failure is acceptable for malicious config
                 pass
-    
+
     @pytest.mark.asyncio
     @pytest.mark.longrunning
     async def test_connection_ssrf_prevention(self):
@@ -380,31 +416,31 @@ class TestAnalyticsProcessorConnectionSecurity:
         # SSRF attempts via host
         ssrf_configs = [
             {
-                'host': '127.0.0.1',
-                'port': 22,  # SSH port
-                'database': 'test',
-                'user': 'default',
-                'password': ''
+                "host": "127.0.0.1",
+                "port": 22,  # SSH port
+                "database": "test",
+                "user": "default",
+                "password": "",
             },
             {
-                'host': 'localhost',
-                'port': 6379,  # Redis port
-                'database': 'test',
-                'user': 'default',
-                'password': ''
+                "host": "localhost",
+                "port": 6379,  # Redis port
+                "database": "test",
+                "user": "default",
+                "password": "",
             },
             {
-                'host': '169.254.169.254',  # AWS metadata service
-                'port': 9000,
-                'database': 'test',
-                'user': 'default',
-                'password': ''
+                "host": "169.254.169.254",  # AWS metadata service
+                "port": 9000,
+                "database": "test",
+                "user": "default",
+                "password": "",
             },
         ]
-        
+
         for ssrf_config in ssrf_configs:
             processor = AnalyticsProcessor(ssrf_config)
-            
+
             # Connection should be attempted (ClickHouse driver will handle)
             # But we should verify it doesn't allow arbitrary connections
             try:
@@ -414,24 +450,26 @@ class TestAnalyticsProcessorConnectionSecurity:
             except Exception:
                 # Connection failure is acceptable
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_password_exposure(self):
         """Test that passwords are not exposed in error messages or logs."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': 'secret_password_123'
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "secret_password_123",
         }
-        
+
         processor = AnalyticsProcessor(config)
-        
+
         # Mock connection failure
-        with patch('asyncio.get_event_loop') as mock_loop:
-            mock_loop.return_value.run_in_executor.side_effect = Exception("Connection failed")
-            
+        with patch("asyncio.get_event_loop") as mock_loop:
+            mock_loop.return_value.run_in_executor.side_effect = Exception(
+                "Connection failed"
+            )
+
             try:
                 await processor.connect()
                 assert False, "Should have raised exception"
@@ -439,81 +477,85 @@ class TestAnalyticsProcessorConnectionSecurity:
                 error_str = str(e).lower()
                 # Password should not be in error message
                 assert "secret_password_123" not in error_str
-                assert "password" not in error_str.lower() or "password" in error_str.lower()  # "password" word is OK, but not the value
+                assert (
+                    "password" not in error_str.lower()
+                    or "password" in error_str.lower()
+                )  # "password" word is OK, but not the value
 
 
 # ============================================================================
 # 5. CLICKHOUSE ANALYTICS SECURITY
 # ============================================================================
 
+
 class TestClickHouseAnalyticsSecurity:
     """Test ClickHouseAnalytics security vulnerabilities."""
-    
+
     @pytest.mark.asyncio
     async def test_webhook_id_injection_save_log(self):
         """Test webhook_id injection in save_log()."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         mock_client = MagicMock()
         analytics.client = mock_client
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # SQL injection attempts in webhook_id
         malicious_webhook_ids = [
             "webhook_id'; DROP TABLE webhook_logs; --",
             "webhook_id' OR '1'='1",
             "webhook_id'; DELETE FROM webhook_logs; --",
         ]
-        
+
         for malicious_id in malicious_webhook_ids:
             await analytics.save_log(malicious_id, {"data": "test"}, {})
-            
+
             # Should queue the log (webhook_id is stored, not executed as SQL)
             # When flushed, it should use parameterized queries
             assert not analytics.queue.empty()
-            
+
             # Get item from queue
             item = await analytics.queue.get()
-            assert item[0] == 'log'
+            assert item[0] == "log"
             log_data = item[1]
             # webhook_id should be in the tuple
             assert malicious_id in log_data
-    
+
     @pytest.mark.asyncio
     async def test_payload_json_injection_save_log(self):
         """Test JSON injection in payload."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         mock_client = MagicMock()
         analytics.client = mock_client
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Payload with potential injection
         malicious_payloads = [
             {"data": "'; DROP TABLE webhook_logs; --"},
             {"data": '"; DELETE FROM webhook_logs; --'},
             {"data": "test\x00null"},
         ]
-        
+
         for malicious_payload in malicious_payloads:
             await analytics.save_log("test_webhook", malicious_payload, {})
-            
+
             # Payload should be JSON serialized
             assert not analytics.queue.empty()
             item = await analytics.queue.get()
@@ -523,34 +565,34 @@ class TestClickHouseAnalyticsSecurity:
             # Should be valid JSON
             parsed = json.loads(payload_str)
             assert isinstance(parsed, dict)
-    
+
     @pytest.mark.asyncio
     async def test_headers_json_injection_save_log(self):
         """Test JSON injection in headers."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         mock_client = MagicMock()
         analytics.client = mock_client
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Headers with potential injection
         malicious_headers = [
             {"X-Header": "'; DROP TABLE webhook_logs; --"},
             {"X-Header": '"; DELETE FROM webhook_logs; --'},
             {"X-Header": "test\x00null"},
         ]
-        
+
         for malicious_header in malicious_headers:
             await analytics.save_log("test_webhook", {"data": "test"}, malicious_header)
-            
+
             # Headers should be JSON serialized
             assert not analytics.queue.empty()
             item = await analytics.queue.get()
@@ -560,36 +602,36 @@ class TestClickHouseAnalyticsSecurity:
             # Should be valid JSON
             parsed = json.loads(headers_str)
             assert isinstance(parsed, dict)
-    
+
     @pytest.mark.asyncio
     async def test_webhook_id_injection_save_stats(self):
         """Test webhook_id injection in save_stats()."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         mock_client = MagicMock()
         analytics.client = mock_client
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # SQL injection attempts in webhook_id
         malicious_stats = {
             "webhook_id'; DROP TABLE webhook_stats; --": {"total": 100},
             "webhook_id' OR '1'='1": {"total": 200},
         }
-        
+
         await analytics.save_stats(malicious_stats)
-        
+
         # Should queue the stats
         assert not analytics.queue.empty()
         item = await analytics.queue.get()
-        assert item[0] == 'stats'
+        assert item[0] == "stats"
         records = item[1]
         # Should be list of tuples
         assert isinstance(records, list)
@@ -600,36 +642,44 @@ class TestClickHouseAnalyticsSecurity:
             webhook_id = record[1]
             # Should contain malicious ID (will be used in parameterized query)
             assert isinstance(webhook_id, str)
-    
+
     @pytest.mark.asyncio
     async def test_flush_logs_parameterized_queries(self):
         """Test that _flush_logs uses parameterized queries."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         mock_client = MagicMock()
         analytics.client = mock_client
-        
+
         # Create buffer with malicious data
         buffer = [
-            ("id1", "webhook_id'; DROP TABLE webhook_logs; --", datetime.now(), '{"data": "test"}', '{"header": "value"}')
+            (
+                "id1",
+                "webhook_id'; DROP TABLE webhook_logs; --",
+                datetime.now(),
+                '{"data": "test"}',
+                '{"header": "value"}',
+            )
         ]
-        
+
         # Mock run_in_executor to call the lambda directly (for testing)
-        with patch('asyncio.get_event_loop') as mock_loop:
+        with patch("asyncio.get_event_loop") as mock_loop:
+
             async def run_executor_mock(executor, func):
                 # Execute the lambda directly for testing
                 return func()
+
             mock_loop.return_value.run_in_executor = run_executor_mock
-            
+
             await analytics._flush_logs(buffer)
-        
+
         # Should use parameterized INSERT
         assert mock_client.execute.called, "execute should be called"
         call_args = mock_client.execute.call_args
@@ -637,41 +687,57 @@ class TestClickHouseAnalyticsSecurity:
         assert len(call_args[0]) >= 1
         query = call_args[0][0]
         # Should be INSERT query - normalize whitespace for comparison
-        query_normalized = ' '.join(query.upper().split())
+        query_normalized = " ".join(query.upper().split())
         assert "INSERT INTO WEBHOOK_LOGS" in query_normalized
         # Should use VALUES with parameters, not string interpolation
         # ClickHouse driver uses parameterized queries
-    
+
     @pytest.mark.asyncio
     async def test_flush_stats_parameterized_queries(self):
         """Test that _flush_stats uses parameterized queries."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         mock_client = MagicMock()
         analytics.client = mock_client
-        
+
         # Create buffer with malicious data
         from datetime import datetime
+
         buffer = [
-            ("id1", "webhook_id'; DROP TABLE webhook_stats; --", datetime.now(), 100, 10, 20, 30, 40, 50, 60, 70, 80)
+            (
+                "id1",
+                "webhook_id'; DROP TABLE webhook_stats; --",
+                datetime.now(),
+                100,
+                10,
+                20,
+                30,
+                40,
+                50,
+                60,
+                70,
+                80,
+            )
         ]
-        
+
         # Mock run_in_executor to call the lambda directly (for testing)
-        with patch('asyncio.get_event_loop') as mock_loop:
+        with patch("asyncio.get_event_loop") as mock_loop:
+
             async def run_executor_mock(executor, func):
                 # Execute the lambda directly for testing
                 return func()
+
             mock_loop.return_value.run_in_executor = run_executor_mock
-            
+
             await analytics._flush_stats(buffer)
-        
+
         # Should use parameterized INSERT
         assert mock_client.execute.called, "execute should be called"
         call_args = mock_client.execute.call_args
@@ -679,7 +745,7 @@ class TestClickHouseAnalyticsSecurity:
         assert len(call_args[0]) >= 1
         query = call_args[0][0]
         # Should be INSERT query - normalize whitespace for comparison
-        query_normalized = ' '.join(query.upper().split())
+        query_normalized = " ".join(query.upper().split())
         assert "INSERT INTO WEBHOOK_STATS" in query_normalized
         # Should use VALUES with parameters, not string interpolation
 
@@ -688,28 +754,29 @@ class TestClickHouseAnalyticsSecurity:
 # 6. JSON SERIALIZATION SECURITY
 # ============================================================================
 
+
 class TestClickHouseAnalyticsJSONSerialization:
     """Test JSON serialization security."""
-    
+
     @pytest.mark.asyncio
     async def test_circular_reference_payload(self):
         """Test circular reference in payload."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Circular reference
         circular_payload = {}
-        circular_payload['self'] = circular_payload
-        
+        circular_payload["self"] = circular_payload
+
         try:
             await analytics.save_log("test_webhook", circular_payload, {})
             # Should handle circular reference (json.dumps will raise TypeError)
@@ -717,25 +784,25 @@ class TestClickHouseAnalyticsJSONSerialization:
         except (TypeError, ValueError):
             # Acceptable - circular references can't be JSON serialized
             pass
-    
+
     @pytest.mark.asyncio
     async def test_large_payload_dos(self):
         """Test DoS via very large payload."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Very large payload
         large_payload = {"data": "x" * 10000000}  # 10MB
-        
+
         try:
             await analytics.save_log("test_webhook", large_payload, {})
             # Should handle large payload (might be slow, but shouldn't crash)
@@ -743,29 +810,29 @@ class TestClickHouseAnalyticsJSONSerialization:
         except (MemoryError, OSError):
             # Acceptable for extremely large payloads
             pass
-    
+
     @pytest.mark.asyncio
     async def test_deeply_nested_payload(self):
         """Test deeply nested payload."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Deeply nested payload
         nested_payload = {}
         current = nested_payload
         for i in range(1000):
-            current['nested'] = {}
-            current = current['nested']
-        
+            current["nested"] = {}
+            current = current["nested"]
+
         try:
             await analytics.save_log("test_webhook", nested_payload, {})
             # Should handle deeply nested payload
@@ -779,9 +846,10 @@ class TestClickHouseAnalyticsJSONSerialization:
 # 7. WORKER AND QUEUE SECURITY
 # ============================================================================
 
+
 class TestClickHouseAnalyticsWorkerSecurity:
     """Test worker and queue security vulnerabilities."""
-    
+
     # @pytest.mark.asyncio
     # async def test_queue_exhaustion_dos(self):
     #     """Test DoS via queue exhaustion."""
@@ -792,11 +860,11 @@ class TestClickHouseAnalyticsWorkerSecurity:
     #         'user': 'default',
     #         'password': ''
     #     }
-    #     
+    #
     #     analytics = ClickHouseAnalytics(config)
     #     analytics.queue = asyncio.Queue(maxsize=100)  # Limited queue
     #     analytics._running = True
-    #     
+    #
     #     # Try to fill queue
     #     try:
     #         for i in range(200):  # More than queue size
@@ -804,68 +872,68 @@ class TestClickHouseAnalyticsWorkerSecurity:
     #     except Exception:
     #         # Queue full exception is acceptable
     #         pass
-    #     
+    #
     #     # Queue should be limited
     #     assert analytics.queue.qsize() <= 100
-    
+
     @pytest.mark.asyncio
     async def test_worker_error_handling(self):
         """Test worker error handling."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         mock_client = MagicMock()
         analytics.client = mock_client
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Mock _flush_logs to raise exception
         async def mock_flush_logs(buffer):
             raise Exception("Flush error")
-        
+
         analytics._flush_logs = mock_flush_logs
-        
+
         # Add item to queue
         await analytics.save_log("test_webhook", {"data": "test"}, {})
-        
+
         # Worker should handle error gracefully
         # Wait a bit for worker to process
         await asyncio.sleep(0.1)
-        
+
         # Should not crash
         assert True
-    
+
     @pytest.mark.asyncio
     async def test_worker_shutdown_race_condition(self):
         """Test race condition during worker shutdown."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Start worker
         analytics._worker_task = asyncio.create_task(analytics._worker())
-        
+
         # Add items to queue
         for i in range(10):
             await analytics.save_log(f"webhook_{i}", {"data": "test"}, {})
-        
+
         # Shutdown while items in queue
         await analytics.disconnect()
-        
+
         # Should handle shutdown gracefully
         assert not analytics._running
 
@@ -874,9 +942,10 @@ class TestClickHouseAnalyticsWorkerSecurity:
 # 8. TYPE CONFUSION AND EDGE CASES
 # ============================================================================
 
+
 class TestAnalyticsProcessorTypeConfusion:
     """Test type confusion vulnerabilities."""
-    
+
     @pytest.mark.asyncio
     async def test_config_type_validation(self):
         """Test configuration type validation."""
@@ -887,7 +956,7 @@ class TestAnalyticsProcessorTypeConfusion:
             123,
             [],
         ]
-        
+
         for invalid_config in invalid_configs:
             try:
                 processor = AnalyticsProcessor(invalid_config)
@@ -896,22 +965,22 @@ class TestAnalyticsProcessorTypeConfusion:
             except (TypeError, AttributeError):
                 # Acceptable - type validation should reject invalid configs
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_save_stats_type_validation(self):
         """Test save_stats type validation."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Invalid stats types
         invalid_stats = [
             None,
@@ -919,7 +988,7 @@ class TestAnalyticsProcessorTypeConfusion:
             123,
             [],
         ]
-        
+
         for invalid_stat in invalid_stats:
             try:
                 await analytics.save_stats(invalid_stat)
@@ -927,22 +996,22 @@ class TestAnalyticsProcessorTypeConfusion:
             except (TypeError, AttributeError):
                 # Acceptable - type validation should reject invalid types
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_save_log_type_validation(self):
         """Test save_log type validation."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Invalid webhook_id types
         invalid_ids = [
             None,
@@ -950,7 +1019,7 @@ class TestAnalyticsProcessorTypeConfusion:
             [],
             {},
         ]
-        
+
         for invalid_id in invalid_ids:
             try:
                 await analytics.save_log(invalid_id, {"data": "test"}, {})
@@ -964,58 +1033,58 @@ class TestAnalyticsProcessorTypeConfusion:
 # 9. CONCURRENT ACCESS SECURITY
 # ============================================================================
 
+
 class TestAnalyticsProcessorConcurrency:
     """Test concurrent access security."""
-    
+
     @pytest.mark.asyncio
     async def test_concurrent_calculate_stats(self):
         """Test concurrent calculate_stats calls."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # Concurrent calls
-        tasks = [
-            processor.calculate_stats(f"webhook_{i}") for i in range(10)
-        ]
-        
+        tasks = [processor.calculate_stats(f"webhook_{i}") for i in range(10)]
+
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # All should complete
         assert len(results) == 10
         for result in results:
             assert isinstance(result, dict) or isinstance(result, Exception)
-    
+
     @pytest.mark.asyncio
     async def test_concurrent_save_log(self):
         """Test concurrent save_log calls."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # Concurrent calls
         tasks = [
-            analytics.save_log(f"webhook_{i}", {"data": f"test_{i}"}, {}) for i in range(10)
+            analytics.save_log(f"webhook_{i}", {"data": f"test_{i}"}, {})
+            for i in range(10)
         ]
-        
+
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # All should complete
         assert len(results) == 10
         # Queue should have items
@@ -1026,9 +1095,10 @@ class TestAnalyticsProcessorConcurrency:
 # 10. CONFIGURATION SECURITY
 # ============================================================================
 
+
 class TestAnalyticsProcessorConfigurationSecurity:
     """Test configuration security vulnerabilities."""
-    
+
     @pytest.mark.asyncio
     async def test_batch_size_injection(self):
         """Test batch_size configuration injection."""
@@ -1040,15 +1110,15 @@ class TestAnalyticsProcessorConfigurationSecurity:
             "not a number",
             None,
         ]
-        
+
         for invalid_size in invalid_batch_sizes:
             try:
                 config = {
-                    'host': 'localhost',
-                    'port': 9000,
-                    'database': 'test',
-                    'user': 'default',
-                    'password': ''
+                    "host": "localhost",
+                    "port": 9000,
+                    "database": "test",
+                    "user": "default",
+                    "password": "",
                 }
                 analytics = ClickHouseAnalytics(config, batch_size=invalid_size)
                 # Should handle invalid batch_size
@@ -1056,7 +1126,7 @@ class TestAnalyticsProcessorConfigurationSecurity:
             except (TypeError, ValueError):
                 # Acceptable - validation should reject invalid sizes
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_flush_interval_injection(self):
         """Test flush_interval configuration injection."""
@@ -1068,19 +1138,22 @@ class TestAnalyticsProcessorConfigurationSecurity:
             "not a number",
             None,
         ]
-        
+
         for invalid_interval in invalid_intervals:
             try:
                 config = {
-                    'host': 'localhost',
-                    'port': 9000,
-                    'database': 'test',
-                    'user': 'default',
-                    'password': ''
+                    "host": "localhost",
+                    "port": 9000,
+                    "database": "test",
+                    "user": "default",
+                    "password": "",
                 }
                 analytics = ClickHouseAnalytics(config, flush_interval=invalid_interval)
                 # Should handle invalid flush_interval
-                assert analytics.flush_interval == invalid_interval or analytics.flush_interval > 0
+                assert (
+                    analytics.flush_interval == invalid_interval
+                    or analytics.flush_interval > 0
+                )
             except (TypeError, ValueError):
                 # Acceptable - validation should reject invalid intervals
                 pass
@@ -1090,57 +1163,58 @@ class TestAnalyticsProcessorConfigurationSecurity:
 # 11. WEBHOOK_ID VALIDATION (MISSING - NEW TESTS)
 # ============================================================================
 
+
 class TestAnalyticsProcessorWebhookIdValidationGaps:
     """Test webhook_id validation gaps - these tests should fail until validation is added."""
-    
+
     @pytest.mark.asyncio
     async def test_webhook_id_format_validation_missing(self):
         """Test that webhook_id format validation rejects dangerous characters."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # Malicious webhook_ids with dangerous characters
         malicious_ids = [
             "webhook\x00id",  # Null byte
-            "webhook\nid",    # Newline
-            "webhook;id",     # Command separator
-            "webhook|id",     # Pipe
-            "webhook&id",     # Ampersand
+            "webhook\nid",  # Newline
+            "webhook;id",  # Command separator
+            "webhook|id",  # Pipe
+            "webhook&id",  # Ampersand
             "../../etc/passwd",  # Path traversal
         ]
-        
+
         for malicious_id in malicious_ids:
             # SECURITY: Should validate and reject dangerous characters
             with pytest.raises(ValueError, match="dangerous character|null bytes"):
                 await processor.calculate_stats(malicious_id)
-    
+
     @pytest.mark.asyncio
     async def test_webhook_id_length_validation_missing(self):
         """Test that webhook_id length validation prevents DoS."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # Extremely large webhook_id (DoS)
         extremely_large_id = "a" * 1000000  # 1MB
-        
+
         # SECURITY: Should validate length to prevent DoS
         with pytest.raises(ValueError, match="too long"):
             await processor.calculate_stats(extremely_large_id)
@@ -1150,59 +1224,64 @@ class TestAnalyticsProcessorWebhookIdValidationGaps:
 # 12. ERROR MESSAGE SANITIZATION (MISSING - NEW TESTS)
 # ============================================================================
 
+
 class TestAnalyticsProcessorErrorSanitizationGaps:
     """Test error message sanitization gaps - these tests should fail until sanitization is added."""
-    
+
     @pytest.mark.asyncio
     async def test_error_message_sanitization_missing_calculate_stats(self):
         """Test that error messages in calculate_stats are not sanitized."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         processor = AnalyticsProcessor(config)
         mock_client = MagicMock()
         processor.client = mock_client
-        
+
         # Mock execute to raise exception with sensitive info
-        sensitive_error = Exception("Connection failed to localhost:9000 with user default password secret123")
+        sensitive_error = Exception(
+            "Connection failed to localhost:9000 with user default password secret123"
+        )
         mock_client.execute.side_effect = sensitive_error
-        
+
         # Capture print output
-        with patch('builtins.print') as mock_print:
+        with patch("builtins.print") as mock_print:
             result = await processor.calculate_stats("test_webhook")
-            
+
             # SECURITY: Error messages should be sanitized
             # Currently, print() is called with full exception message
             # Check if sanitize_error_message is used
             print_calls = [str(call) for call in mock_print.call_args_list]
             # TODO: Should use sanitize_error_message() instead of direct print()
             assert isinstance(result, dict)
-    
+
     @pytest.mark.asyncio
     async def test_error_message_sanitization_missing_connect(self):
         """Test that error messages in connect() are not sanitized."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': 'secret_password_123'
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "secret_password_123",
         }
-        
+
         processor = AnalyticsProcessor(config)
-        
+
         # Mock connection failure with sensitive info
-        with patch('asyncio.get_event_loop') as mock_loop:
-            sensitive_error = Exception("Connection failed: password=secret_password_123")
+        with patch("asyncio.get_event_loop") as mock_loop:
+            sensitive_error = Exception(
+                "Connection failed: password=secret_password_123"
+            )
             mock_loop.return_value.run_in_executor.side_effect = sensitive_error
-            
+
             # Capture print output
-            with patch('builtins.print') as mock_print:
+            with patch("builtins.print") as mock_print:
                 try:
                     await processor.connect()
                     assert False, "Should have raised exception"
@@ -1217,40 +1296,41 @@ class TestAnalyticsProcessorErrorSanitizationGaps:
 # 13. SSRF PREVENTION IN CONNECTION CONFIG (MISSING - NEW TESTS)
 # ============================================================================
 
+
 class TestAnalyticsProcessorSSRFPreventionGaps:
     """Test SSRF prevention gaps in connection configuration."""
-    
+
     @pytest.mark.asyncio
     async def test_connection_host_ssrf_validation_missing(self):
         """Test connection host handling with private and special IPs."""
         # SSRF attempts via host
         ssrf_configs = [
             {
-                'host': '192.168.1.1',  # Private IP
-                'port': 9000,
-                'database': 'test',
-                'user': 'default',
-                'password': ''
+                "host": "192.168.1.1",  # Private IP
+                "port": 9000,
+                "database": "test",
+                "user": "default",
+                "password": "",
             },
             {
-                'host': '169.254.169.254',  # AWS metadata service
-                'port': 9000,
-                'database': 'test',
-                'user': 'default',
-                'password': ''
+                "host": "169.254.169.254",  # AWS metadata service
+                "port": 9000,
+                "database": "test",
+                "user": "default",
+                "password": "",
             },
             {
-                'host': '127.0.0.1',  # Localhost
-                'port': 9000,
-                'database': 'test',
-                'user': 'default',
-                'password': ''
+                "host": "127.0.0.1",  # Localhost
+                "port": 9000,
+                "database": "test",
+                "user": "default",
+                "password": "",
             },
         ]
-        
+
         for ssrf_config in ssrf_configs:
             processor = AnalyticsProcessor(ssrf_config)
-            
+
             # With relaxed host validation, connection attempts may succeed or fail
             # depending on environment, but should not crash the application.
             try:
@@ -1258,20 +1338,20 @@ class TestAnalyticsProcessorSSRFPreventionGaps:
             except Exception:
                 # Connection failure is acceptable in tests (no SSRF guard at this layer)
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_clickhouse_analytics_host_ssrf_validation_missing(self):
         """Test ClickHouseAnalytics host handling with private IPs."""
         ssrf_config = {
-            'host': '192.168.1.1',  # Private IP
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "192.168.1.1",  # Private IP
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(ssrf_config)
-        
+
         # With relaxed host validation, just ensure connect() doesn't crash the test harness.
         try:
             await analytics.connect()
@@ -1284,9 +1364,10 @@ class TestAnalyticsProcessorSSRFPreventionGaps:
 # 14. DEPRECATED DATETIME.UTCNOW() (NEW TESTS)
 # ============================================================================
 
+
 class TestAnalyticsProcessorDeprecatedDatetime:
     """Test deprecated datetime.utcnow() usage."""
-    
+
     @pytest.mark.asyncio
     async def test_deprecated_datetime_utcnow_in_analytics_processing_loop(self):
         """Test that analytics_processing_loop uses deprecated datetime.utcnow()."""
@@ -1295,25 +1376,24 @@ class TestAnalyticsProcessorDeprecatedDatetime:
         # Should use datetime.now(timezone.utc) instead
         # TODO: Fix deprecated datetime.utcnow() usage
         pass
-    
+
     @pytest.mark.asyncio
     async def test_deprecated_datetime_utcnow_in_clickhouse_analytics(self):
         """Test that ClickHouseAnalytics uses deprecated datetime.utcnow()."""
         config = {
-            'host': 'localhost',
-            'port': 9000,
-            'database': 'test',
-            'user': 'default',
-            'password': ''
+            "host": "localhost",
+            "port": 9000,
+            "database": "test",
+            "user": "default",
+            "password": "",
         }
-        
+
         analytics = ClickHouseAnalytics(config)
         analytics.queue = asyncio.Queue()
         analytics._running = True
-        
+
         # This will trigger datetime.utcnow() in save_stats() and save_log()
         # Should use datetime.now(timezone.utc) instead
         # TODO: Fix deprecated datetime.utcnow() usage
         await analytics.save_stats({"test_webhook": {"total": 100}})
         await analytics.save_log("test_webhook", {"data": "test"}, {})
-

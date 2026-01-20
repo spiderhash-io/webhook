@@ -8,18 +8,20 @@ from typing import Optional
 class RabbitMQConnectionPool:
     """
     RabbitMQ connection pool with exhaustion protection.
-    
+
     Features:
     - Configurable pool size limits
     - Connection acquisition timeout
     - Pool usage monitoring
     - Circuit breaker pattern for exhaustion scenarios
     """
-    
-    def __init__(self, max_size=3, acquisition_timeout=30.0, circuit_breaker_threshold=0.8):
+
+    def __init__(
+        self, max_size=3, acquisition_timeout=30.0, circuit_breaker_threshold=0.8
+    ):
         """
         Initialize connection pool.
-        
+
         Args:
             max_size: Maximum number of connections in the pool
             acquisition_timeout: Maximum time (seconds) to wait for a connection
@@ -28,18 +30,22 @@ class RabbitMQConnectionPool:
         self.max_size = max_size
         self.acquisition_timeout = acquisition_timeout
         self.circuit_breaker_threshold = circuit_breaker_threshold
-        self._connections: Optional[asyncio.Queue] = None  # Lazy initialization to avoid event loop requirement
-        
+        self._connections: Optional[asyncio.Queue] = (
+            None  # Lazy initialization to avoid event loop requirement
+        )
+
         # Monitoring metrics
         self._total_requests = 0
         self._successful_acquisitions = 0
         self._timeout_errors = 0
         self._circuit_breaker_triggered = False
         self._last_exhaustion_time = None
-        
+
         # Lock for metrics updates
-        self._metrics_lock: Optional[asyncio.Lock] = None  # Lazy initialization to avoid event loop requirement
-    
+        self._metrics_lock: Optional[asyncio.Lock] = (
+            None  # Lazy initialization to avoid event loop requirement
+        )
+
     def _get_connections(self) -> asyncio.Queue:
         """Get or create the connections queue (lazy initialization)."""
         if self._connections is None:
@@ -51,7 +57,7 @@ class RabbitMQConnectionPool:
                 asyncio.set_event_loop(loop)
                 self._connections = asyncio.Queue(maxsize=self.max_size)
         return self._connections
-    
+
     def _get_metrics_lock(self) -> asyncio.Lock:
         """Get or create the metrics lock (lazy initialization)."""
         if self._metrics_lock is None:
@@ -63,13 +69,15 @@ class RabbitMQConnectionPool:
                 asyncio.set_event_loop(loop)
                 self._metrics_lock = asyncio.Lock()
         return self._metrics_lock
-    
+
     @property
     def connections(self) -> asyncio.Queue:
         """Property to access connections queue (for backward compatibility)."""
         return self._get_connections()
 
-    async def create_pool(self, host='localhost', port=5672, login='guest', password='guest'):
+    async def create_pool(
+        self, host="localhost", port=5672, login="guest", password="guest"
+    ):
         """Initialize connections and put them in the queue."""
         for _ in range(self.max_size):
             connection = await connect_robust(
@@ -78,25 +86,27 @@ class RabbitMQConnectionPool:
             )
             await self._get_connections().put(connection)
 
-    async def get_connection(self, timeout: Optional[float] = None) -> Optional[aio_pika.Connection]:
+    async def get_connection(
+        self, timeout: Optional[float] = None
+    ) -> Optional[aio_pika.Connection]:
         """
         Acquire a connection from the pool with timeout protection.
-        
+
         Args:
             timeout: Optional timeout override (uses self.acquisition_timeout if None)
-            
+
         Returns:
             Connection object or None if timeout/limit exceeded
-            
+
         Raises:
             asyncio.TimeoutError: If connection cannot be acquired within timeout
             Exception: If circuit breaker is triggered
         """
         timeout = timeout or self.acquisition_timeout
-        
+
         async with self._get_metrics_lock():
             self._total_requests += 1
-            
+
             # Check circuit breaker (only block if already triggered)
             if self._circuit_breaker_triggered:
                 # Check if enough time has passed to reset circuit breaker
@@ -111,35 +121,41 @@ class RabbitMQConnectionPool:
                             f"Pool exhausted {int(time_since_exhaustion)}s ago. "
                             f"Please retry later."
                         )
-            
+
             # Check pool usage (connections in use / max_size) - just log warning, don't block
             available = self._get_connections().qsize()
-            pool_usage = (self.max_size - available) / self.max_size if self.max_size > 0 else 0.0
-            if pool_usage >= self.circuit_breaker_threshold and not self._circuit_breaker_triggered:
+            pool_usage = (
+                (self.max_size - available) / self.max_size
+                if self.max_size > 0
+                else 0.0
+            )
+            if (
+                pool_usage >= self.circuit_breaker_threshold
+                and not self._circuit_breaker_triggered
+            ):
                 # Log warning but don't block - let the actual timeout trigger circuit breaker
                 print(
                     f"WARNING: RabbitMQ connection pool usage ({pool_usage*100:.1f}%) "
                     f"exceeded threshold ({self.circuit_breaker_threshold*100:.1f}%). "
                     f"High usage detected."
                 )
-        
+
         try:
             # Try to get connection with timeout
             connection = await asyncio.wait_for(
-                self._get_connections().get(),
-                timeout=timeout
+                self._get_connections().get(), timeout=timeout
             )
-            
+
             async with self._get_metrics_lock():
                 self._successful_acquisitions += 1
-            
+
             return connection
-            
+
         except asyncio.TimeoutError:
             async with self._get_metrics_lock():
                 self._timeout_errors += 1
                 self._last_exhaustion_time = time.time()
-                
+
                 # Trigger circuit breaker if not already triggered
                 if not self._circuit_breaker_triggered:
                     self._circuit_breaker_triggered = True
@@ -148,7 +164,7 @@ class RabbitMQConnectionPool:
                         f"All {self.max_size} connections are in use. "
                         f"Circuit breaker activated."
                     )
-            
+
             # Raise as Exception (not TimeoutError) to match expected behavior
             raise Exception(
                 f"Connection pool exhausted: Could not acquire connection within {timeout}s. "
@@ -158,10 +174,10 @@ class RabbitMQConnectionPool:
     async def release(self, connection):
         """
         Release the connection back into the pool.
-        
+
         Args:
             connection: Connection to release
-            
+
         Note:
             This should not block indefinitely. If the pool is full (which shouldn't happen),
             we log a warning but still try to put the connection back.
@@ -194,11 +210,11 @@ class RabbitMQConnectionPool:
                 # SECURITY: Silently ignore connection close errors during cleanup
                 # This is intentional - close failures during teardown are non-critical
                 pass  # nosec B110
-    
+
     def get_metrics(self) -> dict:
         """
         Get pool usage metrics.
-        
+
         Returns:
             Dictionary with pool metrics
         """
@@ -207,8 +223,10 @@ class RabbitMQConnectionPool:
         current_size = self._get_connections().qsize()
         # Pool usage = (connections in use) / max_size
         # connections in use = max_size - available = max_size - current_size
-        pool_usage = (self.max_size - current_size) / self.max_size if self.max_size > 0 else 0.0
-        
+        pool_usage = (
+            (self.max_size - current_size) / self.max_size if self.max_size > 0 else 0.0
+        )
+
         return {
             "max_size": self.max_size,
             "current_size": current_size,  # Available connections

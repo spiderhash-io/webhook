@@ -29,7 +29,7 @@ class RedisBuffer(MessageBufferInterface):
         self,
         url: str = "redis://localhost:6379/0",
         prefix: str = "webhook_connect",
-        block_timeout_ms: int = 5000
+        block_timeout_ms: int = 5000,
     ):
         """
         Initialize Redis buffer.
@@ -46,7 +46,9 @@ class RedisBuffer(MessageBufferInterface):
         self.redis: Optional[redis.Redis] = None
 
         # Track in-flight messages
-        self._in_flight: Dict[str, Dict[str, str]] = {}  # message_id -> {stream_id, channel}
+        self._in_flight: Dict[str, Dict[str, str]] = (
+            {}
+        )  # message_id -> {stream_id, channel}
         self._in_flight_lock = asyncio.Lock()
 
         # Stats tracking
@@ -97,10 +99,7 @@ class RedisBuffer(MessageBufferInterface):
         try:
             # Create consumer group (this also creates the stream if it doesn't exist)
             await self.redis.xgroup_create(
-                stream_key,
-                group_name,
-                id="0",
-                mkstream=True
+                stream_key, group_name, id="0", mkstream=True
             )
             logger.info(f"Created consumer group {group_name} for stream {stream_key}")
         except redis.ResponseError as e:
@@ -115,17 +114,13 @@ class RedisBuffer(MessageBufferInterface):
             f"{self.prefix}:meta:{channel}",
             mapping={
                 "ttl_seconds": str(ttl_seconds),
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
         )
 
         # Initialize stats
         if channel not in self._stats:
-            self._stats[channel] = {
-                "delivered": 0,
-                "expired": 0,
-                "dead_lettered": 0
-            }
+            self._stats[channel] = {"delivered": 0, "expired": 0, "dead_lettered": 0}
 
     async def push(self, channel: str, message: WebhookMessage) -> bool:
         """Add message to channel stream."""
@@ -144,12 +139,16 @@ class RedisBuffer(MessageBufferInterface):
                 {
                     "message_id": message.message_id,
                     "data": json.dumps(envelope),
-                    "expires_at": message.expires_at.isoformat() if message.expires_at else ""
+                    "expires_at": (
+                        message.expires_at.isoformat() if message.expires_at else ""
+                    ),
                 },
-                maxlen=10000  # Limit stream size
+                maxlen=10000,  # Limit stream size
             )
 
-            logger.debug(f"Published message {message.message_id} to channel {channel} with stream_id {stream_id}")
+            logger.debug(
+                f"Published message {message.message_id} to channel {channel} with stream_id {stream_id}"
+            )
             return True
 
         except Exception as e:
@@ -160,7 +159,7 @@ class RedisBuffer(MessageBufferInterface):
         self,
         channel: str,
         callback: Callable[[WebhookMessage], Awaitable[None]],
-        prefetch: int = 10
+        prefetch: int = 10,
     ) -> None:
         """Subscribe to channel and receive messages via callback."""
         if not self.redis:
@@ -168,7 +167,9 @@ class RedisBuffer(MessageBufferInterface):
 
         stream_key = self._stream_key(channel)
         group_name = self._consumer_group(channel)
-        consumer_name = f"consumer_{id(callback)}_{datetime.now(timezone.utc).timestamp()}"
+        consumer_name = (
+            f"consumer_{id(callback)}_{datetime.now(timezone.utc).timestamp()}"
+        )
 
         logger.info(f"Starting consumer {consumer_name} for channel {channel}")
 
@@ -180,7 +181,7 @@ class RedisBuffer(MessageBufferInterface):
                     consumer_name,
                     {stream_key: ">"},
                     count=prefetch,
-                    block=self.block_timeout_ms
+                    block=self.block_timeout_ms,
                 )
 
                 if not messages:
@@ -194,9 +195,18 @@ class RedisBuffer(MessageBufferInterface):
                                 stream_id = stream_id.decode()
 
                             # Parse message data
-                            message_id = data.get(b"message_id", data.get("message_id", b"")).decode() \
-                                if isinstance(data.get(b"message_id", data.get("message_id", b"")), bytes) \
+                            message_id = (
+                                data.get(
+                                    b"message_id", data.get("message_id", b"")
+                                ).decode()
+                                if isinstance(
+                                    data.get(
+                                        b"message_id", data.get("message_id", b"")
+                                    ),
+                                    bytes,
+                                )
                                 else data.get("message_id", "")
+                            )
 
                             msg_data = data.get(b"data", data.get("data", b"{}"))
                             if isinstance(msg_data, bytes):
@@ -210,22 +220,28 @@ class RedisBuffer(MessageBufferInterface):
                             if message.is_expired():
                                 # Acknowledge and skip
                                 await self.redis.xack(stream_key, group_name, stream_id)
-                                self._stats[channel]["expired"] = self._stats[channel].get("expired", 0) + 1
-                                logger.debug(f"Skipped expired message {message.message_id}")
+                                self._stats[channel]["expired"] = (
+                                    self._stats[channel].get("expired", 0) + 1
+                                )
+                                logger.debug(
+                                    f"Skipped expired message {message.message_id}"
+                                )
                                 continue
 
                             # Track in-flight
                             async with self._in_flight_lock:
                                 self._in_flight[message.message_id] = {
                                     "stream_id": stream_id,
-                                    "channel": channel
+                                    "channel": channel,
                                 }
 
                             # Call user callback
                             await callback(message)
 
                         except Exception as e:
-                            logger.error(f"Error processing message from {channel}: {e}")
+                            logger.error(
+                                f"Error processing message from {channel}: {e}"
+                            )
                             # Move to DLQ
                             await self._move_to_dlq(channel, stream_id, data, str(e))
 
@@ -236,7 +252,9 @@ class RedisBuffer(MessageBufferInterface):
                 logger.error(f"Error in consumer loop for {channel}: {e}")
                 await asyncio.sleep(1)
 
-    async def _move_to_dlq(self, channel: str, stream_id: str, data: dict, error: str) -> None:
+    async def _move_to_dlq(
+        self, channel: str, stream_id: str, data: dict, error: str
+    ) -> None:
         """Move a message to the dead letter queue."""
         dlq_key = self._dlq_key(channel)
         stream_key = self._stream_key(channel)
@@ -246,18 +264,24 @@ class RedisBuffer(MessageBufferInterface):
             # Add to DLQ sorted set (score = timestamp)
             await self.redis.zadd(
                 dlq_key,
-                {json.dumps({
-                    "stream_id": stream_id,
-                    "data": data,
-                    "error": error,
-                    "failed_at": datetime.now(timezone.utc).isoformat()
-                }): datetime.now(timezone.utc).timestamp()}
+                {
+                    json.dumps(
+                        {
+                            "stream_id": stream_id,
+                            "data": data,
+                            "error": error,
+                            "failed_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    ): datetime.now(timezone.utc).timestamp()
+                },
             )
 
             # Acknowledge in original stream
             await self.redis.xack(stream_key, group_name, stream_id)
 
-            self._stats[channel]["dead_lettered"] = self._stats[channel].get("dead_lettered", 0) + 1
+            self._stats[channel]["dead_lettered"] = (
+                self._stats[channel].get("dead_lettered", 0) + 1
+            )
 
         except Exception as e:
             logger.error(f"Failed to move message to DLQ: {e}")
@@ -283,7 +307,9 @@ class RedisBuffer(MessageBufferInterface):
             # Optionally delete the message from stream
             await self.redis.xdel(stream_key, stream_id)
 
-            self._stats[channel]["delivered"] = self._stats[channel].get("delivered", 0) + 1
+            self._stats[channel]["delivered"] = (
+                self._stats[channel].get("delivered", 0) + 1
+            )
             logger.debug(f"Acknowledged message {message_id}")
             return True
         except Exception as e:
@@ -319,7 +345,9 @@ class RedisBuffer(MessageBufferInterface):
                 messages = await self.redis.xrange(stream_key, stream_id, stream_id)
                 if messages:
                     _, data = messages[0]
-                    await self._move_to_dlq(channel, stream_id, data, "Permanent failure")
+                    await self._move_to_dlq(
+                        channel, stream_id, data, "Permanent failure"
+                    )
                 else:
                     await self.redis.xack(stream_key, group_name, stream_id)
 
@@ -353,7 +381,11 @@ class RedisBuffer(MessageBufferInterface):
         try:
             groups = await self.redis.xinfo_groups(stream_key)
             for group in groups:
-                if group.get("name", b"").decode() if isinstance(group.get("name", b""), bytes) else group.get("name", "") == group_name:
+                if (
+                    group.get("name", b"").decode()
+                    if isinstance(group.get("name", b""), bytes)
+                    else group.get("name", "") == group_name
+                ):
                     return group.get("pending", 0)
         except Exception:
             pass
@@ -374,7 +406,7 @@ class RedisBuffer(MessageBufferInterface):
             messages_delivered=stats.get("delivered", 0),
             messages_expired=stats.get("expired", 0),
             messages_dead_lettered=stats.get("dead_lettered", 0),
-            connected_clients=0  # Will be filled by ChannelManager
+            connected_clients=0,  # Will be filled by ChannelManager
         )
 
     async def cleanup_expired(self, channel: str) -> int:
@@ -395,7 +427,9 @@ class RedisBuffer(MessageBufferInterface):
 
             # Use XTRIM with MINID to remove old entries
             # Calculate minimum ID based on TTL
-            min_timestamp = int((datetime.now(timezone.utc).timestamp() - ttl_seconds) * 1000)
+            min_timestamp = int(
+                (datetime.now(timezone.utc).timestamp() - ttl_seconds) * 1000
+            )
             min_id = f"{min_timestamp}-0"
 
             count = await self.redis.xtrim(stream_key, minid=min_id)
@@ -429,7 +463,9 @@ class RedisBuffer(MessageBufferInterface):
             logger.error(f"Failed to delete channel {channel}: {e}")
             return False
 
-    async def get_dead_letters(self, channel: str, limit: int = 100) -> List[WebhookMessage]:
+    async def get_dead_letters(
+        self, channel: str, limit: int = 100
+    ) -> List[WebhookMessage]:
         """Get dead letter messages for a channel."""
         if not self.redis:
             return []

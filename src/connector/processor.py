@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ProcessingResult:
     """Result of processing a message."""
+
     success: bool
     message_id: str
     webhook_id: str
@@ -37,6 +38,7 @@ class ProcessingResult:
 @dataclass
 class InFlightMessage:
     """Tracks a message being processed."""
+
     message_id: str
     webhook_id: str
     data: Dict[str, Any]
@@ -153,9 +155,7 @@ class MessageProcessor:
         self._in_flight[message_id] = msg_info
 
         # Start processing task
-        msg_info.task = asyncio.create_task(
-            self._process_with_retry(msg_info)
-        )
+        msg_info.task = asyncio.create_task(self._process_with_retry(msg_info))
 
     async def _process_with_retry(self, msg_info: InFlightMessage) -> None:
         """Process message with retry logic."""
@@ -173,7 +173,10 @@ class MessageProcessor:
                 )
             else:
                 # Send NACK
-                retry = msg_info.target.retry_enabled and result.attempts < msg_info.target.retry_max_attempts
+                retry = (
+                    msg_info.target.retry_enabled
+                    and result.attempts < msg_info.target.retry_max_attempts
+                )
                 await self.nack_callback(msg_info.message_id, retry)
                 self._stats.messages_failed += 1
                 logger.error(
@@ -204,7 +207,9 @@ class MessageProcessor:
             try:
                 start_time = datetime.now(timezone.utc)
                 status_code = await self._deliver(msg_info)
-                duration = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+                duration = (
+                    datetime.now(timezone.utc) - start_time
+                ).total_seconds() * 1000
 
                 if 200 <= status_code < 300:
                     return ProcessingResult(
@@ -232,7 +237,9 @@ class MessageProcessor:
 
             except aiohttp.ClientError as e:
                 last_error = str(e)
-                logger.warning(f"Attempt {attempt} failed for {msg_info.message_id}: {e}")
+                logger.warning(
+                    f"Attempt {attempt} failed for {msg_info.message_id}: {e}"
+                )
 
             except Exception as e:
                 last_error = str(e)
@@ -315,6 +322,7 @@ class MessageProcessor:
 @dataclass
 class ProcessingStats:
     """Statistics for message processing."""
+
     messages_delivered: int = 0
     messages_failed: int = 0
     messages_retried: int = 0
@@ -397,8 +405,7 @@ class BatchProcessor:
                 # Wait for first message
                 try:
                     msg = await asyncio.wait_for(
-                        self._queue.get(),
-                        timeout=self.batch_timeout
+                        self._queue.get(), timeout=self.batch_timeout
                     )
                     batch.append(msg)
                 except asyncio.TimeoutError:
@@ -413,8 +420,7 @@ class BatchProcessor:
 
                     try:
                         msg = await asyncio.wait_for(
-                            self._queue.get(),
-                            timeout=remaining
+                            self._queue.get(), timeout=remaining
                         )
                         batch.append(msg)
                     except asyncio.TimeoutError:
@@ -452,7 +458,9 @@ class BatchProcessor:
             # TODO: Implement batch delivery
             # For now, just process individually
             for msg in messages:
-                processor = MessageProcessor(self.config, self.ack_callback, self.nack_callback)
+                processor = MessageProcessor(
+                    self.config, self.ack_callback, self.nack_callback
+                )
                 await processor.start()
                 try:
                     await processor.process(msg)

@@ -8,6 +8,7 @@ WEBHOOK_URL = "http://localhost:8000/webhook/redis_publish_webhook"
 TOTAL_REQUESTS = 5000
 CONCURRENCY = 50
 
+
 async def send_request(client: httpx.AsyncClient) -> float:
     start = time.time()
     try:
@@ -18,10 +19,14 @@ async def send_request(client: httpx.AsyncClient) -> float:
         pass
     return time.time() - start
 
-async def worker(semaphore: asyncio.Semaphore, client: httpx.AsyncClient, results: List[float]):
+
+async def worker(
+    semaphore: asyncio.Semaphore, client: httpx.AsyncClient, results: List[float]
+):
     async with semaphore:
         latency = await send_request(client)
         results.append(latency)
+
 
 async def run_test():
     semaphore = asyncio.Semaphore(CONCURRENCY)
@@ -37,6 +42,7 @@ async def run_test():
     print(f"Total time: {total_time:.2f}s")
     print(f"Average latency per request: {avg_latency:.4f}s")
     print(f"Requests per second: {TOTAL_REQUESTS / total_time:.2f}")
+
 
 if __name__ == "__main__":
     asyncio.run(run_test())

@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 class ConnectionState(Enum):
     """Connection state enumeration."""
+
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -40,7 +41,9 @@ class StreamClient(ABC):
         config: ConnectorConfig,
         on_message: Callable[[Dict[str, Any]], Awaitable[None]],
         on_connect: Optional[Callable[[], Awaitable[None]]] = None,
-        on_disconnect: Optional[Callable[[Optional[Exception]], Awaitable[None]]] = None,
+        on_disconnect: Optional[
+            Callable[[Optional[Exception]], Awaitable[None]]
+        ] = None,
     ):
         """
         Initialize stream client.
@@ -104,7 +107,7 @@ class StreamClient(ABC):
 
             self._reconnect_delay = min(
                 self._reconnect_delay * self.config.reconnect_backoff_multiplier,
-                self.config.max_reconnect_delay
+                self.config.max_reconnect_delay,
             )
 
         self.state = ConnectionState.CLOSED
@@ -130,8 +133,7 @@ class StreamClient(ABC):
 
             if self.config.client_cert_path:
                 ctx.load_cert_chain(
-                    self.config.client_cert_path,
-                    self.config.client_key_path
+                    self.config.client_cert_path, self.config.client_key_path
                 )
 
             return ctx
@@ -180,7 +182,9 @@ class WebSocketClient(StreamClient):
                         await self.on_connect()
 
                     # Start heartbeat monitor
-                    self._heartbeat_task = asyncio.create_task(self._monitor_heartbeat())
+                    self._heartbeat_task = asyncio.create_task(
+                        self._monitor_heartbeat()
+                    )
 
                     # Message loop
                     await self._message_loop()
@@ -245,9 +249,13 @@ class WebSocketClient(StreamClient):
             await asyncio.sleep(self.config.heartbeat_timeout / 2)
 
             if self.last_heartbeat:
-                elapsed = (datetime.now(timezone.utc) - self.last_heartbeat).total_seconds()
+                elapsed = (
+                    datetime.now(timezone.utc) - self.last_heartbeat
+                ).total_seconds()
                 if elapsed > self.config.heartbeat_timeout:
-                    logger.warning(f"Heartbeat timeout ({elapsed:.1f}s > {self.config.heartbeat_timeout}s)")
+                    logger.warning(
+                        f"Heartbeat timeout ({elapsed:.1f}s > {self.config.heartbeat_timeout}s)"
+                    )
                     if self._ws:
                         await self._ws.close()
                     break
@@ -258,10 +266,7 @@ class WebSocketClient(StreamClient):
             return False
 
         try:
-            await self._ws.send_json({
-                "type": "ack",
-                "message_id": message_id
-            })
+            await self._ws.send_json({"type": "ack", "message_id": message_id})
             logger.debug(f"Sent ACK for {message_id}")
             return True
         except Exception as e:
@@ -274,11 +279,9 @@ class WebSocketClient(StreamClient):
             return False
 
         try:
-            await self._ws.send_json({
-                "type": "nack",
-                "message_id": message_id,
-                "retry": retry
-            })
+            await self._ws.send_json(
+                {"type": "nack", "message_id": message_id, "retry": retry}
+            )
             logger.debug(f"Sent NACK for {message_id}, retry={retry}")
             return True
         except Exception as e:
@@ -313,7 +316,9 @@ class SSEClient(StreamClient):
                 ssl=ssl_context,
             ) as response:
                 if response.status != 200:
-                    raise Exception(f"SSE connection failed with status {response.status}")
+                    raise Exception(
+                        f"SSE connection failed with status {response.status}"
+                    )
 
                 self._response = response
                 self.state = ConnectionState.CONNECTED
@@ -406,8 +411,8 @@ class SSEClient(StreamClient):
                 params={"message_id": message_id, "status": "ack"},
                 headers={
                     "Authorization": f"Bearer {self.config.token}",
-                    "X-Connection-ID": self.connection_id or ""
-                }
+                    "X-Connection-ID": self.connection_id or "",
+                },
             ) as response:
                 if response.status == 200:
                     logger.debug(f"Sent ACK for {message_id}")
@@ -430,11 +435,15 @@ class SSEClient(StreamClient):
         try:
             async with self._session.post(
                 ack_url,
-                params={"message_id": message_id, "status": "nack", "retry": str(retry).lower()},
+                params={
+                    "message_id": message_id,
+                    "status": "nack",
+                    "retry": str(retry).lower(),
+                },
                 headers={
                     "Authorization": f"Bearer {self.config.token}",
-                    "X-Connection-ID": self.connection_id or ""
-                }
+                    "X-Connection-ID": self.connection_id or "",
+                },
             ) as response:
                 if response.status == 200:
                     logger.debug(f"Sent NACK for {message_id}, retry={retry}")

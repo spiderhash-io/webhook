@@ -167,6 +167,7 @@ class TestHealthEndpoint:
     @pytest.mark.asyncio
     async def test_health_check_unhealthy(self, app, mock_channel_manager):
         """Test health check shows unhealthy when buffer is down."""
+
         # Override health check to return unhealthy
         async def unhealthy_check():
             return {"buffer": False, "channels_count": 2, "connections_count": 0}
@@ -189,6 +190,7 @@ class TestAuthenticationRequired:
         """Test endpoints fail when no admin token is configured."""
         # Patch ADMIN_TOKEN to empty
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = ""
 
@@ -205,6 +207,7 @@ class TestAuthenticationRequired:
     async def test_list_channels_missing_auth_header(self, app, monkeypatch):
         """Test endpoints fail without authorization header."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -221,6 +224,7 @@ class TestAuthenticationRequired:
     async def test_list_channels_invalid_token(self, app, monkeypatch):
         """Test endpoints fail with invalid token."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -244,6 +248,7 @@ class TestListChannels:
     async def test_list_channels_success(self, app, monkeypatch):
         """Test listing all channels."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -274,6 +279,7 @@ class TestGetChannelDetails:
     async def test_get_channel_details_success(self, app, monkeypatch):
         """Test getting channel details."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -298,6 +304,7 @@ class TestGetChannelDetails:
     async def test_get_channel_details_not_found(self, app, monkeypatch):
         """Test getting details for non-existent channel."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -321,6 +328,7 @@ class TestRotateToken:
     async def test_rotate_token_success(self, app, monkeypatch):
         """Test successful token rotation."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -345,6 +353,7 @@ class TestRotateToken:
     async def test_rotate_token_channel_not_found(self, app, monkeypatch):
         """Test token rotation for non-existent channel."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -368,6 +377,7 @@ class TestDisconnectConnection:
     async def test_disconnect_success(self, app, mock_channel_manager, monkeypatch):
         """Test disconnecting a connection."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -392,6 +402,7 @@ class TestDisconnectConnection:
     async def test_disconnect_connection_not_found(self, app, monkeypatch):
         """Test disconnecting non-existent connection."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -411,6 +422,7 @@ class TestDisconnectConnection:
     async def test_disconnect_wrong_channel(self, app, monkeypatch):
         """Test disconnecting connection from wrong channel."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -435,6 +447,7 @@ class TestChannelStats:
     async def test_get_channel_stats_success(self, app, monkeypatch):
         """Test getting channel statistics."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -457,6 +470,7 @@ class TestChannelStats:
     async def test_get_channel_stats_not_found(self, app, monkeypatch):
         """Test getting stats for non-existent channel."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -476,9 +490,12 @@ class TestDeadLetters:
     """Tests for dead letter queue endpoint."""
 
     @pytest.mark.asyncio
-    async def test_get_dead_letters_success(self, app, mock_channel_manager, monkeypatch):
+    async def test_get_dead_letters_success(
+        self, app, mock_channel_manager, monkeypatch
+    ):
         """Test getting dead letters."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -509,6 +526,7 @@ class TestDeadLetters:
     async def test_get_dead_letters_channel_not_found(self, app, monkeypatch):
         """Test getting dead letters for non-existent channel."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -531,6 +549,7 @@ class TestOverview:
     async def test_get_overview_success(self, app, monkeypatch):
         """Test getting system overview."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 
@@ -572,6 +591,7 @@ class TestChannelManagerNotInitialized:
     async def test_channels_returns_503(self, monkeypatch):
         """Test channels endpoint returns 503 when not initialized."""
         import src.webhook_connect.admin_api as admin_api
+
         original_token = admin_api.ADMIN_TOKEN
         admin_api.ADMIN_TOKEN = "admin-secret"
 

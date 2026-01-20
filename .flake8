@@ -1,0 +1,19 @@
+[flake8]
+max-line-length = 100
+max-complexity = 10
+exclude = 
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    build,
+    dist,
+    *.egg-info,
+    .docusaurus,
+    node_modules,
+    docusaurus
+ignore = 
+    # W503: line break before binary operator (conflicts with Black)
+    W503,
+    # E203: whitespace before ':' (conflicts with Black)
+    E203

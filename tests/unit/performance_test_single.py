@@ -6,6 +6,7 @@ This test measures:
 - Latency (average, p50, p95, p99)
 - Error rate
 """
+
 import asyncio
 import time
 import httpx
@@ -22,21 +23,20 @@ TIMEOUT = 30.0
 
 # Results storage
 results = {
-    'latencies': [],
-    'errors': [],
-    'successes': 0,
-    'failures': 0,
-    'status_codes': defaultdict(int)
+    "latencies": [],
+    "errors": [],
+    "successes": 0,
+    "failures": 0,
+    "status_codes": defaultdict(int),
 }
 
 
 async def send_request(
-    client: httpx.AsyncClient,
-    request_id: int
+    client: httpx.AsyncClient, request_id: int
 ) -> Tuple[float, bool, str, int]:
     """
     Send a single webhook request.
-    
+
     Returns:
         (latency, success, error_message, status_code)
     """
@@ -47,19 +47,19 @@ async def send_request(
             json={
                 "test_id": request_id,
                 "message": f"Performance test request {request_id}",
-                "timestamp": time.time()
+                "timestamp": time.time(),
             },
             headers={
                 "Authorization": "Bearer test_token",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             },
-            timeout=TIMEOUT
+            timeout=TIMEOUT,
         )
         latency = time.time() - start
-        
+
         status_code = response.status_code
-        results['status_codes'][status_code] += 1
-        
+        results["status_codes"][status_code] += 1
+
         if status_code in [200, 202]:  # 200 OK or 202 Accepted (retries)
             return latency, True, "", status_code
         else:
@@ -73,21 +73,19 @@ async def send_request(
 
 
 async def worker(
-    semaphore: asyncio.Semaphore,
-    client: httpx.AsyncClient,
-    request_id: int
+    semaphore: asyncio.Semaphore, client: httpx.AsyncClient, request_id: int
 ):
     """Worker coroutine that sends requests."""
     async with semaphore:
         latency, success, error, status_code = await send_request(client, request_id)
-        
-        results['latencies'].append(latency)
-        
+
+        results["latencies"].append(latency)
+
         if success:
-            results['successes'] += 1
+            results["successes"] += 1
         else:
-            results['failures'] += 1
-            results['errors'].append(error)
+            results["failures"] += 1
+            results["errors"].append(error)
 
 
 async def run_test():
@@ -101,43 +99,47 @@ async def run_test():
     print(f"Concurrency: {CONCURRENCY}")
     print("=" * 80)
     print()
-    
+
     semaphore = asyncio.Semaphore(CONCURRENCY)
     async with httpx.AsyncClient() as client:
         tasks = []
-        
+
         # Create tasks
         for request_id in range(TOTAL_REQUESTS):
             tasks.append(worker(semaphore, client, request_id))
-        
+
         print(f"Starting test with {len(tasks)} requests...")
         start_time = time.time()
-        
+
         await asyncio.gather(*tasks)
-        
+
         total_time = time.time() - start_time
-    
+
     # Calculate statistics
-    latencies = results['latencies']
+    latencies = results["latencies"]
     if not latencies:
         print("ERROR: No successful requests!")
         return
-    
+
     latencies_sorted = sorted(latencies)
-    total_requests = results['successes'] + results['failures']
-    
+    total_requests = results["successes"] + results["failures"]
+
     # Overall statistics
     print("\n" + "=" * 80)
     print("OVERALL RESULTS")
     print("=" * 80)
     print(f"Total Requests: {total_requests}")
-    print(f"Successful: {results['successes']} ({results['successes']/total_requests*100:.2f}%)")
-    print(f"Failed: {results['failures']} ({results['failures']/total_requests*100:.2f}%)")
+    print(
+        f"Successful: {results['successes']} ({results['successes']/total_requests*100:.2f}%)"
+    )
+    print(
+        f"Failed: {results['failures']} ({results['failures']/total_requests*100:.2f}%)"
+    )
     print(f"Total Time: {total_time:.2f}s")
     print(f"Requests per Second: {total_requests / total_time:.2f}")
     print(f"Successful RPS: {results['successes'] / total_time:.2f}")
     print()
-    
+
     if latencies:
         print("Latency Statistics (seconds):")
         print(f"  Average: {statistics.mean(latencies):.4f}s")
@@ -147,7 +149,7 @@ async def run_test():
         print(f"  Min: {min(latencies):.4f}s")
         print(f"  Max: {max(latencies):.4f}s")
         print()
-        
+
         print("Latency Percentiles:")
         print(f"  p50: {latencies_sorted[int(len(latencies_sorted) * 0.50)]:.4f}s")
         print(f"  p75: {latencies_sorted[int(len(latencies_sorted) * 0.75)]:.4f}s")
@@ -155,25 +157,27 @@ async def run_test():
         print(f"  p95: {latencies_sorted[int(len(latencies_sorted) * 0.95)]:.4f}s")
         print(f"  p99: {latencies_sorted[int(len(latencies_sorted) * 0.99)]:.4f}s")
         print()
-    
+
     # Status code breakdown
-    if results['status_codes']:
+    if results["status_codes"]:
         print("Status Code Breakdown:")
-        for code, count in sorted(results['status_codes'].items()):
+        for code, count in sorted(results["status_codes"].items()):
             print(f"  {code}: {count} ({count/total_requests*100:.2f}%)")
         print()
-    
+
     # Error breakdown
-    if results['errors']:
+    if results["errors"]:
         error_counts = defaultdict(int)
-        for error in results['errors']:
+        for error in results["errors"]:
             error_counts[error] += 1
-        
+
         print("Error Breakdown:")
-        for error, count in sorted(error_counts.items(), key=lambda x: x[1], reverse=True):
+        for error, count in sorted(
+            error_counts.items(), key=lambda x: x[1], reverse=True
+        ):
             print(f"  {error}: {count}")
         print()
-    
+
     print("=" * 80)
     print("Test completed!")
     print("=" * 80)
@@ -181,4 +185,3 @@ async def run_test():
 
 if __name__ == "__main__":
     asyncio.run(run_test())
-

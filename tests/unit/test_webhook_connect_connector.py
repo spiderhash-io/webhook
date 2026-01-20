@@ -293,14 +293,16 @@ class TestConnectorConfigLoad:
         """Test that environment variables override file config."""
         # Create config file
         config_file = tmp_path / "connector.json"
-        config_file.write_text('''
+        config_file.write_text(
+            """
         {
             "cloud_url": "https://file.example.com",
             "channel": "file-channel",
             "token": "file-token",
             "protocol": "websocket"
         }
-        ''')
+        """
+        )
 
         # Set environment override
         monkeypatch.setenv("CONNECTOR_CHANNEL", "env-channel")

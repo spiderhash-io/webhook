@@ -19,20 +19,34 @@ Usage:
 # Only import config (no external dependencies)
 from src.connector.config import ConnectorConfig, TargetConfig
 
+
 # Lazy imports for components with external dependencies
 def __getattr__(name):
     """Lazy import for components that require aiohttp."""
     if name in ("StreamClient", "WebSocketClient", "SSEClient", "create_client"):
-        from src.connector.stream_client import StreamClient, WebSocketClient, SSEClient, create_client
-        return {"StreamClient": StreamClient, "WebSocketClient": WebSocketClient,
-                "SSEClient": SSEClient, "create_client": create_client}[name]
+        from src.connector.stream_client import (
+            StreamClient,
+            WebSocketClient,
+            SSEClient,
+            create_client,
+        )
+
+        return {
+            "StreamClient": StreamClient,
+            "WebSocketClient": WebSocketClient,
+            "SSEClient": SSEClient,
+            "create_client": create_client,
+        }[name]
     elif name == "MessageProcessor":
         from src.connector.processor import MessageProcessor
+
         return MessageProcessor
     elif name == "LocalConnector":
         from src.connector.main import LocalConnector
+
         return LocalConnector
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "ConnectorConfig",
