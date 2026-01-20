@@ -27,44 +27,56 @@ jobs:
     
     - name: Build documentation
       working-directory: ./docusaurus
-      run: npm run build || echo "Documentation build failed - continuing"
-      continue-on-error: true
+      run: npm run build
     
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: docs-build
         path: docusaurus/build/
+        if-no-files-found: error
+    
+    - name: Check build output
+      run: |
+        echo "✅ Documentation built successfully"
+        ls -lh docusaurus/build/
+        echo "Total files: $(find docusaurus/build -type f | wc -l)"
 
-  deploy-docs:
-    name: Deploy to GitHub Pages
-    needs: build-docs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: docusaurus/package-lock.json
-    
-    - name: Install dependencies
-      working-directory: ./docusaurus
-      run: npm ci
-    
-    - name: Build documentation
-      working-directory: ./docusaurus
-      run: npm run build
-    
-    - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./docusaurus/build
-        cname: docs.spiderhash.io  # Optional: Add your custom domain
+  # Deployment is disabled until GitHub Pages is configured
+  # To enable:
+  # 1. Go to https://github.com/spiderhash-io/webhook/settings/pages
+  # 2. Set source to "Deploy from a branch"
+  # 3. Select "gh-pages" branch
+  # 4. Uncomment the deploy-docs job below
+  
+  # deploy-docs:
+  #   name: Deploy to GitHub Pages
+  #   needs: build-docs
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     contents: write
+  #   
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #   
+  #   - name: Setup Node.js
+  #     uses: actions/setup-node@v4
+  #     with:
+  #       node-version: '18'
+  #       cache: 'npm'
+  #       cache-dependency-path: docusaurus/package-lock.json
+  #   
+  #   - name: Install dependencies
+  #     working-directory: ./docusaurus
+  #     run: npm ci
+  #   
+  #   - name: Build documentation
+  #     working-directory: ./docusaurus
+  #     run: npm run build
+  #   
+  #   - name: Deploy to GitHub Pages
+  #     uses: peaceiris/actions-gh-pages@v3
+  #     with:
+  #       github_token: ${{ secrets.GITHUB_TOKEN }}
+  #       publish_dir: ./docusaurus/build
