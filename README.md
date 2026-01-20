@@ -92,65 +92,61 @@ A webhook receiver and processor built with FastAPI. Receives HTTP webhook reque
 - `ARCHITECTURE.md`: Detailed architecture documentation
 - `PERFORMANCE_TEST.md`: Performance testing documentation
 
-**See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation and how to add new modules.**
+**See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation and how to add new modules.**
 
-**See [DEVELOPMENT.md](DEVELOPMENT.md) for development setup and workflow guide.**
+**See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for development setup and workflow guide.**
 
-## Installation & Running
+## Quick Start
 
-### Local Development (venv)
+### Docker (Recommended)
 
-1. Create a virtual environment (recommended):
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-2. Install development dependencies (includes production deps + testing tools):
-   ```bash
-   pip install -r requirements-dev.txt
-   ```
-
-3. Run the server:
-   ```bash
-   uvicorn src.main:app --reload
-   ```
-
-4. Run the tests:
+The easiest way to get started:
 
 ```bash
-make test        # or: pytest -v
+# Pull the image
+docker pull spiderhash/webhook:0.1.0
+
+# Run with default configuration
+docker run -p 8000:8000 spiderhash/webhook:0.1.0
+
+# Or run with your own configuration
+docker run -p 8000:8000 \
+  -v $(pwd)/config:/app/config \
+  spiderhash/webhook:0.1.0
 ```
 
-See `DEVELOPMENT.md` for a more detailed development workflow.
+**Docker Hub:** https://hub.docker.com/r/spiderhash/webhook
 
-### Production Installation
+**Supported Architectures:** `linux/amd64`, `linux/arm64`
 
-For production deployments, install only production dependencies:
+### Using Docker Compose
+
+Create `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  webhook:
+    image: spiderhash/webhook:0.1.0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config
+    environment:
+      - WEBHOOKS_CONFIG_FILE=/app/config/webhooks.json
+      - CONNECTIONS_CONFIG_FILE=/app/config/connections.json
+    restart: unless-stopped
+```
+
+Then run:
 ```bash
-pip install -r requirements.txt
+docker-compose up -d
 ```
 
-### Development Tools
+### Python Installation (For Development)
 
-The development requirements include:
-- **pytest** - Testing framework
-- **pytest-asyncio** - Async test support
-- **fakeredis** - Redis mock for testing
-- **black** - Code formatter (optional)
-- **flake8** - Linter (optional)
-- **mypy** - Type checker (optional)
-- **pytest-cov** - Coverage reporting (optional)
-
-To run tests:
-```bash
-pytest
-```
-
-To format code (if black is installed):
-```bash
-black src/
-```
+If you want to contribute or run from source, see [DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed setup instructions.
 
 ### Docker (Single Instance)
 
