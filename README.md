@@ -1,5 +1,13 @@
 # Core Webhook Module
 
+[![CI](https://github.com/spiderhash-io/webhook/actions/workflows/ci.yml/badge.svg)](https://github.com/spiderhash-io/webhook/actions/workflows/ci.yml)
+[![Docker Build](https://github.com/spiderhash-io/webhook/actions/workflows/docker-build.yml/badge.svg)](https://github.com/spiderhash-io/webhook/actions/workflows/docker-build.yml)
+[![Security Scan](https://github.com/spiderhash-io/webhook/actions/workflows/security-scan.yml/badge.svg)](https://github.com/spiderhash-io/webhook/actions/workflows/security-scan.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](https://github.com/spiderhash-io/webhook/releases)
+[![Docker Pulls](https://img.shields.io/docker/pulls/spiderhash/webhook)](https://hub.docker.com/r/spiderhash/webhook)
+
 A webhook receiver and processor built with FastAPI. Receives HTTP webhook requests, validates them using authentication and validation rules, and forwards payloads to destinations including RabbitMQ, Redis, MQTT, databases, object storage, message queues, and local filesystem.
 
 **Status**: 2,493 passing tests. Supports 11 authentication methods, 17 output modules, and cloud-to-local webhook relay.
