@@ -1,0 +1,95 @@
+We're excited to announce the first public release of Core Webhook Module! This release marks the open-sourcing of our production-ready webhook receiver and processor.
+
+## 🎉 Highlights
+
+- **FastAPI-based webhook receiver** with configuration-driven architecture
+- **11 authentication methods** including JWT, HMAC, OAuth 1.0/2.0, reCAPTCHA, and more
+- **17 output modules** supporting RabbitMQ, Kafka, Redis, PostgreSQL, MySQL, S3, SQS, Pub/Sub, MQTT, and more
+- **Webhook chaining** for sequential/parallel execution across multiple destinations
+- **Cloud-to-local relay** (Webhook Connect) for receiving webhooks behind firewalls
+- **Live configuration reload** without service restart
+- **2,848+ passing tests** with 100% CI success rate ✅
+
+## 📦 Installation
+
+### Docker (Recommended)
+```bash
+docker pull spiderhash/webhook:0.1.0
+docker run -p 8000:8000 -v $(pwd)/config:/app/config spiderhash/webhook:0.1.0
+```
+
+### From Source
+```bash
+git clone https://github.com/spiderhash-io/webhook.git
+cd webhook
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python src/main.py
+```
+
+## 🚀 Key Features
+
+### Authentication Methods (11)
+Bearer Token • HTTP Basic Auth • JWT • HMAC • IP Whitelisting • Header Auth • Query Param • HTTP Digest • OAuth 1.0 • OAuth 2.0 • Google reCAPTCHA
+
+### Output Modules (17)
+Log • Save to Disk • RabbitMQ • Redis RQ • Redis Pub/Sub • HTTP • Kafka • MQTT • WebSocket • ClickHouse • PostgreSQL • MySQL • AWS S3 • AWS SQS • GCP Pub/Sub • ActiveMQ • ZeroMQ
+
+### Security
+Multi-layer validation • Constant-time HMAC • Rate limiting • Credential redaction • Payload validation • JSON schema validation • Input sanitization
+
+## 📚 Documentation
+
+- [README.md](https://github.com/spiderhash-io/webhook/blob/main/README.md) - Overview and quick start
+- [ARCHITECTURE.md](https://github.com/spiderhash-io/webhook/blob/main/ARCHITECTURE.md) - Architecture details
+- [CONTRIBUTING.md](https://github.com/spiderhash-io/webhook/blob/main/CONTRIBUTING.md) - Contribution guidelines
+- [SECURITY.md](https://github.com/spiderhash-io/webhook/blob/main/SECURITY.md) - Security policy
+- [docs/QUICKSTART.md](https://github.com/spiderhash-io/webhook/blob/main/docs/QUICKSTART.md) - 5-minute setup
+
+## 🔧 Quick Example
+
+```json
+{
+  "github_webhook": {
+    "data_type": "json",
+    "module": "rabbitmq",
+    "authorization": "Bearer {$GITHUB_WEBHOOK_TOKEN}",
+    "hmac-verification": {
+      "secret": "{$GITHUB_WEBHOOK_SECRET}",
+      "header": "X-Hub-Signature-256",
+      "algorithm": "sha256"
+    },
+    "module-config": {
+      "connection": "rabbitmq_main",
+      "exchange": "webhooks",
+      "routing_key": "github.events"
+    }
+  }
+}
+```
+
+## 🧪 Testing
+
+- 2,848+ passing unit tests (100% success rate)
+- 90%+ code coverage
+- Security audit tests
+- CI/CD with GitHub Actions
+
+```bash
+make test        # Unit tests
+make test-all    # All tests
+make test-cov    # With coverage
+```
+
+## 🤝 Contributing
+
+We welcome contributions! See [CONTRIBUTING.md](https://github.com/spiderhash-io/webhook/blob/main/CONTRIBUTING.md) for guidelines.
+
+## 📄 License
+
+MIT License - see [LICENSE](https://github.com/spiderhash-io/webhook/blob/main/LICENSE)
+
+---
+
+**Full Changelog**: https://github.com/spiderhash-io/webhook/commits/v0.1.0
