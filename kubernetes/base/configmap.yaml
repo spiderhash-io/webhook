@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: webhook-config
+  namespace: webhook-system
+  labels:
+    app.kubernetes.io/name: core-webhook-module
+    app.kubernetes.io/component: config
+data:
+  webhooks.json: |
+    {
+      "example": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer test",
+        "module-config": {
+          "pretty_print": true
+        }
+      }
+    }
+  connections.json: |
+    {}

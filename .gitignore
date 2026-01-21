@@ -84,3 +84,6 @@ config/production/
 # OS
 .DS_Store
 Thumbs.db
+
+# Webhook Agent Skill (separate git repository)
+webhook-agent-skill/

@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-deployment
+  namespace: webhook-system
+  labels:
+    app.kubernetes.io/name: core-webhook-module
+    app.kubernetes.io/component: server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: core-webhook-module
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: core-webhook-module
+        app.kubernetes.io/component: server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: webhook
+          # IMPORTANT: Replace with your actual image repository
+          image: ghcr.io/YOUR_ORG/core-webhook-module:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: WEBHOOKS_CONFIG_FILE
+              value: "/app/config/webhooks.json"
+            - name: CONNECTIONS_CONFIG_FILE
+              value: "/app/config/connections.json"
+            - name: STATS_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-secrets
+                  key: STATS_AUTH_TOKEN
+            - name: CONFIG_RELOAD_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-secrets
+                  key: CONFIG_RELOAD_ADMIN_TOKEN
+          volumeMounts:
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+      volumes:
+        - name: config-volume
+          configMap:
+            name: webhook-config
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: core-webhook-module
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30

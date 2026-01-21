@@ -1,12 +1,16 @@
-'# Webhook Configuration Agent Instructions
+# Webhook Configuration Agent Instructions
 
 **Role**: Expert webhook engineer. Generate exact webhook configurations based on user requirements.
 
-**Full Documentation**: https://spiderhash.com/webhook/agent-instructions.md
+**Full Documentation**: https://spiderhash.io/webhook/agent-instructions.md
 
 **Docker Image**: `spiderhash/webhook:latest`
 
+**Version**: 1.0.0
+
 **Interactive API Docs** (when running): http://localhost:8000/docs (Swagger UI) | http://localhost:8000/redoc (ReDoc)
+
+**Health Endpoint**: http://localhost:8000/health - Returns service health status
 
 ---
 
@@ -471,6 +475,7 @@ Usage: `POST /webhook/id?api_key=secret_key_123`
 ## ADVANCED FEATURES (Only When Asked)
 
 ### Rate Limiting
+Protect endpoints from abuse:
 ```json
 {
     "rate_limit": {
@@ -480,34 +485,57 @@ Usage: `POST /webhook/id?api_key=secret_key_123`
 }
 ```
 
+**Common Rate Limit Patterns:**
+| Use Case | max_requests | window_seconds |
+|----------|--------------|----------------|
+| Standard API | 100 | 60 |
+| Public endpoints | 10 | 60 |
+| High throughput | 1000 | 1 |
+
 ### JSON Schema Validation
+Validate incoming payloads before processing:
 ```json
 {
     "json_schema": {
         "type": "object",
         "properties": {
             "event": {"type": "string"},
+            "timestamp": {"type": "string", "format": "date-time"},
             "data": {"type": "object"}
         },
-        "required": ["event", "data"]
+        "required": ["event", "data"],
+        "additionalProperties": false
     }
 }
 ```
 
+**Common Schema Patterns:**
+- `{"type": "string", "enum": ["pending", "active", "cancelled"]}` - Enum values
+- `{"type": "integer", "minimum": 1}` - Positive integers
+- `{"type": "string", "format": "email"}` - Email validation
+- `{"type": "array", "items": {...}, "minItems": 1}` - Non-empty arrays
+
 ### Credential Cleanup
+Remove or mask sensitive fields before storing:
 ```json
 {
     "credential_cleanup": {
         "enabled": true,
-        "mode": "mask",  // or "remove"
-        "fields": ["password", "api_key", "custom_secret"]
+        "mode": "mask",
+        "fields": ["password", "api_key", "secret", "token", "credit_card"]
     }
 }
 ```
 
+**Modes:**
+- `mask` - Replace with `***REDACTED***`
+- `remove` - Delete field entirely
+
 ### Webhook Chaining (Multiple Destinations)
 
-**Sequential** (one after another)
+Send to multiple destinations in sequence or parallel.
+
+**Sequential** (one after another, stops on error by default):
 ```json
 {
     "chained": {
@@ -516,7 +544,12 @@ Usage: `POST /webhook/id?api_key=secret_key_123`
             {
                 "module": "s3",
                 "connection": "s3_conn",
-                "module-config": {"bucket": "archive"}
+                "module-config": {"bucket": "archive", "prefix": "webhooks/"}
+            },
+            {
+                "module": "postgresql",
+                "connection": "pg_conn",
+                "module-config": {"table": "webhook_events", "storage_mode": "json"}
             },
             {
                 "module": "rabbitmq",
@@ -526,31 +559,242 @@ Usage: `POST /webhook/id?api_key=secret_key_123`
         ],
         "chain-config": {
             "execution": "sequential",
+            "continue_on_error": false
+        }
+    }
+}
+```
+
+**Parallel** (all at once, faster):
+```json
+{
+    "fanout": {
+        "data_type": "json",
+        "chain": [
+            {"module": "log", "module-config": {"pretty_print": true}},
+            {"module": "postgresql", "connection": "pg_conn", "module-config": {"table": "events"}},
+            {"module": "kafka", "connection": "kafka_conn", "module-config": {"topic": "events"}}
+        ],
+        "chain-config": {
+            "execution": "parallel",
             "continue_on_error": true
         }
     }
 }
 ```
 
-**Parallel** (all at once)
-```json
-{
-    "chain-config": {
-        "execution": "parallel",
-        "continue_on_error": true
-    }
-}
-```
-
 ### Retry Configuration
+Automatic retries with exponential backoff:
 ```json
 {
     "retry": {
         "enabled": true,
         "max_attempts": 5,
         "initial_delay": 1.0,
-        "max_delay": 10.0,
+        "max_delay": 30.0,
         "backoff_multiplier": 2.0
+    }
+}
+```
+
+**Retry Timing:** 0s → 1s → 2s → 4s → 8s (exponential backoff, capped at max_delay)
+
+---
+
+## COMBINED FEATURE EXAMPLES
+
+When users request multiple features, combine them in a single webhook config.
+
+### Example: Stripe + HMAC + PostgreSQL + Rate Limiting
+
+**User Query:** "Create a webhook for Stripe using HMAC Signature authentication and send to PostgreSQL with Rate limiting"
+
+**webhooks.json:**
+```json
+{
+    "stripe": {
+        "data_type": "json",
+        "module": "postgresql",
+        "connection": "pg_conn",
+        "module-config": {
+            "table": "stripe_events",
+            "storage_mode": "json"
+        },
+        "hmac": {
+            "secret": "{$STRIPE_WEBHOOK_SECRET}",
+            "header": "Stripe-Signature",
+            "algorithm": "sha256"
+        },
+        "rate_limit": {
+            "max_requests": 100,
+            "window_seconds": 60
+        }
+    }
+}
+```
+
+**connections.json:**
+```json
+{
+    "pg_conn": {
+        "type": "postgresql",
+        "host": "postgres",
+        "port": 5432,
+        "user": "webhook_user",
+        "password": "webhook_pass",
+        "database": "webhooks"
+    }
+}
+```
+
+**.env:**
+```
+STRIPE_WEBHOOK_SECRET=whsec_your_stripe_secret_here
+```
+
+**docker-compose.yml:**
+```yaml
+services:
+  webhook:
+    image: spiderhash/webhook:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./webhooks.json:/app/webhooks.json:ro
+      - ./connections.json:/app/connections.json:ro
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=webhook_user
+      - POSTGRES_PASSWORD=webhook_pass
+      - POSTGRES_DB=webhooks
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - webhook-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhook_user -d webhooks"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+
+networks:
+  webhook-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+```
+
+### Example: GitHub + HMAC + RabbitMQ + Chaining + Retry
+
+**webhooks.json:**
+```json
+{
+    "github": {
+        "data_type": "json",
+        "hmac": {
+            "secret": "{$GITHUB_WEBHOOK_SECRET}",
+            "header": "X-Hub-Signature-256",
+            "algorithm": "sha256"
+        },
+        "chain": [
+            {
+                "module": "s3",
+                "connection": "s3_conn",
+                "module-config": {"bucket": "github-webhooks", "prefix": "events/"}
+            },
+            {
+                "module": "rabbitmq",
+                "connection": "rmq_conn",
+                "module-config": {"queue_name": "github_events"}
+            }
+        ],
+        "chain-config": {
+            "execution": "sequential",
+            "continue_on_error": true
+        },
+        "retry": {
+            "enabled": true,
+            "max_attempts": 3,
+            "initial_delay": 1.0,
+            "backoff_multiplier": 2.0
+        }
+    }
+}
+```
+
+### Example: Full Production Config
+
+All features combined for maximum security and reliability:
+
+```json
+{
+    "production": {
+        "data_type": "json",
+        "authorization": "Bearer {$API_TOKEN}",
+        "hmac": {
+            "secret": "{$HMAC_SECRET}",
+            "header": "X-Signature-256",
+            "algorithm": "sha256"
+        },
+        "ip_whitelist": ["10.0.0.0/8", "192.168.0.0/16"],
+        "rate_limit": {
+            "max_requests": 1000,
+            "window_seconds": 60
+        },
+        "json_schema": {
+            "type": "object",
+            "properties": {
+                "event": {"type": "string"},
+                "data": {"type": "object"}
+            },
+            "required": ["event", "data"]
+        },
+        "credential_cleanup": {
+            "enabled": true,
+            "mode": "mask",
+            "fields": ["password", "api_key", "secret", "token"]
+        },
+        "chain": [
+            {
+                "module": "s3",
+                "connection": "s3_conn",
+                "module-config": {"bucket": "archive"}
+            },
+            {
+                "module": "postgresql",
+                "connection": "pg_conn",
+                "module-config": {"table": "events", "storage_mode": "json"}
+            }
+        ],
+        "chain-config": {
+            "execution": "sequential",
+            "continue_on_error": true
+        },
+        "retry": {
+            "enabled": true,
+            "max_attempts": 3,
+            "initial_delay": 1.0,
+            "max_delay": 30.0,
+            "backoff_multiplier": 2.0
+        }
     }
 }
 ```
@@ -700,7 +944,7 @@ services:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -765,7 +1009,7 @@ services:
     networks:
       - webhook-network
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -932,7 +1176,7 @@ services:
     networks:
       - webhook-network
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -1008,5 +1252,3 @@ curl -X POST http://localhost:8000/webhook/anything \
   -H "Content-Type: application/json" \
   -d '{"test": "data"}'
 ```
-
-'
