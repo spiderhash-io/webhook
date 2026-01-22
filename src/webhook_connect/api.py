@@ -342,7 +342,8 @@ async def sse_stream(
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            logger.error(f"SSE stream error for connection {connection.connection_id}: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': 'Internal server error'})}\n\n"
         finally:
             await channel_manager.remove_connection(connection.connection_id)
 
