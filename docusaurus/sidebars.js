@@ -80,6 +80,16 @@ const sidebars = {
             'features/webhook-chaining-troubleshooting',
           ],
         },
+        {
+          type: 'category',
+          label: 'Webhook Connect (Cloud-to-Local Relay)',
+          items: [
+            'features/webhook-connect',
+            'features/webhook-connect-getting-started',
+            'features/webhook-connect-advanced',
+            'features/webhook-connect-troubleshooting',
+          ],
+        },
         'features/rate-limiting',
         'features/json-schema',
         'features/credential-cleanup',

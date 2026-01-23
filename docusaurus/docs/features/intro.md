@@ -8,6 +8,10 @@ The Core Webhook Module includes several powerful features for processing and ma
   - [Getting Started](webhook-chaining-getting-started) - Step-by-step guide
   - [Advanced Usage](webhook-chaining-advanced) - Per-module configs, retries, and best practices
   - [Troubleshooting](webhook-chaining-troubleshooting) - Common issues and solutions
+- **[Webhook Connect](webhook-connect)** - Cloud-to-local webhook relay system (similar to ngrok)
+  - [Getting Started](webhook-connect-getting-started) - Step-by-step setup guide
+  - [Advanced Usage](webhook-connect-advanced) - Multi-channel, production deployment, security
+  - [Troubleshooting](webhook-connect-troubleshooting) - Common issues and solutions
 - **[Rate Limiting](rate-limiting)** - Per-webhook rate limiting
 - **[JSON Schema Validation](json-schema)** - Validate payload structure
 - **[Credential Cleanup](credential-cleanup)** - Automatic credential masking

@@ -18,6 +18,7 @@ The Core Webhook Module is a flexible and configurable webhook receiver and proc
 ### Core Functionality
 - **Flexible Destinations**: Send webhook data to RabbitMQ, Redis (RQ), local disk, HTTP endpoints, ClickHouse, MQTT, WebSocket, PostgreSQL, MySQL/MariaDB, S3, Kafka, ActiveMQ, AWS SQS, GCP Pub/Sub, ZeroMQ, or stdout.
 - **Webhook Chaining**: Send webhook payloads to multiple destinations in sequence or parallel.
+- **Webhook Connect**: Cloud-to-local webhook relay system for receiving webhooks behind firewalls (similar to ngrok).
 - **Plugin Architecture**: Easy to extend with new modules without modifying core code.
 - **Configuration-Driven**: Easy configuration via JSON files and environment variables.
 - **Live Config Reload**: Hot-reload webhook and connection configurations without restarting the application.
