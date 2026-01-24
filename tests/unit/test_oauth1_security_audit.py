@@ -49,6 +49,18 @@ def generate_oauth1_signature(
     return base64.b64encode(signature).decode("utf-8")
 
 
+def create_mock_request(path: str = "/webhook/test", method: str = "POST"):
+    """Create a mock request object for OAuth1 tests."""
+    return type(
+        "MockRequest",
+        (),
+        {
+            "scope": {"path": path},
+            "method": method,
+        },
+    )()
+
+
 # ============================================================================
 # 1. SIGNATURE BASE STRING MANIPULATION
 # ============================================================================
@@ -66,10 +78,10 @@ class TestOAuth1SignatureBaseStringManipulation:
                 "consumer_secret": "consumer_secret",
                 "signature_method": "HMAC-SHA1",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         # Valid URI
         uri = "/webhook/test"
@@ -114,10 +126,10 @@ class TestOAuth1SignatureBaseStringManipulation:
                 "consumer_secret": "consumer_secret",
                 "signature_method": "HMAC-SHA1",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         uri = "/webhook/test"
         method = "POST"
@@ -169,10 +181,10 @@ class TestOAuth1PlaintextWeaknesses:
                 "consumer_secret": "consumer_secret",
                 "signature_method": "PLAINTEXT",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         consumer_key = "consumer_key"
         consumer_secret = "consumer_secret"
@@ -211,10 +223,10 @@ class TestOAuth1PlaintextWeaknesses:
                 "consumer_secret": "secret123",
                 "signature_method": "PLAINTEXT",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         consumer_key = "consumer_key"
         consumer_secret = "secret123"
@@ -264,7 +276,7 @@ class TestOAuth1HeaderParsing:
                 "consumer_secret": "consumer_secret",
             }
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         # Header with newline injection attempt
         malicious_header = (
@@ -290,7 +302,7 @@ class TestOAuth1HeaderParsing:
                 "consumer_secret": "consumer_secret",
             }
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         # Header with null byte
         malicious_header = 'OAuth oauth_consumer_key="consumer_key\x00injected"'
@@ -314,7 +326,7 @@ class TestOAuth1HeaderParsing:
                 "consumer_secret": "consumer_secret",
             }
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         # Complex header that might cause ReDoS
         complex_header = (
@@ -348,7 +360,7 @@ class TestOAuth1HeaderParsing:
                 "consumer_secret": "consumer_secret",
             }
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         malformed_headers = [
             "OAuth oauth_consumer_key=consumer_key",  # Missing quotes
@@ -387,7 +399,7 @@ class TestOAuth1ErrorDisclosure:
                 "consumer_secret": "consumer_secret",
             }
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         # Mock an exception during parsing
         with patch.object(
@@ -417,7 +429,7 @@ class TestOAuth1ErrorDisclosure:
                 "consumer_secret": "secret_consumer_secret",
             }
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         # Invalid consumer key
         oauth_params = {
@@ -485,7 +497,7 @@ class TestOAuth1ConfigurationSecurity:
     async def test_empty_credentials_handling(self):
         """Test that empty credentials are rejected."""
         config = {"oauth1": {"consumer_key": "", "consumer_secret": "secret"}}
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         headers = {"authorization": 'OAuth oauth_consumer_key="key"'}
 
@@ -497,7 +509,7 @@ class TestOAuth1ConfigurationSecurity:
     async def test_whitespace_only_credentials(self):
         """Test that whitespace-only credentials are handled."""
         config = {"oauth1": {"consumer_key": "   ", "consumer_secret": "   "}}
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         headers = {"authorization": 'OAuth oauth_consumer_key="key"'}
 
@@ -524,9 +536,9 @@ class TestOAuth1TimestampManipulation:
                 "verify_timestamp": True,
                 "timestamp_window": 300,
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         uri = "/webhook/test"
         method = "POST"
@@ -571,9 +583,9 @@ class TestOAuth1TimestampManipulation:
                 "verify_timestamp": False,  # Disabled
                 "verify_nonce": False,  # Also disable nonce for testing
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         uri = "/webhook/test"
         method = "POST"
@@ -625,9 +637,9 @@ class TestOAuth1BodyParameterInjection:
                 "consumer_secret": "consumer_secret",
                 "signature_method": "HMAC-SHA1",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         uri = "/webhook/test"
         method = "POST"
@@ -685,9 +697,9 @@ class TestOAuth1URINormalization:
                 "consumer_secret": "consumer_secret",
                 "signature_method": "HMAC-SHA1",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         # URI comes from request object, not from header
         # So path traversal in URI is harder to exploit
@@ -735,7 +747,7 @@ class TestOAuth1URINormalization:
                 "obj", (object,), {"scope": {"path": "/webhook/test?param=value"}}
             )(),
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         # URI with query string should be normalized (query removed)
         uri = "/webhook/test?param=value"
@@ -788,7 +800,7 @@ class TestOAuth1SignatureMethodValidation:
                 "signature_method": "HMAC-SHA1",
             }
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         oauth_params = {
             "oauth_consumer_key": "consumer_key",
@@ -816,9 +828,9 @@ class TestOAuth1SignatureMethodValidation:
                 "consumer_secret": "consumer_secret",
                 "signature_method": "HMAC-SHA1",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         uri = "/webhook/test"
         method = "POST"
@@ -867,9 +879,9 @@ class TestOAuth1EdgeCases:
                 "consumer_secret": "consumer_secret",
                 "signature_method": "HMAC-SHA1",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         uri = "/webhook/test"
         method = "POST"
@@ -918,7 +930,7 @@ class TestOAuth1EdgeCases:
             }
             # No _request object
         }
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         uri = "/"  # Default URI
         method = "POST"

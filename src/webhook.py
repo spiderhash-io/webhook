@@ -109,25 +109,13 @@ class TaskManager:
     def _get_semaphore(self) -> asyncio.Semaphore:
         """Get or create the async semaphore (lazy initialization)."""
         if self._semaphore is None:
-            try:
-                self._semaphore = asyncio.Semaphore(self.max_concurrent_tasks)
-            except RuntimeError:
-                # If no event loop exists, create a new one (for testing scenarios)
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                self._semaphore = asyncio.Semaphore(self.max_concurrent_tasks)
+            self._semaphore = asyncio.Semaphore(self.max_concurrent_tasks)
         return self._semaphore
 
     def _get_lock(self) -> asyncio.Lock:
         """Get or create the async lock (lazy initialization)."""
         if self._lock is None:
-            try:
-                self._lock = asyncio.Lock()
-            except RuntimeError:
-                # If no event loop exists, create a new one (for testing scenarios)
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                self._lock = asyncio.Lock()
+            self._lock = asyncio.Lock()
         return self._lock
 
     @property
@@ -314,13 +302,17 @@ class WebhookHandler:
                 self.validators.append(BasicAuthValidator(self.config))
 
             if "digest_auth" in self.config:
-                self.validators.append(DigestAuthValidator(self.config))
+                self.validators.append(
+                    DigestAuthValidator(self.config, request=self.request)
+                )
 
             if "jwt" in self.config:
                 self.validators.append(JWTValidator(self.config))
 
             if "oauth1" in self.config:
-                self.validators.append(OAuth1Validator(self.config))
+                self.validators.append(
+                    OAuth1Validator(self.config, request=self.request)
+                )
 
             if "oauth2" in self.config:
                 self.validators.append(OAuth2Validator(self.config))
@@ -372,13 +364,7 @@ class WebhookHandler:
     def _get_body_reading_lock(self) -> asyncio.Lock:
         """Get or create the body reading lock (lazy initialization)."""
         if self._body_reading_lock is None:
-            try:
-                self._body_reading_lock = asyncio.Lock()
-            except RuntimeError:
-                # If no event loop exists, create a new one (for testing scenarios)
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                self._body_reading_lock = asyncio.Lock()
+            self._body_reading_lock = asyncio.Lock()
         return self._body_reading_lock
 
     async def validate_webhook(self):

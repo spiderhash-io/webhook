@@ -50,7 +50,7 @@ else:
         "INFO: Default logging endpoint enabled. All webhook requests will be logged to console."
     )
     print(
-        "INFO: Sensitive data redaction is DISABLED for debugging. Set 'redact_sensitive: true' in module-config to enable."
+        "INFO: Sensitive data redaction is ENABLED by default. Set 'redact_sensitive: false' in module-config to disable."
     )
     webhook_config_data = {
         "default": {
@@ -58,7 +58,7 @@ else:
             "module": "log",
             "module-config": {
                 "pretty_print": True,
-                "redact_sensitive": False,  # Default: show everything for debugging
+                "redact_sensitive": True,  # Default: redact sensitive data for security
             },
         }
     }

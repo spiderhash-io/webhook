@@ -146,8 +146,36 @@ REDIS_PORT=6380
 CLICKHOUSE_HOST=localhost
 CLICKHOUSE_PORT=9000
 
+# Security Configuration
+# Comma-separated list of trusted proxy IPs for X-Forwarded-For handling
+# Only set this if running behind a reverse proxy (nginx, load balancer, etc.)
+TRUSTED_PROXY_IPS=10.0.0.1,10.0.0.2,192.168.1.1
+
+# Rate Limiting
+DEFAULT_ENDPOINT_RATE_LIMIT=120  # requests per minute for default endpoint
+STATS_RATE_LIMIT=60              # requests per minute for /stats endpoint
+STATS_ALLOWED_IPS=127.0.0.1      # comma-separated IPs allowed to access /stats
+
 # Add other environment variables as needed
 ```
+
+### Security: Trusted Proxy Configuration
+
+When running behind a reverse proxy (nginx, HAProxy, AWS ALB, etc.), set `TRUSTED_PROXY_IPS` to prevent IP spoofing attacks:
+
+```bash
+# Example: Trust only your load balancer
+TRUSTED_PROXY_IPS=10.0.0.1
+
+# Example: Trust multiple proxies (exact IPs only, CIDR notation not supported)
+TRUSTED_PROXY_IPS=10.0.0.1,10.0.0.2,172.16.0.1
+```
+
+**How it works:**
+- When a request comes from a trusted proxy IP, the `X-Forwarded-For` header is used to get the real client IP
+- When a request comes from an untrusted IP, `X-Forwarded-For` is ignored (prevents spoofing)
+- If not set, the direct connection IP is always used (safest default)
+- Only exact IP addresses are supported (no CIDR ranges)
 
 See `README.md` for more details on environment variable usage in configuration files.
 

@@ -7,8 +7,11 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
-from typing import Any, Tuple, Optional, Dict, List, Union
+from typing import Any, Tuple, Optional, Dict, List, Union, TYPE_CHECKING
 import redis.asyncio as redis
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 
 def sanitize_error_message(error: Any, context: str = None) -> str:
@@ -96,6 +99,87 @@ def sanitize_error_message(error: Any, context: str = None) -> str:
         sanitized_context = _sanitize_context(context)
         return f"Processing error occurred in {sanitized_context}"
     return "An error occurred while processing the request"
+
+
+def get_client_ip(request: "Request", trusted_proxies: Optional[List[str]] = None) -> Tuple[str, bool]:
+    """
+    Securely get client IP address with trusted proxy validation.
+
+    This function prevents IP spoofing attacks by only trusting X-Forwarded-For
+    and X-Real-IP headers when the direct connection comes from a trusted proxy.
+
+    Security considerations:
+    - Only trusts proxy headers when request comes from a trusted proxy IP
+    - Falls back to request.client.host for direct connections
+    - Returns empty string if IP cannot be determined securely
+
+    Args:
+        request: FastAPI Request object
+        trusted_proxies: Optional list of trusted proxy IPs. If None, reads from
+                         TRUSTED_PROXY_IPS environment variable (comma-separated).
+
+    Returns:
+        Tuple of (client_ip, is_from_trusted_proxy)
+        - client_ip: The client IP address or empty string if not determinable
+        - is_from_trusted_proxy: True if IP was obtained via trusted proxy headers
+    """
+    # Get trusted proxy IPs from parameter or environment variable
+    if trusted_proxies is None:
+        trusted_proxies_env = os.getenv("TRUSTED_PROXY_IPS", "").strip()
+        if trusted_proxies_env:
+            trusted_proxies = [ip.strip() for ip in trusted_proxies_env.split(",") if ip.strip()]
+        else:
+            trusted_proxies = []
+
+    # Get headers as dict (case-insensitive lookup)
+    headers = {k.lower(): v for k, v in request.headers.items()}
+
+    # If we have the Request object, use it as primary source (most secure)
+    if request and hasattr(request, "client") and request.client:
+        # Safely get client.host (may not exist or be empty)
+        try:
+            actual_client_ip = getattr(request.client, "host", None)
+        except AttributeError:
+            actual_client_ip = None
+
+        # If we have a valid client IP from Request object
+        if actual_client_ip and actual_client_ip.strip():
+            # If we're behind a trusted proxy, check X-Forwarded-For
+            if trusted_proxies and actual_client_ip in trusted_proxies:
+                # Trust X-Forwarded-For only if actual client is a trusted proxy
+                x_forwarded_for = headers.get("x-forwarded-for", "").strip()
+                if x_forwarded_for:
+                    # Validate and sanitize X-Forwarded-For header
+                    # Remove newlines and null bytes to prevent header injection
+                    x_forwarded_for = (
+                        x_forwarded_for.replace("\n", "")
+                        .replace("\r", "")
+                        .replace("\0", "")
+                    )
+                    # X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+                    # The first IP is the original client
+                    client_ip = x_forwarded_for.split(",")[0].strip()
+                    if client_ip:
+                        return client_ip, True
+
+                # Fallback to X-Real-IP if X-Forwarded-For is not present
+                x_real_ip = headers.get("x-real-ip", "").strip()
+                if x_real_ip:
+                    # Sanitize X-Real-IP header
+                    x_real_ip = (
+                        x_real_ip.replace("\n", "")
+                        .replace("\r", "")
+                        .replace("\0", "")
+                    )
+                    if x_real_ip:
+                        return x_real_ip, True
+
+            # Use actual client IP from connection (most secure, cannot be spoofed)
+            return actual_client_ip, False
+
+    # SECURITY: If no Request object or no valid client IP, return "unknown"
+    # This is more explicit than empty string
+    return "unknown", False
 
 
 def _sanitize_context(context: str) -> str:

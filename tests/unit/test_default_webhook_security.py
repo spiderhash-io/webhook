@@ -414,17 +414,17 @@ class TestDefaultWebhookSecurityConcerns:
             connection_config_file="nonexistent_connections.json",
         )
 
-        with patch("builtins.print") as mock_print:
+        with patch("src.config_manager.logger") as mock_logger:
             config = await manager._load_webhook_config()
 
-            # Should print warning
-            warning_calls = [str(call) for call in mock_print.call_args_list]
+            # Should log info messages about missing config
+            info_calls = [str(call) for call in mock_logger.info.call_args_list]
 
             assert any(
-                "webhooks.json not found" in call for call in warning_calls
+                "webhooks.json not found" in call for call in info_calls
             ), "No warning about missing webhooks.json!"
             assert any(
-                "default logging" in call.lower() for call in warning_calls
+                "default logging" in call.lower() for call in info_calls
             ), "No warning about default logging endpoint!"
 
     @pytest.mark.asyncio
@@ -438,7 +438,7 @@ class TestDefaultWebhookSecurityConcerns:
             connection_config_file="nonexistent_connections.json",
         )
 
-        with patch("builtins.print"):  # Suppress output
+        with patch("src.config_manager.logger"):  # Suppress output
             config = await manager._load_webhook_config()
 
         # Verify structure
@@ -446,8 +446,8 @@ class TestDefaultWebhookSecurityConcerns:
         assert config["default"]["data_type"] == "json"
         assert config["default"]["module"] == "log"
         assert config["default"]["module-config"]["pretty_print"] is True
-        # Default webhook has redaction disabled for debugging purposes
-        assert config["default"]["module-config"]["redact_sensitive"] is False
+        # Default webhook has redaction ENABLED for security by default
+        assert config["default"]["module-config"]["redact_sensitive"] is True
 
         # Verify NO dangerous options are set
         assert (

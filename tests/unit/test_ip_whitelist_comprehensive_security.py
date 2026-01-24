@@ -521,8 +521,10 @@ class TestIPWhitelistSecurityLogging:
     """Test security logging and detection."""
 
     @pytest.mark.asyncio
-    async def test_spoofing_attempt_logged(self):
+    async def test_spoofing_attempt_logged(self, caplog):
         """Test that spoofing attempts are logged."""
+        import logging
+
         mock_request = Mock()
         mock_request.client = Mock()
         mock_request.client.host = "1.2.3.4"  # Not whitelisted
@@ -533,24 +535,17 @@ class TestIPWhitelistSecurityLogging:
         # Try to spoof via X-Forwarded-For
         headers = {"x-forwarded-for": "192.168.1.100"}
 
-        import io
-        import sys
-
-        captured_output = io.StringIO()
-        sys.stdout = captured_output
-
-        is_valid, message = await validator.validate(headers, b"")
-
-        sys.stdout = sys.__stdout__
-        output = captured_output.getvalue()
+        with caplog.at_level(logging.WARNING):
+            is_valid, message = await validator.validate(headers, b"")
 
         # Should log spoofing attempt
         assert is_valid is False
-        assert (
-            "SECURITY" in output
-            or "spoofed" in output.lower()
-            or "X-Forwarded-For" in output
-        )
+        # Check log messages for security warning
+        log_messages = [record.message for record in caplog.records]
+        assert any(
+            "SECURITY" in msg or "spoofed" in msg.lower() or "X-Forwarded-For" in msg
+            for msg in log_messages
+        ), f"Expected security warning in logs but got: {log_messages}"
 
 
 class TestIPWhitelistMultipleHeaders:

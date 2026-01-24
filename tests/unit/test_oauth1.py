@@ -57,6 +57,18 @@ def generate_oauth1_signature(
     return base64.b64encode(signature).decode("utf-8")
 
 
+def create_mock_request(path: str = "/webhook/test", method: str = "POST"):
+    """Create a mock request object for OAuth1 tests."""
+    return type(
+        "MockRequest",
+        (),
+        {
+            "scope": {"path": path},
+            "method": method,
+        },
+    )()
+
+
 class TestOAuth1:
     """Test suite for OAuth 1.0 Authentication."""
 
@@ -64,7 +76,7 @@ class TestOAuth1:
     async def test_oauth1_no_config(self):
         """Test that validation passes when no OAuth 1.0 is configured."""
         config = {}
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         headers = {}
         body = b"test"
@@ -85,7 +97,7 @@ class TestOAuth1:
 
         headers = {}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "Missing Authorization header" in message
@@ -102,7 +114,7 @@ class TestOAuth1:
 
         headers = {"authorization": "Bearer token"}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "OAuth 1.0 authentication required" in message
@@ -116,7 +128,6 @@ class TestOAuth1:
                 "consumer_secret": "consumer_secret",
                 "signature_method": "HMAC-SHA1",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
         }
 
         uri = "/webhook/test"
@@ -146,7 +157,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is True
         assert "Valid OAuth 1.0 signature" in message
@@ -159,7 +170,6 @@ class TestOAuth1:
                 "consumer_key": "consumer_key",
                 "consumer_secret": "consumer_secret",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
         }
 
         uri = "/webhook/test"
@@ -186,7 +196,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "Invalid OAuth 1.0 consumer key" in message
@@ -199,7 +209,7 @@ class TestOAuth1:
                 "consumer_key": "consumer_key",
                 "consumer_secret": "consumer_secret",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
         uri = "/webhook/test"
@@ -220,7 +230,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "Invalid OAuth 1.0 signature" in message
@@ -240,7 +250,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "Missing required OAuth 1.0 parameter" in message
@@ -255,7 +265,7 @@ class TestOAuth1:
                 "verify_timestamp": True,
                 "timestamp_window": 300,
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
         uri = "/webhook/test"
@@ -286,7 +296,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "timestamp out of window" in message.lower()
@@ -300,7 +310,7 @@ class TestOAuth1:
                 "consumer_secret": "consumer_secret",
                 "verify_timestamp": False,
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
         uri = "/webhook/test"
@@ -331,7 +341,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is True
 
@@ -344,7 +354,7 @@ class TestOAuth1:
                 "consumer_secret": "consumer_secret",
                 "signature_method": "PLAINTEXT",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
         consumer_key = "consumer_key"
@@ -371,7 +381,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is True
 
@@ -399,7 +409,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "Invalid OAuth 1.0 signature method" in message
@@ -411,7 +421,7 @@ class TestOAuth1:
 
         headers = {"authorization": 'OAuth oauth_consumer_key="key"'}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "OAuth 1.0 consumer credentials not configured" in message
@@ -423,7 +433,7 @@ class TestOAuth1:
 
         headers = {"authorization": 'OAuth oauth_consumer_key="key"'}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "OAuth 1.0 consumer credentials not configured" in message
@@ -438,7 +448,7 @@ class TestOAuth1:
                 "token_secret": "token_secret",  # Token secret in config
                 "signature_method": "HMAC-SHA1",
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
         uri = "/webhook/test"
@@ -467,7 +477,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is True
 
@@ -483,7 +493,7 @@ class TestOAuth1:
 
         headers = {"authorization": "OAuth invalid_format"}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
 
@@ -511,7 +521,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "Invalid OAuth 1.0 consumer key" in message
@@ -529,7 +539,7 @@ class TestOAuth1:
                 "signature_method": "HMAC-SHA1",
                 "verify_timestamp": False,
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
         uri = "/webhook/test"
@@ -565,7 +575,7 @@ class TestOAuth1:
         ]
         wrong_header = "OAuth " + ", ".join(auth_parts)
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
 
         # Measure time for correct signature
         correct_times = []
@@ -600,7 +610,7 @@ class TestOAuth1:
 
         headers = {"authorization": 'OAuth oauth_consumer_key="key"'}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "OAuth 1.0 consumer credentials not configured" in message
@@ -614,7 +624,7 @@ class TestOAuth1:
                 "consumer_secret": "consumer_secret",
                 "verify_timestamp": True,
             },
-            "_request": type("obj", (object,), {"scope": {"path": "/webhook/test"}})(),
+            
         }
 
         uri = "/webhook/test"
@@ -642,7 +652,7 @@ class TestOAuth1:
 
         headers = {"authorization": auth_header}
 
-        validator = OAuth1Validator(config)
+        validator = OAuth1Validator(config, request=create_mock_request())
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
         assert "Invalid OAuth 1.0 timestamp" in message

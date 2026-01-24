@@ -12,12 +12,15 @@ import json
 import asyncio
 import os
 import copy
+import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
 from src.utils import load_env_vars, sanitize_error_message
 from src.config import _validate_connection_host, _validate_connection_port
+
+logger = logging.getLogger(__name__)
 from src.modules.registry import ModuleRegistry
 from src.connection_pool_registry import (
     ConnectionPoolRegistry,
@@ -80,12 +83,7 @@ class ConfigManager:
     def _get_lock(self) -> asyncio.Lock:
         """Get or create the async lock (lazy initialization)."""
         if self._lock is None:
-            try:
-                self._lock = asyncio.Lock()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                self._lock = asyncio.Lock()
+            self._lock = asyncio.Lock()
         return self._lock
 
     async def initialize(self) -> ReloadResult:
@@ -380,14 +378,14 @@ class ConfigManager:
         """Load webhook config from file with environment variable substitution."""
         if not os.path.exists(self.webhook_config_file):
             # Default logging webhook when webhooks.json is not provided
-            print(
-                "INFO: webhooks.json not found. Using default logging webhook with pretty print to console."
+            logger.info(
+                "webhooks.json not found. Using default logging webhook with pretty print to console."
             )
-            print(
-                "INFO: Default logging endpoint enabled. All webhook requests will be logged to console."
+            logger.info(
+                "Default logging endpoint enabled. All webhook requests will be logged to console."
             )
-            print(
-                "INFO: Sensitive data redaction is DISABLED for debugging. Set 'redact_sensitive: true' in module-config to enable."
+            logger.info(
+                "Sensitive data redaction is ENABLED by default. Set 'redact_sensitive: false' in module-config to disable."
             )
             return {
                 "default": {
@@ -395,7 +393,7 @@ class ConfigManager:
                     "module": "log",
                     "module-config": {
                         "pretty_print": True,
-                        "redact_sensitive": False,  # Default: show everything for debugging
+                        "redact_sensitive": True,  # Default: redact sensitive data for security
                     },
                 }
             }
@@ -561,6 +559,6 @@ class ConfigManager:
             sanitized_error = sanitize_error_message(
                 e, "ConfigManager._update_connection_pool"
             )
-            print(
-                f"Warning: Failed to create pool for connection '{connection_name}': {sanitized_error}"
+            logger.warning(
+                f"Failed to create pool for connection '{connection_name}': {sanitized_error}"
             )

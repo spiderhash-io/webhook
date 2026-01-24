@@ -11,7 +11,7 @@ from typing import Optional
 
 from src.webhook import WebhookHandler
 from src.config import inject_connection_details, webhook_config_data, connection_config
-from src.utils import RedisEndpointStats, sanitize_error_message
+from src.utils import RedisEndpointStats, sanitize_error_message, get_client_ip
 from src.rate_limiter import rate_limiter
 from src.clickhouse_analytics import ClickHouseAnalytics
 from src.config_manager import ConfigManager
@@ -1157,9 +1157,8 @@ async def default_endpoint(request: Request):
     default_rate_limit = int(
         os.getenv("DEFAULT_ENDPOINT_RATE_LIMIT", "120")
     )  # Default: 120 requests per minute
-    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-    if not client_ip:
-        client_ip = request.client.host if request.client else "unknown"
+    # SECURITY: Use get_client_ip for trusted proxy validation
+    client_ip, _ = get_client_ip(request)
 
     # Use rate limiter with a separate key for default endpoint
     default_key = f"default_endpoint:{client_ip}"
@@ -1306,12 +1305,10 @@ async def stats_endpoint(request: Request):
     if stats_allowed_ips:
         allowed_ips = {ip.strip() for ip in stats_allowed_ips.split(",") if ip.strip()}
 
-        # Get client IP (check X-Forwarded-For header first, then direct connection)
-        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if not client_ip:
-            client_ip = request.client.host if request.client else None
+        # SECURITY: Use get_client_ip for trusted proxy validation
+        client_ip, _ = get_client_ip(request)
 
-        if client_ip and client_ip not in allowed_ips:
+        if client_ip and client_ip != "unknown" and client_ip not in allowed_ips:
             raise HTTPException(
                 status_code=403, detail="Access denied from this IP address"
             )
@@ -1320,9 +1317,8 @@ async def stats_endpoint(request: Request):
     stats_rate_limit = int(
         os.getenv("STATS_RATE_LIMIT", "60")
     )  # Default: 60 requests per minute
-    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-    if not client_ip:
-        client_ip = request.client.host if request.client else "unknown"
+    # SECURITY: Use get_client_ip for trusted proxy validation
+    client_ip, _ = get_client_ip(request)
 
     # Use rate limiter with a separate key for stats endpoint
     stats_key = f"stats_endpoint:{client_ip}"

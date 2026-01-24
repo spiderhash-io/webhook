@@ -5,8 +5,11 @@ import json
 import time
 import re
 import asyncio
+import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class BaseValidator(ABC):
@@ -658,7 +661,7 @@ class IPWhitelistValidator(BaseValidator):
             if not is_from_trusted_proxy and (
                 headers.get("x-forwarded-for") or headers.get("x-real-ip")
             ):
-                print(
+                logger.warning(
                     f"SECURITY: IP whitelist check failed for {normalized_client_ip} (may be spoofed via X-Forwarded-For)"
                 )
             return False, f"IP {normalized_client_ip} not in whitelist"
@@ -1369,6 +1372,17 @@ class OAuth2Validator(BaseValidator):
 class DigestAuthValidator(BaseValidator):
     """Validates HTTP Digest Authentication (RFC 7616)."""
 
+    def __init__(self, config: Dict[str, Any], request=None):
+        """
+        Initialize Digest Auth validator.
+
+        Args:
+            config: The webhook configuration
+            request: Optional FastAPI Request object for getting HTTP method
+        """
+        super().__init__(config)
+        self.request = request
+
     async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
         """Validate HTTP Digest Authentication."""
         digest_auth_config = self.config.get("digest_auth")
@@ -1438,7 +1452,10 @@ class DigestAuthValidator(BaseValidator):
             ).hexdigest()  # nosec B324
 
             # HA2 = MD5(method:uri) for qop="auth"
-            method = "POST"  # Webhooks are POST requests
+            # Get HTTP method from request, default to POST for webhooks
+            method = "POST"
+            if self.request and hasattr(self.request, "method"):
+                method = self.request.method.upper()
             uri = digest_params.get("uri", "/")
             ha2 = hashlib.md5(f"{method}:{uri}".encode()).hexdigest()  # nosec B324
 
@@ -1518,13 +1535,7 @@ class OAuth1NonceTracker:
     def _get_lock(self) -> asyncio.Lock:
         """Get or create the async lock (lazy initialization)."""
         if self._lock is None:
-            try:
-                self._lock = asyncio.Lock()
-            except RuntimeError:
-                # If no event loop exists, create a new one (for testing scenarios)
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                self._lock = asyncio.Lock()
+            self._lock = asyncio.Lock()
         return self._lock
 
     @property
@@ -1607,6 +1618,17 @@ _oauth1_nonce_tracker = OAuth1NonceTracker()
 
 class OAuth1Validator(BaseValidator):
     """Validates OAuth 1.0 signatures (RFC 5849)."""
+
+    def __init__(self, config: Dict[str, Any], request=None):
+        """
+        Initialize OAuth 1.0 validator.
+
+        Args:
+            config: The webhook configuration
+            request: Optional FastAPI Request object for getting HTTP method and URI
+        """
+        super().__init__(config)
+        self.request = request
 
     async def validate(self, headers: Dict[str, str], body: bytes) -> Tuple[bool, str]:
         """Validate OAuth 1.0 signature."""
@@ -1708,18 +1730,22 @@ class OAuth1Validator(BaseValidator):
                 if not is_valid_nonce:
                     return False, nonce_message
 
-            # Get request URI from config
+            # Get request URI and method from request object
             request_uri = "/"
-            request_obj = self.config.get("_request")
-            if request_obj:
-                if hasattr(request_obj, "scope"):
+            http_method = "POST"  # Default for webhooks
+            if self.request:
+                # Get method from request
+                if hasattr(self.request, "method"):
+                    http_method = self.request.method.upper()
+                # Get URI from request
+                if hasattr(self.request, "scope"):
                     # FastAPI Request object or mock - get path from scope
-                    if isinstance(request_obj.scope, dict):
-                        request_uri = request_obj.scope.get("path", "/")
-                    elif hasattr(request_obj.scope, "get"):
-                        request_uri = request_obj.scope.get("path", "/")
-                elif hasattr(request_obj, "url"):
-                    request_uri = str(request_obj.url.path)
+                    if isinstance(self.request.scope, dict):
+                        request_uri = self.request.scope.get("path", "/")
+                    elif hasattr(self.request.scope, "get"):
+                        request_uri = self.request.scope.get("path", "/")
+                elif hasattr(self.request, "url"):
+                    request_uri = str(self.request.url.path)
 
             # Get token secret from config (if provided)
             # Note: oauth_token_secret is not a standard OAuth 1.0 parameter in the header
@@ -1736,9 +1762,8 @@ class OAuth1Validator(BaseValidator):
                 )
             else:
                 # Build signature base string for HMAC-SHA1, etc.
-                method = "POST"  # Webhooks are POST requests
                 base_string = self._build_signature_base_string(
-                    method, request_uri, oauth_params, body
+                    http_method, request_uri, oauth_params, body
                 )
 
                 # Compute signature

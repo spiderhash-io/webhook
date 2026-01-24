@@ -13,7 +13,13 @@ class RateLimiter:
     def __init__(self):
         # Store timestamps for each webhook_id
         self.requests: Dict[str, deque] = defaultdict(deque)
-        self.lock = asyncio.Lock()
+        self._lock: asyncio.Lock = None  # Lazy initialization
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock (lazy initialization)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def is_allowed(
         self, webhook_id: str, max_requests: int, window_seconds: int
@@ -29,7 +35,7 @@ class RateLimiter:
         Returns:
             Tuple of (is_allowed, message)
         """
-        async with self.lock:
+        async with self._get_lock():
             now = time.time()
             cutoff = now - window_seconds
 
@@ -67,7 +73,7 @@ class RateLimiter:
         Returns:
             Tuple of (is_allowed, remaining_requests)
         """
-        async with self.lock:
+        async with self._get_lock():
             now = time.time()
             cutoff = now - window_seconds
 
@@ -97,7 +103,7 @@ class RateLimiter:
         Cleanup old entries to prevent memory bloat.
         Should be called periodically.
         """
-        async with self.lock:
+        async with self._get_lock():
             now = time.time()
             cutoff = now - max_age_seconds
 

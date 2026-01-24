@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Critical Rules
+
+**ALWAYS ask for user permission before:**
+- Running destructive commands (rm -rf, git reset --hard, DROP TABLE, etc.)
+- Accessing files or directories outside this project folder
+- Installing global packages (pip install --user, npm install -g, brew install, etc.)
+
+**After making code changes:**
+- Always restart the dev server so changes can be viewed: `make run` or `pkill -f uvicorn && make run`
+
 ## Project Overview
 
 Core Webhook Module is a FastAPI-based webhook receiver/processor that validates incoming webhooks using 11 authentication methods and routes payloads to 17+ output destinations. Key features include webhook chaining (sequential/parallel execution), live configuration reload, and distributed analytics via ClickHouse.
