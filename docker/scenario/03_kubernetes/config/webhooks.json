@@ -1,0 +1,15 @@
+{
+  "test": {
+    "data_type": "json",
+    "module": "log",
+    "authorization": "Bearer test_token_123",
+    "module-config": {
+      "pretty_print": true
+    }
+  },
+  "health_test": {
+    "data_type": "json",
+    "module": "log",
+    "authorization": null
+  }
+}

@@ -1,0 +1,14 @@
+# Logs directory contents
+logs/*.log
+logs/*.txt
+
+# Kubeconfig
+kubeconfig
+*.kubeconfig
+
+# Temporary files
+*.tmp
+*.bak
+
+# Kind cluster config
+.kind-*

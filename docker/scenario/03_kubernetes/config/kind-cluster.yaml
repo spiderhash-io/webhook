@@ -1,0 +1,27 @@
+# Kind cluster configuration for local Kubernetes testing
+# This config sets up a single control-plane node with port mappings
+# for ingress and NodePort access
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: webhook-test
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # HTTP port for ingress
+      - containerPort: 80
+        hostPort: 18080
+        protocol: TCP
+      # HTTPS port for ingress
+      - containerPort: 443
+        hostPort: 18443
+        protocol: TCP
+      # NodePort range access
+      - containerPort: 30080
+        hostPort: 31080
+        protocol: TCP

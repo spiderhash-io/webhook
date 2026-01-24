@@ -1,0 +1,28 @@
+# Kustomize overlay for local kind testing
+# This patches the base deployment for local development
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../kubernetes/base/deployment.yaml
+  - ../../../../kubernetes/base/service.yaml
+  - secret-local.yaml
+
+namespace: webhook-system
+
+# Patch deployment for local testing
+# Note: /tmp volume NOT needed - PYTHONDONTWRITEBYTECODE=1 is set in Dockerfile
+patches:
+  - target:
+      kind: Deployment
+      name: webhook-deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: webhook-module:local
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+      - op: replace
+        path: /spec/replicas
+        value: 1
