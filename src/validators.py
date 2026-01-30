@@ -450,8 +450,9 @@ class JWTValidator(BaseValidator):
             return False, f"JWT missing required claim: {str(e)}"
         except jwt.DecodeError:
             return False, "Invalid JWT token format"
-        except Exception as e:
-            return False, f"JWT validation failed: {str(e)}"
+        except Exception:
+            # SECURITY: Don't leak exception details that may reveal token structure
+            return False, "JWT validation failed"
 
 
 class HMACValidator(BaseValidator):
@@ -506,7 +507,8 @@ class HMACValidator(BaseValidator):
         if not re.match(r"^[0-9a-fA-F]+$", received_signature):
             return False, "Invalid HMAC signature format (must be hexadecimal)"
 
-        if not hmac.compare_digest(computed_signature, received_signature):
+        # Normalize case for comparison (signatures may be submitted in uppercase)
+        if not hmac.compare_digest(computed_signature.lower(), received_signature.lower()):
             return False, "Invalid HMAC signature"
 
         return True, "Valid HMAC signature"
@@ -834,17 +836,13 @@ class QueryParameterAuthValidator(BaseValidator):
         if len(value) > QueryParameterAuthValidator.MAX_PARAM_VALUE_LENGTH:
             return "", False
 
-        # Remove null bytes and control characters
-        # Keep only printable characters and common whitespace (space)
-        sanitized = "".join(char for char in value if char.isprintable() or char == " ")
+        # Remove only dangerous control characters, preserve valid unicode
+        # Block: null bytes, newlines, carriage returns, tabs, and C0/C1 control chars
+        # Allow: all printable unicode including non-ASCII characters
+        dangerous_control_chars = set(chr(i) for i in range(32) if i not in (32,))  # C0 controls except space
+        dangerous_control_chars.update(chr(i) for i in range(127, 160))  # DEL and C1 controls
 
-        # Remove null bytes explicitly
-        sanitized = sanitized.replace("\x00", "")
-
-        # Remove other dangerous control characters
-        dangerous_chars = ["\n", "\r", "\t", "\v", "\f"]
-        for char in dangerous_chars:
-            sanitized = sanitized.replace(char, "")
+        sanitized = "".join(char for char in value if char not in dangerous_control_chars)
 
         return sanitized, True
 
@@ -1225,9 +1223,10 @@ class OAuth2Validator(BaseValidator):
                     # Check if all required scopes are present
                     missing_scopes = set(required_scope) - set(token_scopes)
                     if missing_scopes:
+                        # SECURITY: Don't list specific missing scopes to prevent enumeration
                         return (
                             False,
-                            f"OAuth 2.0 token missing required scopes: {', '.join(missing_scopes)}",
+                            "OAuth 2.0 token missing required scopes",
                         )
 
                 return True, "Valid OAuth 2.0 token"
@@ -1339,9 +1338,10 @@ class OAuth2Validator(BaseValidator):
 
                     missing_scopes = set(required_scope) - set(token_scopes)
                     if missing_scopes:
+                        # SECURITY: Don't list specific missing scopes to prevent enumeration
                         return (
                             False,
-                            f"OAuth 2.0 token missing required scopes: {', '.join(missing_scopes)}",
+                            "OAuth 2.0 token missing required scopes",
                         )
 
                 return True, "Valid OAuth 2.0 JWT token"
@@ -1772,8 +1772,11 @@ class OAuth1Validator(BaseValidator):
                 )
 
             # Compare signatures (constant-time)
+            # Encode both to bytes for consistent length comparison
             received_signature = oauth_params["oauth_signature"]
-            if not hmac.compare_digest(computed_signature, received_signature):
+            if not hmac.compare_digest(
+                computed_signature.encode("utf-8"), received_signature.encode("utf-8")
+            ):
                 return False, "Invalid OAuth 1.0 signature"
 
             return True, "Valid OAuth 1.0 signature"

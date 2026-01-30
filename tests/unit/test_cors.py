@@ -4,9 +4,29 @@ Tests for CORS support.
 
 import pytest
 import os
+import importlib
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 from src.main import app
+
+
+@pytest.fixture(autouse=True)
+def restore_main_module():
+    """Restore src.main module to original state after tests that reload it.
+
+    The CORS tests reload src.main to pick up environment changes for CORS config.
+    This fixture ensures the module is restored to its original state after each test
+    to prevent state pollution that affects other tests.
+    """
+    import src.main
+
+    # Store the original app reference
+    original_app = src.main.app
+
+    yield
+
+    # Reload the module to restore original state (without patched env)
+    importlib.reload(src.main)
 
 
 @pytest.mark.asyncio
@@ -15,7 +35,6 @@ async def test_cors_headers():
     # Set CORS_ALLOWED_ORIGINS for this test
     with patch.dict(os.environ, {"CORS_ALLOWED_ORIGINS": "http://example.com"}):
         # Reimport to get fresh CORS config
-        import importlib
         import src.main
 
         importlib.reload(src.main)
@@ -50,7 +69,6 @@ async def test_cors_simple_request():
     # Set CORS_ALLOWED_ORIGINS for this test
     with patch.dict(os.environ, {"CORS_ALLOWED_ORIGINS": "http://example.com"}):
         # Reimport to get fresh CORS config
-        import importlib
         import src.main
 
         importlib.reload(src.main)

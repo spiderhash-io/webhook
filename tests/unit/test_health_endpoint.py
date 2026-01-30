@@ -14,7 +14,8 @@ import time
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
-from src.main import app, health_endpoint
+import src.main
+from src.main import health_endpoint
 from src.utils import RedisEndpointStats
 
 
@@ -25,14 +26,22 @@ from src.utils import RedisEndpointStats
 
 @pytest.fixture
 def client():
-    """Create test client for health endpoint tests."""
-    return TestClient(app)
+    """Create test client for health endpoint tests.
+
+    Always gets a fresh reference to app from src.main to handle
+    cases where the module may have been reloaded by other tests.
+    """
+    return TestClient(src.main.app)
 
 
 @pytest.fixture
 def app_state_backup():
-    """Backup and restore app state for testing."""
-    from src.main import app
+    """Backup and restore app state for testing.
+
+    Always gets a fresh reference to app from src.main to handle
+    cases where the module may have been reloaded by other tests.
+    """
+    app = src.main.app
 
     backup = {
         "config_manager": getattr(app.state, "config_manager", None),
@@ -42,7 +51,8 @@ def app_state_backup():
         ),
     }
     yield backup
-    # Restore original state
+    # Restore original state - get fresh app reference again
+    app = src.main.app
     app.state.config_manager = backup["config_manager"]
     app.state.clickhouse_logger = backup["clickhouse_logger"]
     app.state.webhook_connect_channel_manager = backup[

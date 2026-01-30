@@ -371,7 +371,12 @@ class TestHMACSignatureFormat:
 
     @pytest.mark.asyncio
     async def test_uppercase_hex_signature(self):
-        """Test that uppercase hex signatures are handled."""
+        """Test that uppercase hex signatures are handled.
+
+        The implementation normalizes case for comparison, so uppercase
+        hex signatures are accepted. This is correct behavior since hex
+        digits are case-insensitive by specification.
+        """
         config = {
             "hmac": {
                 "secret": "test_secret",
@@ -387,10 +392,9 @@ class TestHMACSignatureFormat:
 
         headers = {"x-hmac-signature": sig}
         is_valid, message = await validator.validate(headers, body)
-        # Hex comparison should be case-sensitive or case-insensitive?
-        # Test current behavior
-        # hmac.compare_digest is case-sensitive, so uppercase will fail
-        assert is_valid is False
+        # Implementation normalizes case for comparison (both signatures lowercased)
+        # so uppercase hex signatures are valid
+        assert is_valid is True
 
 
 class TestHMACHeaderManipulation:

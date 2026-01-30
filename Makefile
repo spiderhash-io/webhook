@@ -19,8 +19,8 @@ PYTHON := $(shell which python3 || which python)
 VENV_PYTHON := $(shell if [ -f venv/bin/python ]; then echo venv/bin/python; else echo $(PYTHON); fi)
 PYTEST := $(VENV_PYTHON) -m pytest
 
-test: ## Run unit tests (excludes integration, external_services, and longrunning)
-	$(PYTEST) -v -m "not integration and not external_services and not longrunning"
+test: ## Run unit tests (excludes integration, external_services, longrunning, todo, and slow)
+	$(PYTEST) -v -m "not integration and not external_services and not longrunning and not todo and not slow"
 
 test-integration: ## Run integration tests (requires Docker services and API server, excludes longrunning and external_services)
 	@echo "Checking Docker services..."

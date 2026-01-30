@@ -183,8 +183,8 @@ class TestOAuth2:
             validator = OAuth2Validator(config)
             is_valid, message = await validator.validate(headers, body=b"test")
             assert is_valid is False
+            # SECURITY: Error message should not enumerate specific missing scopes
             assert "missing required scopes" in message.lower()
-            assert "admin" in message
 
     @pytest.mark.asyncio
     async def test_oauth2_introspection_http_error(self):
@@ -481,8 +481,8 @@ class TestOAuth2:
         validator = OAuth2Validator(config)
         is_valid, message = await validator.validate(headers, body=b"test")
         assert is_valid is False
+        # SECURITY: Error message should not enumerate specific missing scopes
         assert "missing required scopes" in message.lower()
-        assert "admin" in message
 
     @pytest.mark.asyncio
     async def test_oauth2_validation_disabled(self):

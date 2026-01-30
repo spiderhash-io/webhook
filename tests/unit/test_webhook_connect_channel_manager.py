@@ -74,8 +74,14 @@ def mock_buffer():
 
 
 @pytest.fixture
-def channel_manager(mock_buffer):
-    """Create a channel manager with mock buffer."""
+async def channel_manager(mock_buffer):
+    """Create a channel manager with mock buffer.
+
+    This is an async fixture because ChannelManager creates asyncio.Lock()
+    objects in __init__, which in Python 3.9 requires an event loop to exist.
+    Using an async fixture ensures the event loop is available when the
+    ChannelManager is instantiated.
+    """
     return ChannelManager(mock_buffer)
 
 

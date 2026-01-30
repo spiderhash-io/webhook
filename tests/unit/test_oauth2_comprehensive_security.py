@@ -234,7 +234,8 @@ class TestOAuth2ScopeEscalation:
             # Should fail - missing required scope
             assert is_valid is False
             assert "missing required scopes" in message.lower()
-            assert "admin" in message
+            # Note: Implementation intentionally doesn't list specific missing scopes
+            # to prevent scope enumeration attacks
 
     @pytest.mark.asyncio
     async def test_scope_injection_jwt(self):
