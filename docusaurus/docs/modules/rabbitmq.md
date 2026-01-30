@@ -9,8 +9,10 @@ The RabbitMQ Module publishes webhook payloads to RabbitMQ message queues.
     "rabbitmq_webhook": {
         "data_type": "json",
         "module": "rabbitmq",
-        "queue_name": "webhook_events",
         "connection": "rabbitmq_local",
+        "module-config": {
+            "queue_name": "webhook_events"
+        },
         "authorization": "Bearer token"
     }
 }
@@ -35,17 +37,71 @@ In `connections.json`:
 
 ## Module Configuration Options
 
-- `queue_name`: Name of the RabbitMQ queue (required)
-- `exchange`: Optional exchange name
-- `routing_key`: Optional routing key
-- `durable`: Whether the queue should be durable (default: true)
-- `exclusive`: Whether the queue should be exclusive (default: false)
-- `auto_delete`: Whether the queue should auto-delete (default: false)
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `queue_name` | string | Yes | Name of the RabbitMQ queue |
+
+:::info Queue Behavior
+Queues are automatically declared as **durable** (survives broker restart) with `delivery_mode=2` (persistent messages). Exchange and routing key configuration is not currently supported - messages are published directly to the queue via the default exchange.
+:::
+
+## Queue Name Validation
+
+Queue names are validated for security:
+
+- Maximum 255 characters
+- Allowed characters: `a-z`, `A-Z`, `0-9`, `_`, `-`, `.`, `:`
+- Cannot start with `amq.` (reserved for system queues)
+- Cannot contain path traversal sequences or control characters
 
 ## Features
 
-- Reliable message delivery
-- Queue persistence
-- Exchange and routing key support
+- Reliable message delivery with persistent messages
+- Durable queue declaration
 - Connection pooling for performance
+- Automatic reconnection handling
+- Error sanitization (RabbitMQ details not exposed to clients)
 
+## Example
+
+### Basic Queue Publishing
+
+```json
+{
+    "order_events": {
+        "data_type": "json",
+        "module": "rabbitmq",
+        "connection": "rabbitmq_prod",
+        "module-config": {
+            "queue_name": "orders.incoming"
+        },
+        "authorization": "Bearer {$ORDER_WEBHOOK_TOKEN}"
+    }
+}
+```
+
+### With Webhook Chaining
+
+```json
+{
+    "multi_destination": {
+        "data_type": "json",
+        "chain": [
+            {
+                "module": "rabbitmq",
+                "connection": "rabbitmq_prod",
+                "module-config": {
+                    "queue_name": "events.primary"
+                }
+            },
+            {
+                "module": "log"
+            }
+        ],
+        "chain-config": {
+            "execution": "parallel"
+        },
+        "authorization": "Bearer token"
+    }
+}
+```

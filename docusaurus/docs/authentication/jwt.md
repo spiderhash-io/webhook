@@ -22,11 +22,24 @@ Full JWT token validation with issuer, audience, and expiration checks.
 
 ## Configuration Options
 
-- `secret`: JWT secret key (required)
-- `algorithm`: JWT algorithm - HS256, HS384, HS512, RS256, etc. (default: "HS256")
-- `issuer`: Required token issuer (optional)
-- `audience`: Required token audience (optional)
-- `verify_exp`: Whether to verify token expiration (default: true)
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `secret` | string | **Yes** | - | JWT secret key or RSA/EC public key |
+| `algorithm` | string | No | `"HS256"` | JWT signing algorithm (see supported list below) |
+| `issuer` | string | No | - | Required token issuer claim (`iss`) |
+| `audience` | string | No | - | Required token audience claim (`aud`) |
+| `verify_exp` | boolean | No | `true` | Whether to verify token expiration |
+
+### Supported Algorithms
+
+The following 12 algorithms are supported:
+
+| Family | Algorithms | Key Type |
+|--------|------------|----------|
+| HMAC | `HS256`, `HS384`, `HS512` | Symmetric secret |
+| RSA | `RS256`, `RS384`, `RS512` | RSA public key |
+| ECDSA | `ES256`, `ES384`, `ES512` | EC public key |
+| RSA-PSS | `PS256`, `PS384`, `PS512` | RSA public key |
 
 ## Usage
 
@@ -42,7 +55,8 @@ curl -X POST http://localhost:8000/webhook/jwt_auth_webhook \
 ## Features
 
 - Full JWT validation (signature, expiration, issuer, audience)
-- Multiple algorithm support (HS256, RS256, etc.)
+- 12 algorithm support (HS256/384/512, RS256/384/512, ES256/384/512, PS256/384/512)
 - Configurable validation options
 - Secure token verification
+- SSRF protection (blocks external key fetching)
 

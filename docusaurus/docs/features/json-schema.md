@@ -118,4 +118,43 @@ HTTP Status: `400 Bad Request`
 - Type checking
 - Required field validation
 - Clear error messages
+- SSRF protection (blocks remote schema references)
+
+## Security
+
+### SSRF Protection
+
+Remote schema references (`$ref` with URLs) are blocked to prevent Server-Side Request Forgery attacks:
+
+```json
+// This will be blocked - remote $ref not allowed
+{
+    "json_schema": {
+        "$ref": "https://malicious.com/schema.json"
+    }
+}
+```
+
+Only local/inline schema definitions are supported. If you need to reuse schemas, define them inline using `definitions`:
+
+```json
+{
+    "json_schema": {
+        "definitions": {
+            "address": {
+                "type": "object",
+                "properties": {
+                    "street": {"type": "string"},
+                    "city": {"type": "string"}
+                }
+            }
+        },
+        "type": "object",
+        "properties": {
+            "shipping_address": {"$ref": "#/definitions/address"},
+            "billing_address": {"$ref": "#/definitions/address"}
+        }
+    }
+}
+```
 

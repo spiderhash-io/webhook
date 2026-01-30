@@ -264,9 +264,9 @@ class ConnectorConfig:
         if not self.token:
             errors.append("token is required")
 
-        if self.protocol not in ["websocket", "sse"]:
+        if self.protocol not in ["websocket", "sse", "long_poll"]:
             errors.append(
-                f"protocol must be 'websocket' or 'sse', got '{self.protocol}'"
+                f"protocol must be 'websocket', 'sse', or 'long_poll', got '{self.protocol}'"
             )
 
         if not self.default_target and not self.targets:
@@ -300,8 +300,13 @@ class ConnectorConfig:
             else:
                 ws_url = base_url
             return f"{ws_url}/connect/stream/{self.channel}"
-        else:
+        elif self.protocol == "sse":
             return f"{base_url}/connect/stream/{self.channel}/sse"
+        elif self.protocol == "long_poll":
+            return f"{base_url}/connect/stream/{self.channel}/poll"
+        else:
+            # Should not reach here due to validation, but fallback to SSE
+            raise ValueError(f"Unknown protocol: {self.protocol}")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary (excluding sensitive data)."""

@@ -39,11 +39,23 @@ Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submiss
 
 ## Configuration Options
 
-- `secret_key` (required): Your reCAPTCHA secret key from Google
-- `version`: `"v2"` or `"v3"` (default: `"v3"`)
-- `token_source`: `"header"` or `"body"` (default: `"header"`)
-- `token_field`: Field name to look for token (default: `"X-Recaptcha-Token"`)
-- `min_score`: Minimum score for v3 validation (default: `0.5`, range: 0.0-1.0)
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `secret_key` | string | **Yes** | - | Your reCAPTCHA secret key from Google |
+| `version` | string | No | `"v3"` | reCAPTCHA version: `"v2"` or `"v3"` |
+| `token_source` | string | No | `"header"` | Token location: `"header"` or `"body"` |
+| `token_field` | string | No | `"X-Recaptcha-Token"` | Field name to look for token |
+| `min_score` | float | No | `0.5` | Minimum score for v3 validation (0.0-1.0) |
+
+:::info Automatic Body Token Detection
+When `token_source` is `"body"`, the system automatically searches for the token in these fields (in order):
+1. The field specified in `token_field`
+2. `recaptcha_token`
+3. `recaptcha`
+4. `g-recaptcha-response`
+
+This allows compatibility with various frontend implementations without explicit configuration.
+:::
 
 ## Usage
 

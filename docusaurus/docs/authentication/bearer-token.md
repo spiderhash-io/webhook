@@ -29,6 +29,19 @@ curl -X POST http://localhost:8000/webhook/secure_webhook \
 
 - Simple token validation
 - Constant-time comparison (timing attack resistant)
-- Supports "Bearer " prefix or plain token
 - Case-sensitive token matching
+
+:::warning Bearer Prefix Required
+The `Authorization` header **must** include the "Bearer " prefix (case-sensitive, with space). Plain tokens without the prefix will be rejected.
+
+```bash
+# Correct
+Authorization: Bearer my_secret_token
+
+# Incorrect - will fail
+Authorization: my_secret_token
+Authorization: bearer my_secret_token
+Authorization: BEARER my_secret_token
+```
+:::
 

@@ -456,6 +456,162 @@ class SSEClient(StreamClient):
             return False
 
 
+class LongPollClient(StreamClient):
+    """Long-polling based stream client.
+
+    Use this for environments where WebSocket and SSE are unavailable.
+    Polls the server repeatedly for new messages.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._poll_timeout = 30  # Server-side timeout in seconds
+        self._ssl_context = None  # Store SSL context for ACK/NACK requests
+
+    async def connect(self) -> None:
+        """Establish long-polling connection."""
+        self._ssl_context = self._create_ssl_context()
+
+        session = aiohttp.ClientSession()
+        self._session = session
+
+        try:
+            self.state = ConnectionState.CONNECTED
+            self._reconnect_delay = self.config.reconnect_delay
+            logger.info(f"Long-poll client started for channel {self.config.channel}")
+
+            if self.on_connect:
+                await self.on_connect()
+
+            # Polling loop
+            await self._poll_loop(self._ssl_context)
+
+        finally:
+            await session.close()
+            self._session = None
+            self._ssl_context = None
+
+    async def _poll_loop(self, ssl_context) -> None:
+        """Poll for messages continuously."""
+        base_url = self.config.cloud_url.rstrip("/")
+        poll_url = f"{base_url}/connect/stream/{self.config.channel}/poll"
+
+        headers = self._get_headers()
+
+        while not self._stop_event.is_set():
+            try:
+                async with self._session.get(
+                    poll_url,
+                    headers=headers,
+                    params={"timeout": self._poll_timeout, "max_messages": 10},
+                    timeout=aiohttp.ClientTimeout(
+                        total=self._poll_timeout + 5  # Extra time for network
+                    ),
+                    ssl=ssl_context,
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+
+                        # Update connection ID from server
+                        if "connection_id" in data:
+                            self.connection_id = data["connection_id"]
+
+                        # Process messages
+                        messages = data.get("messages", [])
+                        for msg in messages:
+                            msg["type"] = "webhook"
+                            try:
+                                await self.on_message(msg)
+                            except Exception as e:
+                                logger.error(f"Error processing message: {e}")
+
+                    elif response.status == 204:
+                        # No messages, poll again
+                        logger.debug("No messages available, polling again")
+
+                    elif response.status == 401:
+                        logger.error("Authentication failed")
+                        raise Exception("Authentication failed")
+
+                    elif response.status == 404:
+                        logger.error("Channel not found")
+                        raise Exception("Channel not found")
+
+                    else:
+                        logger.warning(f"Unexpected status: {response.status}")
+                        # Brief delay before retry
+                        await asyncio.sleep(1)
+
+            except asyncio.TimeoutError:
+                logger.debug("Poll timeout, retrying")
+            except aiohttp.ClientError as e:
+                logger.error(f"Connection error: {e}")
+                raise
+            except Exception as e:
+                logger.error(f"Poll error: {e}")
+                raise
+
+    async def send_ack(self, message_id: str) -> bool:
+        """Send acknowledgment via HTTP POST."""
+        if not self._session or self._session.closed:
+            return False
+
+        base_url = self.config.cloud_url.rstrip("/")
+        ack_url = f"{base_url}/connect/ack"
+
+        try:
+            async with self._session.post(
+                ack_url,
+                params={"message_id": message_id, "status": "ack"},
+                headers={
+                    "Authorization": f"Bearer {self.config.token}",
+                    "X-Connection-ID": self.connection_id or "",
+                },
+                ssl=self._ssl_context,
+            ) as response:
+                if response.status == 200:
+                    logger.debug(f"Sent ACK for {message_id}")
+                    return True
+                else:
+                    logger.error(f"ACK failed with status {response.status}")
+                    return False
+        except Exception as e:
+            logger.error(f"Failed to send ACK: {e}")
+            return False
+
+    async def send_nack(self, message_id: str, retry: bool = True) -> bool:
+        """Send negative acknowledgment via HTTP POST."""
+        if not self._session or self._session.closed:
+            return False
+
+        base_url = self.config.cloud_url.rstrip("/")
+        ack_url = f"{base_url}/connect/ack"
+
+        try:
+            async with self._session.post(
+                ack_url,
+                params={
+                    "message_id": message_id,
+                    "status": "nack",
+                    "retry": str(retry).lower(),
+                },
+                headers={
+                    "Authorization": f"Bearer {self.config.token}",
+                    "X-Connection-ID": self.connection_id or "",
+                },
+                ssl=self._ssl_context,
+            ) as response:
+                if response.status == 200:
+                    logger.debug(f"Sent NACK for {message_id}, retry={retry}")
+                    return True
+                else:
+                    logger.error(f"NACK failed with status {response.status}")
+                    return False
+        except Exception as e:
+            logger.error(f"Failed to send NACK: {e}")
+            return False
+
+
 def create_client(
     config: ConnectorConfig,
     on_message: Callable[[Dict[str, Any]], Awaitable[None]],
@@ -472,11 +628,13 @@ def create_client(
         on_disconnect: Optional callback when disconnected
 
     Returns:
-        StreamClient instance (WebSocket or SSE)
+        StreamClient instance (WebSocket, SSE, or LongPoll)
     """
     if config.protocol == "websocket":
         return WebSocketClient(config, on_message, on_connect, on_disconnect)
     elif config.protocol == "sse":
         return SSEClient(config, on_message, on_connect, on_disconnect)
+    elif config.protocol == "long_poll":
+        return LongPollClient(config, on_message, on_connect, on_disconnect)
     else:
         raise ValueError(f"Unknown protocol: {config.protocol}")

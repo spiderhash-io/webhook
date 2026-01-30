@@ -41,6 +41,11 @@ curl -X POST http://localhost:8000/webhook/basic_auth_webhook \
 
 - Standard HTTP Basic Auth (RFC 7617)
 - Base64 encoded credentials
-- Constant-time comparison
+- Constant-time comparison (timing attack resistant)
 - Username and password validation
+- UTF-8 encoding with Latin-1 fallback for special characters
+
+:::info Character Encoding
+Credentials are decoded using UTF-8 encoding by default. If UTF-8 decoding fails (e.g., for legacy clients), the system falls back to Latin-1 (ISO-8859-1) encoding.
+:::
 

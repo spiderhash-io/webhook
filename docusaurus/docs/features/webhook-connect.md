@@ -201,7 +201,7 @@ Webhooks are buffered during connector downtime:
 
 ## Streaming Protocols
 
-### WebSocket (Primary)
+### WebSocket (Primary - Recommended)
 
 Real-time, bidirectional communication with built-in heartbeats:
 
@@ -212,23 +212,24 @@ Connector ←──WebSocket──► Cloud Receiver
          ↔ heartbeat
 ```
 
+This is the fully implemented and recommended protocol for production use.
+
 ### Server-Sent Events (SSE)
 
-Simpler protocol, HTTP-native, auto-reconnect:
+:::caution Limited Implementation
+The SSE endpoint is available but currently only supports connection establishment and heartbeats. Full message streaming via SSE is planned for a future release. Use WebSocket for production deployments.
+:::
 
 ```
-Connector ←──SSE──► Cloud Receiver  (webhooks)
-Connector ──HTTP──► Cloud Receiver  (ack/nack)
+Connector ←──SSE──► Cloud Receiver  (heartbeats only)
+Connector ──HTTP──► Cloud Receiver  (ack/nack via POST /connect/ack)
 ```
 
-### HTTP Long-Polling (Fallback)
+### HTTP Long-Polling
 
-Works in restrictive environments:
-
-```
-Connector ──poll──► Cloud Receiver  (get messages)
-Connector ──HTTP──► Cloud Receiver  (ack/nack)
-```
+:::info Planned Feature
+HTTP Long-Polling is planned for environments where WebSocket connections are not possible. Currently not implemented.
+:::
 
 ## Security Features
 

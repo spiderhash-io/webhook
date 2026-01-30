@@ -9,13 +9,13 @@ The MQTT Module publishes webhook payloads to MQTT brokers. Supports MQTT 3.1.1 
     "mqtt_events": {
         "data_type": "json",
         "module": "mqtt",
-        "topic": "webhook/events",
         "connection": "mqtt_local",
         "module-config": {
+            "topic": "webhook/events",
             "qos": 1,
             "retained": false,
             "format": "json",
-            "topic_prefix": "webhook"
+            "topic_prefix": "devices"
         },
         "authorization": "Bearer mqtt_secret"
     }
@@ -34,33 +34,82 @@ In `connections.json`:
         "port": 1883,
         "username": "user",
         "password": "pass",
-        "tls": false,
-        "ca_certs": "/path/to/ca.crt"
+        "client_id": "webhook-module",
+        "keepalive": 60,
+        "mqtt_version": "3.1.1"
     }
 }
 ```
 
+### TLS/SSL Configuration
+
+```json
+{
+    "mqtt_secure": {
+        "type": "mqtt",
+        "host": "mqtt.example.com",
+        "port": 8883,
+        "username": "user",
+        "password": "pass",
+        "tls": true,
+        "tls_ca_cert_file": "/path/to/ca.crt",
+        "tls_cert_file": "/path/to/client.crt",
+        "tls_key_file": "/path/to/client.key",
+        "tls_insecure": false
+    }
+}
+```
+
+## Connection Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `host` | string | `"localhost"` | MQTT broker hostname |
+| `port` | integer | `1883` | MQTT broker port |
+| `username` | string | - | Authentication username |
+| `password` | string | - | Authentication password |
+| `client_id` | string | `"webhook-module"` | MQTT client identifier |
+| `keepalive` | integer | `60` | Connection keepalive in seconds |
+| `mqtt_version` | string | `"3.1.1"` | MQTT protocol version (`"3.1.1"` or `"5.0"`) |
+| `tls` | boolean | `false` | Enable TLS/SSL |
+| `tls_ca_cert_file` | string | - | CA certificate file path |
+| `tls_cert_file` | string | - | Client certificate file path |
+| `tls_key_file` | string | - | Client private key file path |
+| `tls_insecure` | boolean | `false` | Allow self-signed certificates |
+
 ## Module Configuration Options
 
-- `qos`: Quality of Service level (0, 1, or 2, default: 1)
-- `retained`: Whether messages should be retained (default: false)
-- `format`: Message format - "json" or "raw" (default: "json")
-- `topic_prefix`: Optional prefix for topic names
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `topic` | string | Required | MQTT topic to publish to |
+| `qos` | integer | `1` | Quality of Service level (0, 1, or 2) |
+| `retained` | boolean | `false` | Whether messages should be retained |
+| `format` | string | `"json"` | Message format: `"json"` or `"raw"` |
+| `topic_prefix` | string | - | Prefix prepended to topic |
+
+## Topic Validation
+
+Topic names are validated for security:
+
+- Cannot contain wildcards (`+` or `#`) when publishing
+- Cannot start with `$` (reserved for system topics)
+- Cannot contain consecutive slashes (`//`)
+- Maximum 32KB in length
 
 ## Special Features
 
 ### Shelly Device Compatibility
 
-Supports Shelly Gen1 (multi-topic) and Gen2/Gen3 (JSON format):
+Supports Shelly Gen2/Gen3 JSON format:
 
 ```json
 {
     "shelly_webhook": {
         "data_type": "json",
         "module": "mqtt",
-        "topic": "shellies/device123/status",
-        "connection": "mqtt_shelly",
+        "connection": "mqtt_local",
         "module-config": {
+            "topic": "shellies/device123/status",
             "shelly_gen2_format": true,
             "device_id": "device123",
             "qos": 1
@@ -78,12 +127,12 @@ Supports command (cmnd), status (stat), and telemetry (tele) topic formats:
     "tasmota_webhook": {
         "data_type": "json",
         "module": "mqtt",
-        "topic": "cmnd/device_name/POWER",
-        "connection": "mqtt_sonoff",
+        "connection": "mqtt_local",
         "module-config": {
+            "topic": "tasmota/device",
             "tasmota_format": true,
             "tasmota_type": "cmnd",
-            "device_name": "device_name",
+            "device_name": "switch1",
             "command": "POWER",
             "qos": 1
         }
@@ -94,8 +143,9 @@ Supports command (cmnd), status (stat), and telemetry (tele) topic formats:
 ## Features
 
 - MQTT 3.1.1 and 5.0 protocol support
-- TLS/SSL encryption (MQTTS)
+- TLS/SSL encryption with client certificates
 - QoS levels: 0, 1, 2
 - Retained messages
-- Device-specific format support
-
+- Topic prefix support
+- Shelly and Tasmota device format support
+- Topic name validation

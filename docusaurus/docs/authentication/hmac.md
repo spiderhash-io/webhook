@@ -21,9 +21,15 @@ Validates webhook signatures using HMAC-SHA256, SHA1, or SHA512. Commonly used b
 
 ## Configuration Options
 
-- `secret`: HMAC secret key (required)
-- `header`: Header name containing the signature (default: "X-Hub-Signature-256")
-- `algorithm`: Hash algorithm - "sha256", "sha1", or "sha512" (default: "sha256")
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `secret` | string | **Yes** | - | HMAC secret key |
+| `header` | string | No | `"X-Hub-Signature-256"` | Header name containing the signature |
+| `algorithm` | string | No | `"sha256"` | Hash algorithm: `sha256`, `sha1`, or `sha512` |
+
+:::info Header Name Lookup
+Header names are case-insensitive for lookup. For example, `X-Hub-Signature-256`, `x-hub-signature-256`, and `X-HUB-SIGNATURE-256` all work.
+:::
 
 ## Usage
 
@@ -49,4 +55,20 @@ curl -X POST http://localhost:8000/webhook/github_webhook \
 - Custom header support
 - Constant-time comparison (timing attack resistant)
 - Signature format validation
+
+## Signature Format
+
+Signatures must be provided in **hexadecimal format**. The signature can optionally include an algorithm prefix:
+
+```
+# With algorithm prefix (GitHub style)
+sha256=abc123def456...
+
+# Without prefix (plain hex)
+abc123def456...
+```
+
+:::warning Base64 Not Supported
+Base64-encoded signatures are not supported. If your webhook provider sends base64 signatures (like Shopify), you'll need to convert them to hex format or use a proxy.
+:::
 

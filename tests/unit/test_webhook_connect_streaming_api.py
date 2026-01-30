@@ -511,3 +511,144 @@ class TestMaxConnectionsLimit:
             pass
 
         assert "max_connections_reached" in content_result["content"]
+
+
+class TestLongPollEndpoint:
+    """Tests for long-polling streaming endpoint."""
+
+    def test_long_poll_missing_token(self, client):
+        """Test long-poll endpoint rejects missing token."""
+        response = client.get("/connect/stream/test-channel/poll")
+        assert response.status_code == 401
+        assert "Missing authorization token" in response.json()["detail"]
+
+    def test_long_poll_invalid_token(self, client):
+        """Test long-poll endpoint rejects invalid token."""
+        response = client.get(
+            "/connect/stream/test-channel/poll",
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+        assert response.status_code == 401
+        assert "Invalid channel token" in response.json()["detail"]
+
+    def test_long_poll_channel_not_found(self, client, mock_channel_manager):
+        """Test long-poll endpoint returns 404 for unknown channel."""
+        response = client.get(
+            "/connect/stream/unknown-channel/poll",
+            headers={"Authorization": "Bearer test-token"},
+        )
+        assert response.status_code == 401  # Token validation fails first
+
+    @pytest.mark.asyncio
+    async def test_long_poll_valid_token_query_param(self, app, mock_channel_manager):
+        """Test long-poll endpoint accepts token as query parameter."""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.get(
+                "/connect/stream/test-channel/poll?token=test-token-123&timeout=1",
+            )
+            # Should return 204 (no messages) with short timeout
+            assert response.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_long_poll_valid_token_header(self, app, mock_channel_manager):
+        """Test long-poll endpoint accepts token in Authorization header."""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.get(
+                "/connect/stream/test-channel/poll?timeout=1",
+                headers={"Authorization": "Bearer test-token-123"},
+            )
+            # Should return 204 (no messages) with short timeout
+            assert response.status_code == 204
+
+    @pytest.mark.asyncio
+    async def test_long_poll_timeout_parameter_validation(self, app, mock_channel_manager):
+        """Test long-poll endpoint validates timeout parameter."""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # Timeout too large
+            response = await ac.get(
+                "/connect/stream/test-channel/poll?timeout=120",
+                headers={"Authorization": "Bearer test-token-123"},
+            )
+            assert response.status_code == 422  # Validation error
+
+            # Timeout too small
+            response = await ac.get(
+                "/connect/stream/test-channel/poll?timeout=0",
+                headers={"Authorization": "Bearer test-token-123"},
+            )
+            assert response.status_code == 422  # Validation error
+
+    @pytest.mark.asyncio
+    async def test_long_poll_max_messages_parameter_validation(self, app, mock_channel_manager):
+        """Test long-poll endpoint validates max_messages parameter."""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # max_messages too large
+            response = await ac.get(
+                "/connect/stream/test-channel/poll?timeout=1&max_messages=200",
+                headers={"Authorization": "Bearer test-token-123"},
+            )
+            assert response.status_code == 422  # Validation error
+
+            # max_messages too small
+            response = await ac.get(
+                "/connect/stream/test-channel/poll?timeout=1&max_messages=0",
+                headers={"Authorization": "Bearer test-token-123"},
+            )
+            assert response.status_code == 422  # Validation error
+
+    @pytest.mark.asyncio
+    async def test_long_poll_max_connections_reached(self, app, mock_channel_manager):
+        """Test long-poll endpoint rejects when max connections reached."""
+        # Fill up connections
+        for i in range(5):  # max_connections is 5
+            conn = ConnectorConnection(
+                connection_id=f"conn-{i}",
+                connector_id=f"connector-{i}",
+                channel="test-channel",
+                protocol=ConnectionProtocol.LONG_POLL,
+            )
+            await mock_channel_manager.add_connection(conn)
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.get(
+                "/connect/stream/test-channel/poll?timeout=1",
+                headers={"Authorization": "Bearer test-token-123"},
+            )
+            assert response.status_code == 503
+            assert "Max connections reached" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_long_poll_returns_204_when_no_messages(self, app, mock_channel_manager):
+        """Test long-poll returns 204 when no messages available within timeout."""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.get(
+                "/connect/stream/test-channel/poll?timeout=1",
+                headers={"Authorization": "Bearer test-token-123"},
+            )
+            assert response.status_code == 204
+
+
+class TestLongPollNotInitialized:
+    """Tests for long-poll when channel manager is not initialized."""
+
+    @pytest.mark.asyncio
+    async def test_long_poll_returns_503_when_not_initialized(self):
+        """Test long-poll endpoint returns 503 when channel manager not set."""
+        test_app = FastAPI()
+        test_app.include_router(router)
+        set_channel_manager(None)
+
+        transport = ASGITransport(app=test_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            response = await ac.get(
+                "/connect/stream/test-channel/poll?timeout=1",
+                headers={"Authorization": "Bearer test-token-123"},
+            )
+            assert response.status_code == 503
+            assert "not initialized" in response.json()["detail"]

@@ -54,9 +54,26 @@ Connection pools are configured through the connection configuration in `connect
 
 ### Pool Configuration Options
 
-- `pool_min_size`: Minimum number of connections in the pool (default: varies by module)
-- `pool_max_size`: Maximum number of connections in the pool (default: varies by module)
-- `acquisition_timeout`: Maximum time to wait for a connection (default: varies by module)
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `pool_min_size` | integer | Module-specific | Minimum connections kept open in the pool |
+| `pool_max_size` | integer | Module-specific | Maximum connections allowed in the pool |
+| `acquisition_timeout` | integer | Module-specific | Maximum seconds to wait for a connection |
+
+#### Default Pool Sizes by Module
+
+| Module | `pool_min_size` | `pool_max_size` |
+|--------|-----------------|-----------------|
+| PostgreSQL | 2 | 10 |
+| MySQL | 1 | 10 |
+| Redis | 1 | 10 |
+| RabbitMQ | 1 | 5 |
+
+:::info Pool Size Guidelines
+- **Minimum size**: Set to the number of concurrent requests you expect under normal load
+- **Maximum size**: Set based on your database's connection limits and expected peak load
+- A good starting point is `pool_min_size: 2` and `pool_max_size: 10` for most use cases
+:::
 
 ## Migration Timeout
 

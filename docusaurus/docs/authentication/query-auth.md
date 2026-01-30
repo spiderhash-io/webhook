@@ -20,9 +20,11 @@ Authenticate webhooks using API keys passed as query parameters (e.g., `?api_key
 
 ## Configuration Options
 
-- `parameter_name`: Query parameter name (default: `"api_key"`)
-- `api_key`: Expected API key value (required)
-- `case_sensitive`: Whether key comparison is case-sensitive (default: `false`)
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `parameter_name` | string | `"api_key"` | Query parameter name |
+| `api_key` | string | Required | Expected API key value |
+| `case_sensitive` | boolean | `false` | Whether key comparison is case-sensitive |
 
 ## Usage
 
@@ -43,10 +45,28 @@ curl -X POST "http://localhost:8000/webhook/query_auth_webhook?api_key=secret_ap
 - `access_token`
 - `auth_token`
 
-## Features
+## Security Features
 
-- Constant-time key comparison (timing attack resistant)
-- Case-insensitive by default (configurable)
-- Validates empty keys and missing parameters
-- Handles special characters and Unicode
+- **Constant-time comparison** - Timing attack resistant using `hmac.compare_digest`
+- **Parameter name validation** - Only alphanumeric characters and underscores allowed
+- **Value sanitization** - Control characters (`\n`, `\r`, `\t`, `\0`) are removed
+- **Length limits** - Maximum parameter value length enforced
+- **Type validation** - API key must be a string
 
+:::info Value Sanitization
+Query parameter values are sanitized before comparison:
+- Control characters are removed
+- Null bytes are stripped
+- Non-printable characters are filtered
+
+This means special characters and Unicode in the provided API key may be modified during validation. Use alphanumeric characters for reliable key matching.
+:::
+
+## Error Messages
+
+| Condition | Error Message |
+|-----------|---------------|
+| Missing parameter | `Missing required query parameter: {name}` |
+| Invalid value | `Invalid API key in query parameter: {name}` |
+| Invalid config | `Query auth API key not configured` |
+| Too long / invalid chars | `Invalid query parameter value for: {name}` |

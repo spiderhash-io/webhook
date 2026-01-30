@@ -19,7 +19,7 @@ from fastapi import (
     Header,
     Query,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from starlette.websockets import WebSocketState
 
 from src.webhook_connect.models import (
@@ -315,29 +315,68 @@ async def sse_stream(
 
         # Register connection
         if not await channel_manager.add_connection(connection):
-            yield f'event: error\ndata: {{"error": "max_connections_reached"}}\n\n'
+            yield 'event: error\ndata: {"error": "max_connections_reached"}\n\n'
             return
+
+        # Create message queue for SSE delivery
+        message_queue: asyncio.Queue[WebhookMessage] = asyncio.Queue()
+        subscription_task: Optional[asyncio.Task] = None
 
         try:
             # Send connected event
-            yield f"event: connected\ndata: {json.dumps({'connection_id': connection.connection_id, 'channel': channel})}\n\n"
+            connected_data = {"connection_id": connection.connection_id, "channel": channel}
+            yield f"event: connected\ndata: {json.dumps(connected_data)}\n\n"
 
             buffer = channel_manager.buffer
 
             async def send_message(message: WebhookMessage) -> None:
-                """This won't be used directly - SSE needs different handling."""
-                pass
+                """Callback to put messages into the queue for SSE delivery."""
+                # Check in-flight limit
+                while len(connection.in_flight_messages) >= channel_config.max_in_flight:
+                    await asyncio.sleep(0.1)  # Backpressure
 
-            # For SSE, we need to poll/iterate differently
-            # Since subscribe is blocking, we use a different approach
+                # Track in-flight
+                connection.in_flight_messages.add(message.message_id)
+                message.delivery_count += 1
+                message.last_delivered_to = connection.connection_id
+                message.last_delivered_at = datetime.now(timezone.utc)
+
+                await message_queue.put(message)
+
+            # Start subscription in background task
+            subscription_task = asyncio.create_task(
+                buffer.subscribe(channel, send_message)
+            )
+
+            # Heartbeat interval from channel config
+            heartbeat_interval = channel_config.heartbeat_interval.total_seconds()
+            last_heartbeat = datetime.now(timezone.utc)
+
             while True:
-                # Get pending messages
-                # Note: This is a simplified implementation
-                # A production version would use proper async iteration
-                await asyncio.sleep(0.5)
+                try:
+                    # Check for messages with short timeout to allow heartbeats
+                    message = await asyncio.wait_for(
+                        message_queue.get(), timeout=0.5
+                    )
 
-                # Send heartbeat periodically
-                yield f"event: heartbeat\ndata: {json.dumps({'timestamp': datetime.now(timezone.utc).isoformat()})}\n\n"
+                    # Format and yield webhook message
+                    connection.messages_received += 1
+                    connection.last_message_at = datetime.now(timezone.utc)
+
+                    yield f"event: webhook\ndata: {json.dumps(message.to_wire_format())}\n\n"
+                    logger.debug(
+                        f"SSE sent message {message.message_id} to {connection.connection_id}"
+                    )
+
+                except asyncio.TimeoutError:
+                    # No message available, check if heartbeat needed
+                    now = datetime.now(timezone.utc)
+                    elapsed = (now - last_heartbeat).total_seconds()
+
+                    if elapsed >= heartbeat_interval:
+                        hb_data = {"timestamp": now.isoformat()}
+                        yield f"event: heartbeat\ndata: {json.dumps(hb_data)}\n\n"
+                        last_heartbeat = now
 
         except asyncio.CancelledError:
             pass
@@ -345,6 +384,13 @@ async def sse_stream(
             logger.error(f"SSE stream error for connection {connection.connection_id}: {e}")
             yield f"event: error\ndata: {json.dumps({'error': 'Internal server error'})}\n\n"
         finally:
+            # Cancel subscription task
+            if subscription_task:
+                subscription_task.cancel()
+                try:
+                    await subscription_task
+                except asyncio.CancelledError:
+                    pass
             await channel_manager.remove_connection(connection.connection_id)
 
     return StreamingResponse(
@@ -356,6 +402,143 @@ async def sse_stream(
             "X-Accel-Buffering": "no",  # Disable nginx buffering
         },
     )
+
+
+@router.get("/stream/{channel}/poll")
+async def long_poll_stream(
+    channel: str,
+    timeout: int = Query(default=30, ge=1, le=60, description="Timeout in seconds"),
+    max_messages: int = Query(default=10, ge=1, le=100, description="Max messages to return"),
+    authorization: str = Header(None),
+    token: str = Query(None),
+    x_connector_id: str = Header("poll_default"),
+):
+    """
+    Long-polling endpoint for streaming webhooks.
+
+    This is a fallback for environments where WebSocket and SSE are unavailable.
+    Returns messages immediately when available, or after timeout with empty response.
+
+    Response:
+    - 200: Messages available, returns {"messages": [...], "connection_id": "..."}
+    - 204: No messages available within timeout
+    - 401: Invalid authentication
+    - 404: Channel not found
+
+    ACKs must be sent via the POST /connect/ack endpoint using the connection_id.
+    """
+    channel_manager = get_channel_manager()
+
+    # Extract authentication token
+    auth_token = token
+    if authorization:
+        auth_token = authorization.replace("Bearer ", "").strip()
+
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+
+    # Validate token
+    if not channel_manager.validate_token(channel, auth_token):
+        raise HTTPException(status_code=401, detail="Invalid channel token")
+
+    # Check if channel exists
+    channel_config = channel_manager.get_channel(channel)
+    if not channel_config:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Create connection record
+    connection = ConnectorConnection(
+        connection_id=f"poll_{x_connector_id}_{datetime.now(timezone.utc).timestamp():.0f}",
+        connector_id=x_connector_id,
+        channel=channel,
+        protocol=ConnectionProtocol.LONG_POLL,
+    )
+
+    # Register connection
+    if not await channel_manager.add_connection(connection):
+        raise HTTPException(status_code=503, detail="Max connections reached")
+
+    # Create message queue for collection
+    message_queue: asyncio.Queue[WebhookMessage] = asyncio.Queue()
+    collected_messages: list = []
+    subscription_task: Optional[asyncio.Task] = None
+
+    try:
+        buffer = channel_manager.buffer
+
+        async def send_message(message: WebhookMessage) -> None:
+            """Callback to collect messages."""
+            # Track in-flight
+            connection.in_flight_messages.add(message.message_id)
+            message.delivery_count += 1
+            message.last_delivered_to = connection.connection_id
+            message.last_delivered_at = datetime.now(timezone.utc)
+
+            await message_queue.put(message)
+
+        # Start subscription in background
+        subscription_task = asyncio.create_task(
+            buffer.subscribe(channel, send_message)
+        )
+
+        # Collect messages until timeout or max_messages reached
+        start_time = datetime.now(timezone.utc)
+        remaining_timeout = float(timeout)
+
+        while len(collected_messages) < max_messages and remaining_timeout > 0:
+            try:
+                message = await asyncio.wait_for(
+                    message_queue.get(), timeout=min(remaining_timeout, 1.0)
+                )
+                collected_messages.append(message)
+                connection.messages_received += 1
+                connection.last_message_at = datetime.now(timezone.utc)
+
+                # If we got at least one message, return immediately
+                # (don't wait for more unless caller explicitly wants batching)
+                if len(collected_messages) >= 1:
+                    break
+
+            except asyncio.TimeoutError:
+                # Update remaining timeout
+                elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+                remaining_timeout = timeout - elapsed
+
+        # Cancel subscription
+        if subscription_task:
+            subscription_task.cancel()
+            try:
+                await subscription_task
+            except asyncio.CancelledError:
+                pass
+
+        if not collected_messages:
+            # No messages within timeout - return 204
+            await channel_manager.remove_connection(connection.connection_id)
+            return Response(status_code=204)
+
+        # Return collected messages
+        # Note: Connection is cleaned up after response - client must ACK messages
+        # then connection will be removed when client makes next poll request
+        await channel_manager.remove_connection(connection.connection_id)
+        return {
+            "messages": [msg.to_wire_format() for msg in collected_messages],
+            "connection_id": connection.connection_id,
+            "channel": channel,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Long-poll error for channel {channel}: {e}")
+        # Cancel subscription on error
+        if subscription_task:
+            subscription_task.cancel()
+            try:
+                await subscription_task
+            except asyncio.CancelledError:
+                pass
+        await channel_manager.remove_connection(connection.connection_id)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/ack")

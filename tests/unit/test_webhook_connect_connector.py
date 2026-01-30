@@ -215,6 +215,53 @@ class TestConnectorConfig:
         url = config.get_stream_url()
         assert url == "https://webhooks.example.com/connect/stream/my-channel/sse"
 
+    def test_get_stream_url_long_poll(self):
+        """Test generating long-poll stream URL."""
+        config = ConnectorConfig(
+            cloud_url="https://webhooks.example.com",
+            channel="my-channel",
+            protocol="long_poll",
+        )
+
+        url = config.get_stream_url()
+        assert url == "https://webhooks.example.com/connect/stream/my-channel/poll"
+
+    def test_get_stream_url_long_poll_http(self):
+        """Test generating long-poll stream URL from HTTP."""
+        config = ConnectorConfig(
+            cloud_url="http://localhost:8080",
+            channel="test",
+            protocol="long_poll",
+        )
+
+        url = config.get_stream_url()
+        assert url == "http://localhost:8080/connect/stream/test/poll"
+
+    def test_get_stream_url_invalid_protocol_raises(self):
+        """Test that invalid protocol raises ValueError."""
+        config = ConnectorConfig(
+            cloud_url="https://webhooks.example.com",
+            channel="my-channel",
+        )
+        # Manually set invalid protocol to bypass validation
+        config.protocol = "invalid"
+
+        with pytest.raises(ValueError, match="Unknown protocol"):
+            config.get_stream_url()
+
+    def test_validate_long_poll_protocol(self):
+        """Test validation accepts long_poll protocol."""
+        config = ConnectorConfig(
+            cloud_url="https://example.com",
+            channel="ch",
+            token="t",
+            protocol="long_poll",
+            default_target=TargetConfig(url="http://localhost"),
+        )
+
+        errors = config.validate()
+        assert not any("protocol" in e for e in errors)
+
     def test_to_dict_excludes_sensitive(self):
         """Test that to_dict excludes sensitive data."""
         config = ConnectorConfig(
