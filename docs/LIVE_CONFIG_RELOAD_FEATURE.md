@@ -523,9 +523,30 @@ curl -X POST http://localhost:8000/admin/reload-config \
 Environment variables:
 - `CONFIG_FILE_WATCHING_ENABLED` - Enable/disable file watching (default: true)
 - `CONFIG_RELOAD_DEBOUNCE_SECONDS` - Debounce delay in seconds (default: 3.0)
-- `CONFIG_RELOAD_ADMIN_TOKEN` - Admin token for API endpoint (optional, but recommended)
+- `CONFIG_RELOAD_ADMIN_TOKEN` - Admin token for API endpoints (required; admin API is disabled if unset)
+
+### Migration Note
+
+**Breaking Change:** Admin endpoints (`/admin/reload-config`, `/admin/config-status`) now require `CONFIG_RELOAD_ADMIN_TOKEN` to be set. Previously, these endpoints were accessible without authentication when this environment variable was unset.
+
+**What changed:**
+- Admin endpoints return `403 Forbidden` when `CONFIG_RELOAD_ADMIN_TOKEN` is not set (previously worked without auth)
+- Whitespace-only tokens (e.g., `"   "`) are treated as unconfigured and return `403` (previously returned `401`)
+
+**Action required for existing deployments:**
+```bash
+export CONFIG_RELOAD_ADMIN_TOKEN="your-secure-random-token-here"
+```
+
+Generate a secure token:
+```bash
+# Linux/macOS
+openssl rand -base64 32
+
+# Or use Python
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
 
 ## Status
 
 ✅ **Feature Complete** - All planned functionality has been implemented and is in use.
-

@@ -47,7 +47,7 @@ class TestTypeConfusionAttacks:
                 json={"reload_webhooks": "true", "reload_connections": "false"},
             )
             # Should handle gracefully (may treat as truthy or reject)
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
     def test_reload_config_type_confusion_list(self):
         """Test that list values for reload_webhooks are handled safely."""
@@ -60,7 +60,7 @@ class TestTypeConfusionAttacks:
                 json={"reload_webhooks": [True], "reload_connections": []},
             )
             # Should handle gracefully
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
     def test_reload_config_type_confusion_dict(self):
         """Test that dict values for reload_webhooks are handled safely."""
@@ -73,7 +73,7 @@ class TestTypeConfusionAttacks:
                 json={"reload_webhooks": {"nested": True}, "reload_connections": {}},
             )
             # Should handle gracefully
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
     def test_reload_config_type_confusion_integer(self):
         """Test that integer values for reload_webhooks are handled safely."""
@@ -86,7 +86,7 @@ class TestTypeConfusionAttacks:
                 json={"reload_webhooks": 1, "reload_connections": 0},
             )
             # Should handle gracefully
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
     def test_reload_config_type_confusion_null(self):
         """Test that null values for reload_webhooks are handled safely."""
@@ -99,7 +99,7 @@ class TestTypeConfusionAttacks:
                 json={"reload_webhooks": None, "reload_connections": None},
             )
             # Should handle gracefully (may default to True or reject)
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
     def test_reload_config_type_confusion_validate_only(self):
         """Test that validate_only type confusion is handled safely."""
@@ -112,7 +112,7 @@ class TestTypeConfusionAttacks:
                 json={"validate_only": "true", "reload_webhooks": True},
             )
             # Should handle gracefully
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
 
 # ============================================================================
@@ -383,7 +383,7 @@ class TestRequestBodySizeLimits:
 
             response = client.post("/admin/reload-config", json=large_payload)
             # Should handle gracefully (may reject or process)
-            assert response.status_code in [200, 400, 401, 413, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 413, 422, 503]
 
     def test_reload_config_deeply_nested_payload(self):
         """Test that deeply nested payloads are handled safely."""
@@ -403,7 +403,7 @@ class TestRequestBodySizeLimits:
             try:
                 response = client.post("/admin/reload-config", json=payload)
                 # Should handle gracefully
-                assert response.status_code in [200, 400, 401, 422, 503]
+                assert response.status_code in [200, 400, 401, 403, 422, 503]
             except RecursionError:
                 # If json.dumps hits recursion limit, that's acceptable - test passes
                 # The important thing is that it doesn't crash the server
@@ -430,7 +430,7 @@ class TestContentTypeValidation:
                 headers={"Content-Type": "text/plain"},
             )
             # FastAPI should still parse JSON
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
     def test_reload_config_missing_content_type(self):
         """Test that missing Content-Type is handled safely."""
@@ -444,7 +444,7 @@ class TestContentTypeValidation:
                 headers={},  # No Content-Type
             )
             # FastAPI should still parse JSON
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
     def test_reload_config_malformed_content_type(self):
         """Test that malformed Content-Type is handled safely."""
@@ -460,7 +460,7 @@ class TestContentTypeValidation:
                 },
             )
             # Should handle gracefully
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
 
 # ============================================================================
@@ -629,7 +629,7 @@ class TestJSONParsingDoS:
                         headers={"Content-Type": "application/json"},
                     )
                     # Should handle gracefully
-                    assert response.status_code in [200, 400, 401, 422, 503]
+                    assert response.status_code in [200, 400, 401, 403, 422, 503]
                 except Exception:
                     # JSON parsing error is acceptable
                     pass
@@ -645,7 +645,7 @@ class TestJSONParsingDoS:
 
             response = client.post("/admin/reload-config", json=payload)
             # Should handle normally
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
 
 # ============================================================================
@@ -681,7 +681,7 @@ class TestConcurrentRequestHandling:
             # All requests should complete
             assert len(responses) == 10
             for response in responses:
-                assert response.status_code in [200, 400, 401, 422, 503]
+                assert response.status_code in [200, 400, 401, 403, 422, 503]
 
     def test_config_status_concurrent_requests(self):
         """Test that concurrent status requests are handled safely."""
@@ -708,7 +708,7 @@ class TestConcurrentRequestHandling:
             # All requests should complete
             assert len(responses) == 10
             for response in responses:
-                assert response.status_code in [200, 401, 503]
+                assert response.status_code in [200, 401, 403, 503]
 
 
 # ============================================================================
@@ -720,7 +720,7 @@ class TestWhitespaceAndEdgeCases:
     """Test whitespace and edge case handling."""
 
     def test_reload_config_whitespace_only_token(self):
-        """Test that whitespace-only token is handled safely."""
+        """Test that whitespace-only token is treated as unconfigured (403)."""
         # Mock ConfigManager to avoid 503 errors
         mock_config_manager = Mock(spec=ConfigManager)
         mock_config_manager.reload_all = AsyncMock(
@@ -741,8 +741,8 @@ class TestWhitespaceAndEdgeCases:
                     json={},
                     headers={"Authorization": "Bearer    "},
                 )
-                # Should reject (whitespace-only token is invalid)
-                assert response.status_code == 401
+                # Admin API is disabled when token is not configured
+                assert response.status_code == 403
         finally:
             if original_config_manager is not None:
                 app.state.config_manager = original_config_manager
@@ -751,13 +751,28 @@ class TestWhitespaceAndEdgeCases:
 
     def test_reload_config_empty_token(self):
         """Test that empty token is handled safely."""
-        with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": ""}):
-            client = TestClient(app)
+        # Mock ConfigManager to avoid 503 errors
+        mock_config_manager = Mock(spec=ConfigManager)
+        mock_config_manager.reload_all = AsyncMock(
+            return_value=ReloadResult(success=True)
+        )
 
-            # No token required when env var is empty
-            response = client.post("/admin/reload-config", json={})
-            # Should not be 401 (no auth required)
-            assert response.status_code != 401
+        # Set config_manager in app.state
+        original_config_manager = getattr(app.state, "config_manager", None)
+        app.state.config_manager = mock_config_manager
+
+        try:
+            with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": ""}):
+                client = TestClient(app)
+
+                # Admin API disabled when env var is empty
+                response = client.post("/admin/reload-config", json={})
+                assert response.status_code == 403
+        finally:
+            if original_config_manager is not None:
+                app.state.config_manager = original_config_manager
+            elif hasattr(app.state, "config_manager"):
+                delattr(app.state, "config_manager")
 
     def test_reload_config_very_long_token(self):
         """Test that very long token is handled safely."""
@@ -771,7 +786,7 @@ class TestWhitespaceAndEdgeCases:
                 headers={"Authorization": f"Bearer {'x' * 10000}"},
             )
             # Should handle gracefully (may be slow but shouldn't crash)
-            assert response.status_code in [200, 400, 401, 422, 503]
+            assert response.status_code in [200, 400, 401, 403, 422, 503]
 
     def test_reload_config_unicode_token(self):
         """Test that Unicode token is handled safely."""

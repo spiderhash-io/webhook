@@ -93,11 +93,16 @@ The migration timeout controls how long deprecated pools remain active after a c
 
 ## Monitoring
 
-Connection pool status can be monitored via the admin API:
+Connection pool status can be monitored via the admin API.
+
+:::info Authentication Required
+The admin status endpoint requires `CONFIG_RELOAD_ADMIN_TOKEN` to be configured.
+See [Live Config Reload](./live-config-reload.md#setup) for setup instructions.
+:::
 
 ```bash
 curl http://localhost:8000/admin/status \
-  -H "Authorization: Bearer admin_token"
+  -H "Authorization: Bearer $CONFIG_RELOAD_ADMIN_TOKEN"
 ```
 
 The status response includes:

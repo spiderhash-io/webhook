@@ -75,23 +75,41 @@ Configuration files support environment variable substitution using the `{$VAR}`
 
 ## Live Configuration Reload
 
-The application supports hot-reloading of configuration files without restart:
+The application supports hot-reloading of configuration files without restart.
 
-**Enable File Watching:**
+### Setup
+
+**1. Configure Admin Authentication (Required):**
+
+:::warning
+Admin API endpoints are **disabled** if `CONFIG_RELOAD_ADMIN_TOKEN` is not set.
+They will return `403 Forbidden` for all requests.
+:::
+
+```bash
+# Generate a secure token
+export CONFIG_RELOAD_ADMIN_TOKEN=$(openssl rand -base64 32)
+```
+
+**2. Enable File Watching (Optional):**
 ```bash
 export CONFIG_FILE_WATCHING_ENABLED=true
 export CONFIG_RELOAD_DEBOUNCE_SECONDS=3.0
 ```
 
-**Manual Reload via API:**
+**3. Manual Reload via API:**
 ```bash
 # Reload webhook configurations
 curl -X POST http://localhost:8000/admin/reload-config \
-  -H "Authorization: Bearer admin_token"
+  -H "Authorization: Bearer $CONFIG_RELOAD_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reload_webhooks": true}'
 
 # Reload connection configurations
-curl -X POST http://localhost:8000/admin/reload-connections \
-  -H "Authorization: Bearer admin_token"
+curl -X POST http://localhost:8000/admin/reload-config \
+  -H "Authorization: Bearer $CONFIG_RELOAD_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reload_connections": true}'
 ```
 
 **Features:**
@@ -101,4 +119,6 @@ curl -X POST http://localhost:8000/admin/reload-connections \
 - Validation before applying changes
 - Rollback on errors
 - Zero-downtime updates
+
+See [Live Config Reload](../features/live-config-reload.md) for detailed documentation.
 

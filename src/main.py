@@ -5,6 +5,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
 from contextlib import asynccontextmanager
 import asyncio
+import hmac
 import os
 import time
 from typing import Optional
@@ -1349,6 +1350,56 @@ async def stats_endpoint(request: Request):
     return stats_data
 
 
+# ============================================================================
+# ADMIN ENDPOINT AUTHENTICATION
+# ============================================================================
+
+
+def _require_admin_token(request: Request) -> None:
+    """
+    Enforce admin authentication for sensitive admin endpoints.
+
+    Admin endpoints are disabled unless CONFIG_RELOAD_ADMIN_TOKEN is set.
+
+    Behavioral notes:
+    - Whitespace-only tokens are treated as unconfigured (returns 403)
+    - Missing/invalid headers return 401
+    - Uses constant-time comparison to prevent timing attacks
+    """
+    admin_token_raw = os.getenv("CONFIG_RELOAD_ADMIN_TOKEN", "")
+    admin_token = admin_token_raw.strip()
+
+    if not admin_token:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Admin API disabled. Set CONFIG_RELOAD_ADMIN_TOKEN environment variable."
+            ),
+        )
+
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # SECURITY: Prevent header injection (newlines, carriage returns, null bytes)
+    if "\n" in auth_header or "\r" in auth_header or "\x00" in auth_header:
+        raise HTTPException(status_code=401, detail="Invalid authentication header")
+
+    # Extract token
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    else:
+        token = auth_header.strip()
+
+    # SECURITY: Reject whitespace-only tokens
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
+    # Constant-time comparison
+    if not hmac.compare_digest(token.encode("utf-8"), admin_token.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
+
 @app.post("/admin/reload-config", tags=["Admin"])
 async def reload_config_endpoint(request: Request):
     """
@@ -1367,43 +1418,7 @@ async def reload_config_endpoint(request: Request):
     if not config_manager:
         raise HTTPException(status_code=503, detail="ConfigManager not initialized")
 
-    # Check authentication if configured
-    # SECURITY: Get original value to check if it was set (even if whitespace-only)
-    admin_token_raw = os.getenv("CONFIG_RELOAD_ADMIN_TOKEN", "")
-    admin_token = admin_token_raw.strip()
-    # SECURITY: If original was set but becomes empty after strip, treat as invalid (require auth but reject all)
-    if admin_token_raw and not admin_token:
-        # Whitespace-only token configured - require auth but reject all tokens
-        auth_header = request.headers.get("authorization", "")
-        if not auth_header:
-            raise HTTPException(status_code=401, detail="Authentication required")
-        raise HTTPException(status_code=401, detail="Invalid authentication token")
-
-    if admin_token:
-        auth_header = request.headers.get("authorization", "")
-        # SECURITY: Check for None/empty header before processing
-        if not auth_header:
-            raise HTTPException(status_code=401, detail="Authentication required")
-
-        # SECURITY: Prevent header injection (newlines, carriage returns, null bytes)
-        if "\n" in auth_header or "\r" in auth_header or "\x00" in auth_header:
-            raise HTTPException(status_code=401, detail="Invalid authentication header")
-
-        # Extract token
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:].strip()
-        else:
-            token = auth_header.strip()
-
-        # SECURITY: Reject whitespace-only tokens
-        if not token:
-            raise HTTPException(status_code=401, detail="Invalid authentication token")
-
-        # Constant-time comparison
-        import hmac
-
-        if not hmac.compare_digest(token.encode("utf-8"), admin_token.encode("utf-8")):
-            raise HTTPException(status_code=401, detail="Invalid authentication token")
+    _require_admin_token(request)
 
     # Parse request body
     try:
@@ -1588,43 +1603,7 @@ async def config_status_endpoint(request: Request):
     if not config_manager:
         raise HTTPException(status_code=503, detail="ConfigManager not initialized")
 
-    # Check authentication if configured
-    # SECURITY: Get original value to check if it was set (even if whitespace-only)
-    admin_token_raw = os.getenv("CONFIG_RELOAD_ADMIN_TOKEN", "")
-    admin_token = admin_token_raw.strip()
-    # SECURITY: If original was set but becomes empty after strip, treat as invalid (require auth but reject all)
-    if admin_token_raw and not admin_token:
-        # Whitespace-only token configured - require auth but reject all tokens
-        auth_header = request.headers.get("authorization", "")
-        if not auth_header:
-            raise HTTPException(status_code=401, detail="Authentication required")
-        raise HTTPException(status_code=401, detail="Invalid authentication token")
-
-    if admin_token:
-        auth_header = request.headers.get("authorization", "")
-        # SECURITY: Check for None/empty header before processing
-        if not auth_header:
-            raise HTTPException(status_code=401, detail="Authentication required")
-
-        # SECURITY: Prevent header injection (newlines, carriage returns, null bytes)
-        if "\n" in auth_header or "\r" in auth_header or "\x00" in auth_header:
-            raise HTTPException(status_code=401, detail="Invalid authentication header")
-
-        # Extract token
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:].strip()
-        else:
-            token = auth_header.strip()
-
-        # SECURITY: Reject whitespace-only tokens
-        if not token:
-            raise HTTPException(status_code=401, detail="Invalid authentication token")
-
-        # Constant-time comparison
-        import hmac
-
-        if not hmac.compare_digest(token.encode("utf-8"), admin_token.encode("utf-8")):
-            raise HTTPException(status_code=401, detail="Invalid authentication token")
+    _require_admin_token(request)
 
     status = config_manager.get_status()
 

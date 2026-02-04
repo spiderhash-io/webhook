@@ -47,6 +47,35 @@ docker run --rm \
   spiderhash/webhook:latest
 ```
 
+### Environment Variables
+
+Create a `.env` file for your environment variables:
+
+```bash
+# Admin API Authentication (Required for /admin/* endpoints)
+CONFIG_RELOAD_ADMIN_TOKEN=your-secure-token-here
+
+# Live Config Reload (Optional)
+CONFIG_FILE_WATCHING_ENABLED=true
+CONFIG_RELOAD_DEBOUNCE_SECONDS=3.0
+
+# Application Settings
+DISABLE_OPENAPI_DOCS=false
+ROOT_PATH=
+```
+
+:::tip Generating Secure Tokens
+```bash
+# Using OpenSSL (Linux/macOS)
+openssl rand -base64 32
+
+# Using Python
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+:::
+
+```
+
 ## Docker (Multi-Instance with Redis & ClickHouse)
 
 For performance testing and a full deployment with multiple webhook instances:

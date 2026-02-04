@@ -125,14 +125,13 @@ class TestAdminEndpointAuthentication:
             assert "Invalid authentication token" in response.json()["detail"]
 
     def test_reload_config_without_token_when_not_required(self):
-        """Test that reload-config works without token when token is not set."""
+        """Test that reload-config is disabled when token is not set."""
         with patch.dict(os.environ, {"CONFIG_RELOAD_ADMIN_TOKEN": ""}):
             client = TestClient(app)
 
-            # Request without token should work (may fail for other reasons like missing ConfigManager)
+            # Request without token should be rejected when admin API is disabled
             response = client.post("/admin/reload-config", json={})
-            # Should not be 401 (authentication error)
-            assert response.status_code != 401
+            assert response.status_code == 403
 
     def test_authorization_header_case_insensitive(self):
         """Test that authorization header is handled case-insensitively."""
@@ -358,7 +357,7 @@ class TestReloadDoS:
         # All requests should get a response (not hang)
         assert len(responses) == 20
         for response in responses:
-            assert response.status_code in [200, 400, 401, 503]  # Valid status codes
+            assert response.status_code in [200, 400, 401, 403, 503]  # Valid status codes
 
 
 # ============================================================================
@@ -1021,7 +1020,7 @@ class TestAdminEndpointInputValidation:
                     headers={"Content-Type": "application/json"},
                 )
                 # Should not crash (may return error, but should handle gracefully)
-                assert response.status_code in [200, 400, 401, 422, 503]
+                assert response.status_code in [200, 400, 401, 403, 422, 503]
             except Exception as e:
                 # Any exception should be safe (not expose system info)
                 assert "json" in str(e).lower() or "decode" in str(e).lower()
@@ -1036,7 +1035,7 @@ class TestAdminEndpointInputValidation:
         response = client.post("/admin/reload-config", json=large_payload)
 
         # Should handle gracefully (may reject or process)
-        assert response.status_code in [200, 400, 401, 413, 422, 503]
+        assert response.status_code in [200, 400, 401, 403, 413, 422, 503]
 
     def test_config_status_parameter_injection(self):
         """Test that parameter injection in config-status is prevented."""
@@ -1051,4 +1050,4 @@ class TestAdminEndpointInputValidation:
         for query in malicious_queries:
             response = client.get(query)
             # Should not process query parameters (endpoint doesn't accept them)
-            assert response.status_code in [200, 401, 404, 503]
+            assert response.status_code in [200, 401, 403, 404, 503]
