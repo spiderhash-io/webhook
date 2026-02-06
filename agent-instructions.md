@@ -939,25 +939,18 @@ Receive webhooks behind firewalls without exposing local services. Similar to ng
 ### How It Works
 
 ```
-Internet → Cloud Webhook Server → WebSocket/SSE → Local Connector → Local HTTP Target
+Internet → Cloud Webhook Server → Redis Queue → WebSocket/SSE/Long-Poll → Local Connector → Local Target
 ```
 
 1. Deploy webhook module to cloud (receives webhooks from providers)
-2. Run local connector behind firewall
-3. Connector connects outbound to cloud via WebSocket/SSE
-4. Webhooks are relayed through the connection to local targets
+2. Configure webhooks with `"module": "webhook_connect"` to queue to a channel
+3. Run local connector behind firewall
+4. Connector connects outbound to cloud via WebSocket, SSE, or long-poll
+5. Webhooks are delivered to local targets via HTTP forwarding or internal module processing
 
 ### Cloud-Side Configuration
 
-**connections.json (on cloud server):**
-```json
-{
-    "local_relay": {
-        "type": "webhook_connect",
-        "channel_token": "{$WEBHOOK_CONNECT_TOKEN}"
-    }
-}
-```
+The `webhook_connect` module uses **inline `module-config`** (no `connections.json` entry needed).
 
 **webhooks.json (on cloud server):**
 ```json
@@ -965,7 +958,13 @@ Internet → Cloud Webhook Server → WebSocket/SSE → Local Connector → Loca
     "github_to_local": {
         "data_type": "json",
         "module": "webhook_connect",
-        "connection": "local_relay",
+        "module-config": {
+            "channel": "my-channel",
+            "channel_token": "{$CHANNEL_TOKEN}",
+            "ttl_seconds": 86400,
+            "max_queue_size": 10000,
+            "max_connections": 10
+        },
         "hmac": {
             "secret": "{$GITHUB_WEBHOOK_SECRET}",
             "header": "X-Hub-Signature-256",
@@ -975,27 +974,103 @@ Internet → Cloud Webhook Server → WebSocket/SSE → Local Connector → Loca
 }
 ```
 
+**Cloud module-config fields:**
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `channel` | (required) | Channel name for message routing |
+| `channel_token` | (required) | Authentication token for connectors |
+| `ttl_seconds` | `86400` | Message time-to-live in seconds |
+| `max_queue_size` | `10000` | Maximum messages in queue before dropping |
+| `max_connections` | `10` | Max concurrent connectors per channel |
+| `max_in_flight` | `50` | Max unacknowledged messages per connection |
+
+**Cloud environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEBHOOK_CONNECT_ENABLED` | `false` | Enable/disable Webhook Connect feature |
+| `WEBHOOK_CONNECT_REDIS_URL` | - | Redis URL for message buffering (required) |
+| `WEBHOOK_CONNECT_ADMIN_TOKEN` | - | Bearer token for admin API endpoints |
+
 ### Local Connector Configuration
 
-Run the connector on your local machine/server:
+The connector supports two delivery modes:
 
-```bash
-docker run -d \
-  -e WEBHOOK_CONNECT_CLOUD_URL="wss://your-cloud-server.com/connect/stream/my-channel" \
-  -e WEBHOOK_CONNECT_TOKEN="your-channel-token" \
-  -e WEBHOOK_CONNECT_LOCAL_TARGET="http://localhost:3000/webhook" \
-  spiderhash/webhook-connector:latest
+#### HTTP Mode (Forward to HTTP Target)
+
+```json
+{
+    "cloud_url": "https://webhooks.example.com",
+    "channel": "my-channel",
+    "token": "your-channel-token",
+    "protocol": "websocket",
+    "default_target": {
+        "url": "http://localhost:8080/webhook",
+        "method": "POST",
+        "timeout_seconds": 30,
+        "headers": {
+            "Content-Type": "application/json"
+        }
+    }
+}
 ```
 
-**Or with docker-compose.yml:**
+#### Module Mode (Dispatch to Internal Modules)
+
+Reuses the same `webhooks.json` format as the main CWM processor. The `webhook_id` from the cloud message maps to the key in the local `webhooks.json`:
+
+```json
+{
+    "cloud_url": "https://webhooks.example.com",
+    "channel": "my-channel",
+    "token": "your-channel-token",
+    "protocol": "websocket",
+    "webhooks_config": "/path/to/webhooks.json",
+    "connections_config": "/path/to/connections.json"
+}
+```
+
+Where the local `webhooks.json` contains standard CWM module configs:
+```json
+{
+    "github_to_local": {
+        "module": "save_to_disk",
+        "module-config": { "path": "/data/webhooks.log" }
+    }
+}
+```
+
+**Run the connector:**
+```bash
+python -m src.connector.main --config connector.json
+```
+
+**Or with environment variables:**
+```bash
+python -m src.connector.main \
+    --cloud-url https://webhooks.example.com \
+    --channel my-channel \
+    --token secret123 \
+    --target-url http://localhost:8080/webhook
+```
+
+**Docker Compose example:**
 ```yaml
 services:
   connector:
-    image: spiderhash/webhook-connector:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.smaller
+    command: ["python", "-m", "src.connector.main", "--config", "/app/connector.json"]
+    volumes:
+      - ./connector.json:/app/connector.json:ro
     environment:
-      - WEBHOOK_CONNECT_CLOUD_URL=wss://cloud.example.com/connect/stream/my-channel
-      - WEBHOOK_CONNECT_TOKEN=your-channel-token
-      - WEBHOOK_CONNECT_LOCAL_TARGET=http://host.docker.internal:3000/webhook
+      - CONNECTOR_CLOUD_URL=https://webhooks.example.com
+      - CONNECTOR_CHANNEL=my-channel
+      - CONNECTOR_TOKEN=your-channel-token
+      - CONNECTOR_TARGET_URL=http://host.docker.internal:8080/webhook
+      - CONNECTOR_PROTOCOL=websocket
     restart: unless-stopped
 ```
 
@@ -1003,18 +1078,59 @@ services:
 
 | Endpoint | Protocol | Use Case |
 |----------|----------|----------|
-| `/connect/stream/{channel}` | WebSocket | Primary, bidirectional, supports ACK |
-| `/connect/sse/{channel}` | Server-Sent Events | Simpler, one-way, firewall-friendly |
+| `/connect/stream/{channel}` | WebSocket | Primary, bidirectional, supports ACK/NACK |
+| `/connect/stream/{channel}` | SSE | Server-Sent Events (set `protocol: sse` in connector) |
+| `/connect/stream/{channel}/poll` | Long-Poll | Firewall-friendly, stateless polling |
 
-### Environment Variables
+### Admin API Endpoints
+
+All admin endpoints require `Authorization: Bearer {WEBHOOK_CONNECT_ADMIN_TOKEN}` (except health).
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/admin/webhook-connect/health` | GET | Health check (no auth required) |
+| `/admin/webhook-connect/overview` | GET | Overview of all channels |
+| `/admin/webhook-connect/channels` | GET | List all channels |
+| `/admin/webhook-connect/channels/{channel}` | GET | Channel details |
+| `/admin/webhook-connect/channels/{channel}/stats` | GET | Channel statistics |
+| `/admin/webhook-connect/channels/{channel}/dead-letters` | GET | Dead letter queue |
+| `/admin/webhook-connect/channels/{channel}/rotate-token` | POST | Rotate channel token |
+
+### Connector Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WEBHOOK_CONNECT_ENABLED` | `true` | Enable/disable feature |
-| `WEBHOOK_CONNECT_REDIS_URL` | - | Redis URL for message buffering |
-| `WEBHOOK_CONNECT_HEARTBEAT_INTERVAL` | `30` | Heartbeat interval (seconds) |
-| `WEBHOOK_CONNECT_ACK_TIMEOUT` | `30` | ACK timeout (seconds) |
-| `WEBHOOK_CONNECT_RETRY_ATTEMPTS` | `3` | Retry attempts for failed deliveries |
+| `CONNECTOR_CLOUD_URL` | - | Cloud Receiver URL |
+| `CONNECTOR_CHANNEL` | - | Channel name to subscribe to |
+| `CONNECTOR_TOKEN` | - | Channel authentication token |
+| `CONNECTOR_TARGET_URL` | - | Default target URL (HTTP mode) |
+| `CONNECTOR_PROTOCOL` | `websocket` | Connection protocol (`websocket` or `sse`) |
+| `CONNECTOR_WEBHOOKS_CONFIG` | - | Path to webhooks.json (module mode) |
+| `CONNECTOR_CONNECTIONS_CONFIG` | - | Path to connections.json (module mode) |
+| `CONNECTOR_RECONNECT_DELAY` | `1.0` | Seconds between reconnect attempts |
+| `CONNECTOR_MAX_RECONNECT_DELAY` | `60.0` | Maximum reconnect delay |
+| `CONNECTOR_HEARTBEAT_TIMEOUT` | `60.0` | Heartbeat timeout seconds |
+| `CONNECTOR_LOG_LEVEL` | `INFO` | Logging level |
+| `CONNECTOR_ID` | auto | Unique identifier for this connector |
+| `CONNECTOR_VERIFY_SSL` | `true` | Verify SSL certificates |
+
+### Connector CLI Arguments
+
+```
+python -m src.connector.main [OPTIONS]
+
+  --config, -c         Path to configuration file (JSON or YAML)
+  --cloud-url          Cloud Receiver URL
+  --channel            Channel name to subscribe to
+  --token              Channel authentication token
+  --target-url         Default target URL for webhooks (HTTP mode)
+  --protocol           Connection protocol: websocket (default) or sse
+  --webhooks-config    Path to webhooks.json for module mode
+  --connections-config Path to connections.json for module mode
+  --connector-id       Unique identifier for this connector
+  --log-level          DEBUG, INFO, WARNING, ERROR
+  --no-verify-ssl      Disable SSL certificate verification
+```
 
 ### Complete Example: GitHub Webhooks to Local Jenkins
 
@@ -1022,17 +1138,21 @@ services:
 ```yaml
 services:
   webhook:
-    image: spiderhash/webhook:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.smaller
     ports:
       - "443:8000"
     volumes:
       - ./webhooks.json:/app/webhooks.json:ro
-      - ./connections.json:/app/connections.json:ro
     environment:
       - WEBHOOK_CONNECT_ENABLED=true
-    env_file:
-      - .env
+      - WEBHOOK_CONNECT_REDIS_URL=redis://redis:6379/0
+      - WEBHOOK_CONNECT_ADMIN_TOKEN=your_admin_secret
     restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
 ```
 
 **Cloud webhooks.json:**
@@ -1041,7 +1161,12 @@ services:
     "github": {
         "data_type": "json",
         "module": "webhook_connect",
-        "connection": "jenkins_relay",
+        "module-config": {
+            "channel": "jenkins",
+            "channel_token": "{$JENKINS_CHANNEL_TOKEN}",
+            "ttl_seconds": 86400,
+            "max_queue_size": 10000
+        },
         "hmac": {
             "secret": "{$GITHUB_WEBHOOK_SECRET}",
             "header": "X-Hub-Signature-256",
@@ -1051,24 +1176,14 @@ services:
 }
 ```
 
-**Cloud connections.json:**
-```json
-{
-    "jenkins_relay": {
-        "type": "webhook_connect",
-        "channel_token": "{$JENKINS_CHANNEL_TOKEN}"
-    }
-}
-```
-
 **Local connector (behind firewall):**
 ```bash
-docker run -d --name webhook-connector \
-  -e WEBHOOK_CONNECT_CLOUD_URL="wss://webhooks.mycompany.com/connect/stream/jenkins" \
-  -e WEBHOOK_CONNECT_TOKEN="jenkins-channel-secret" \
-  -e WEBHOOK_CONNECT_LOCAL_TARGET="http://jenkins:8080/github-webhook/" \
-  --network jenkins_network \
-  spiderhash/webhook-connector:latest
+python -m src.connector.main \
+    --cloud-url https://webhooks.mycompany.com \
+    --channel jenkins \
+    --token jenkins-channel-secret \
+    --target-url http://jenkins:8080/github-webhook/ \
+    --protocol websocket
 ```
 
 ---
@@ -1263,8 +1378,15 @@ curl http://localhost:8000/admin/config-status \
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/connect/stream/{channel}` | WebSocket | Token | Real-time webhook streaming |
-| `/connect/sse/{channel}` | GET | Token | Server-Sent Events stream |
+| `/connect/stream/{channel}` | WebSocket/SSE | Token | Real-time webhook streaming |
+| `/connect/stream/{channel}/poll` | GET | Token | Long-poll endpoint |
+| `/admin/webhook-connect/health` | GET | None | Health check |
+| `/admin/webhook-connect/overview` | GET | Bearer | System overview |
+| `/admin/webhook-connect/channels` | GET | Bearer | List all channels |
+| `/admin/webhook-connect/channels/{channel}` | GET | Bearer | Channel details |
+| `/admin/webhook-connect/channels/{channel}/stats` | GET | Bearer | Channel statistics |
+| `/admin/webhook-connect/channels/{channel}/dead-letters` | GET | Bearer | Dead letter queue |
+| `/admin/webhook-connect/channels/{channel}/rotate-token` | POST | Bearer | Rotate channel token |
 
 ### Response Codes
 

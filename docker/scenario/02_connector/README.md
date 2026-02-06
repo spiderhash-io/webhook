@@ -142,10 +142,11 @@ cat logs/local/webhooks.log | python3 -m json.tool
     "channel": "test-channel",
     "token": "channel_secret_token_123",
     "protocol": "sse",
-    "targets": {
-        "default": {
-            "url": "http://local-processor:8000/webhook/local-receiver"
-        }
+    "connector_id": "local-connector-1",
+    "default_target": {
+        "url": "http://local-processor:8000/webhook/local-receiver",
+        "method": "POST",
+        "timeout_seconds": 30
     }
 }
 ```
@@ -157,10 +158,12 @@ cat logs/local/webhooks.log | python3 -m json.tool
 | Endpoint | Description |
 |----------|-------------|
 | `POST /webhook/cloud-webhook` | Receive webhooks and queue them |
-| `GET /connect/stream/{channel}/sse` | SSE stream for connectors |
+| `GET /connect/stream/{channel}` | WebSocket/SSE stream for connectors |
+| `GET /connect/stream/{channel}/poll` | Long-poll endpoint for connectors |
 | `GET /admin/webhook-connect/channels` | List all channels (admin) |
 | `GET /admin/webhook-connect/channels/{name}` | Get channel details (admin) |
-| `GET /health` | Health check |
+| `GET /admin/webhook-connect/health` | Webhook Connect health check |
+| `GET /health` | Application health check |
 
 ### Local Processor
 

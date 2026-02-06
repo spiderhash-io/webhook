@@ -109,8 +109,10 @@ log, save_to_disk, rabbitmq, redis_rq, redis_publish, http_webhook, kafka, s3, w
 ### Webhook Connect Subsystem
 
 Cloud-to-local webhook relay (similar to ngrok):
-- **Cloud side**: `src/webhook_connect/` - WebSocket/SSE streaming, channel management
-- **Local connector**: `src/connector/` - Connects to cloud, forwards to local HTTP targets
+- **Cloud side**: `src/webhook_connect/` - WebSocket/SSE/Long-Poll streaming, channel management, admin API
+- **Local connector**: `src/connector/` - Two delivery modes:
+  - **HTTP mode**: Forwards to local HTTP targets via `default_target`/`targets`
+  - **Module mode**: Dispatches to internal modules (kafka, save_to_disk, etc.) via `webhooks_config`
 
 ## Configuration
 

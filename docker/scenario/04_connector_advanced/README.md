@@ -59,17 +59,21 @@ Comprehensive test scenarios for Webhook Connect advanced features: multi-channe
 
 ## Services
 
-| Service | Port | Description |
-|---------|------|-------------|
-| redis | 6380 | Message buffer |
-| cloud-receiver | 8010 | Webhook receiver + Webhook Connect |
-| local-processor-a | 8011 | Local target A (channel-alpha) |
-| local-processor-b | 8012 | Local target B (channel-beta) |
-| connector-sse | - | SSE connector for channel-alpha |
-| connector-ws | - | WebSocket connector for channel-beta |
+| Service | Port | Profile | Description |
+|---------|------|---------|-------------|
+| redis | 6380 | (default) | Message buffer |
+| cloud-receiver | 8010 | (default) | Webhook receiver + Webhook Connect |
+| local-processor-a | 8011 | with-local | Local target A (channel-alpha) |
+| local-processor-b | 8012 | with-local | Local target B (channel-beta) |
+| connector-sse | - | with-connector-sse | SSE connector for channel-alpha |
+| connector-ws | - | with-connector-ws | WebSocket connector for channel-beta |
+| connector-module | - | with-connector-module | Module-mode connector for channel-module |
+| flaky-target | 8013 | with-flaky | Configurable error target for retry testing |
 
 ## Configuration
 
-- `config/cloud/webhooks.json` - 3 webhook endpoints: alpha, beta, overflow
-- `config/connector-sse.json` - SSE connector for channel-alpha -> local-a
-- `config/connector-ws.json` - WebSocket connector for channel-beta -> local-b
+- `config/cloud/webhooks.json` - 4 webhook endpoints: alpha, beta, overflow, module-mode
+- `config/connector-sse.json` - SSE connector (HTTP mode) for channel-alpha -> local-a
+- `config/connector-ws.json` - WebSocket connector (HTTP mode) for channel-beta -> local-b
+- `config/connector-module.json` - Module-mode connector for channel-module (uses local webhooks.json)
+- `config/module-webhooks.json` - Standard CWM webhooks.json for module-mode connector (save_to_disk)

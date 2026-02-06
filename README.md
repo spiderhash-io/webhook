@@ -1196,47 +1196,59 @@ Store webhook payloads in MySQL/MariaDB with JSON, relational, or hybrid storage
 **Note**: Topic is automatically created if it doesn't exist (useful for Pub/Sub Emulator development).
 
 #### Webhook Connect (Cloud-to-Local Relay)
-**NEW FEATURE** - Receive webhooks at a cloud endpoint and stream them to local networks behind firewalls or NAT (similar to ngrok for webhooks).
+
+Receive webhooks at a cloud endpoint and stream them to local networks behind firewalls or NAT (similar to ngrok for webhooks).
 
 **Architecture:**
-- **Cloud Receiver**: Runs in the cloud with public IP, receives webhooks via HTTP
-- **Local Connector**: Runs on local network, connects to cloud via WebSocket/SSE
-- **Channel-based**: Multiple channels with unique channel IDs and secrets for isolation
-- **Reliable Delivery**: Message queuing, acknowledgments, retries, and dead-letter handling
+- **Cloud Receiver**: Runs in the cloud with public IP, receives webhooks via HTTP, queues to Redis
+- **Local Connector**: Runs on local network, connects to cloud via WebSocket/SSE/Long-Poll
+- **Channel-based**: Multiple channels with unique tokens for isolation
+- **Reliable Delivery**: Message queuing, ACK/NACK protocol, retries, dead-letter handling
 
-**Use Cases:**
-- Receive webhooks from external services (GitHub, Stripe, etc.) without exposing local services
-- Development and testing webhooks on local machines
-- Enterprise environments with strict firewall rules
-- Multi-site deployments with centralized webhook receiver
-
-**Configuration:**
-
-1. **Cloud Side** - Enable Webhook Connect in cloud deployment:
-```bash
-export WEBHOOK_CONNECT_ENABLED=true
-export WEBHOOK_CONNECT_ADMIN_TOKEN=your_admin_secret
-```
-
-2. **Local Side** - Run connector with configuration:
+**Cloud-side webhooks.json** — use `webhook_connect` module with inline `module-config`:
 ```json
 {
-    "channel_id": "my-channel-123",
-    "channel_secret": "secret_key_456",
-    "cloud_url": "https://webhook-cloud.example.com",
-    "protocol": "websocket",
-    "targets": [
-        {
-            "name": "local_api",
-            "url": "http://localhost:8080/webhooks",
-            "enabled": true
+    "github_to_local": {
+        "data_type": "json",
+        "module": "webhook_connect",
+        "module-config": {
+            "channel": "my-channel",
+            "channel_token": "{$CHANNEL_TOKEN}",
+            "ttl_seconds": 86400,
+            "max_queue_size": 10000
+        },
+        "hmac": {
+            "secret": "{$GITHUB_WEBHOOK_SECRET}",
+            "header": "X-Hub-Signature-256",
+            "algorithm": "sha256"
         }
-    ],
-    "retry": {
-        "enabled": true,
-        "max_attempts": 3,
-        "backoff": "exponential"
     }
+}
+```
+
+**Local connector** — HTTP mode (forward to local HTTP target):
+```json
+{
+    "cloud_url": "https://webhooks.example.com",
+    "channel": "my-channel",
+    "token": "your-channel-token",
+    "protocol": "websocket",
+    "default_target": {
+        "url": "http://localhost:8080/webhook",
+        "method": "POST",
+        "timeout_seconds": 30
+    }
+}
+```
+
+**Local connector** — Module mode (dispatch to internal modules like kafka, save_to_disk, etc.):
+```json
+{
+    "cloud_url": "https://webhooks.example.com",
+    "channel": "my-channel",
+    "token": "your-channel-token",
+    "protocol": "websocket",
+    "webhooks_config": "/path/to/webhooks.json"
 }
 ```
 
@@ -1246,18 +1258,19 @@ python -m src.connector.main --config connector.json
 ```
 
 **Features:**
-- WebSocket and SSE (Server-Sent Events) protocols
-- HMAC signature authentication
-- Message acknowledgments and retries
-- Dead-letter queue for failed messages
-- Multi-target support (forward to multiple local endpoints)
+- WebSocket, SSE, and Long-Poll streaming protocols
+- Token-based authentication with token rotation and grace period
+- ACK/NACK message acknowledgments with smart retry (4xx → DLQ, 5xx → re-queue)
+- Dead-letter queue for permanently failed messages
+- Two delivery modes: HTTP forwarding or internal module processing
 - Channel-based isolation and security
-- Admin API for channel management
+- Admin API for channel/stats/DLQ management
 
 **Cloud Endpoints:**
-- `/webhook-connect/ws/{channel_id}` - WebSocket streaming
-- `/webhook-connect/sse/{channel_id}` - SSE streaming
-- `/webhook-connect/channels` - Channel management (admin)
+- `/connect/stream/{channel}` — WebSocket/SSE streaming (bidirectional)
+- `/connect/stream/{channel}/poll` — Long-poll endpoint
+- `/admin/webhook-connect/channels` — Channel management (admin)
+- `/admin/webhook-connect/overview` — System overview (admin)
 
 **See `src/webhook_connect/` and `src/connector/` for implementation details.**
 
