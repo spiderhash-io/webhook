@@ -8,11 +8,13 @@ Supports loading configuration from:
 """
 
 import os
+import re
 import json
 import logging
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from pathlib import Path
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +180,7 @@ class ConnectorConfig:
             "CONNECTOR_ID": "connector_id",
         }
 
+        config._env_fields: set = set()
         for env_var, field_info in env_mapping.items():
             value = os.environ.get(env_var)
             if value:
@@ -185,7 +188,9 @@ class ConnectorConfig:
                     field_name, converter = field_info
                     setattr(config, field_name, converter(value))
                 else:
-                    setattr(config, field_info, value)
+                    field_name = field_info
+                    setattr(config, field_name, value)
+                config._env_fields.add(field_name)
 
         # Default target from environment
         target_url = os.environ.get("CONNECTOR_TARGET_URL")
@@ -218,27 +223,10 @@ class ConnectorConfig:
         # Override with environment variables
         env_config = cls.from_env()
 
-        # Merge environment overrides
-        for field_name in [
-            "cloud_url",
-            "channel",
-            "token",
-            "protocol",
-            "reconnect_delay",
-            "max_reconnect_delay",
-            "heartbeat_timeout",
-            "connection_timeout",
-            "max_concurrent_requests",
-            "ack_timeout",
-            "log_level",
-            "verify_ssl",
-            "connector_id",
-        ]:
-            env_value = getattr(env_config, field_name)
-            # Only override if env value is different from default
-            default_value = getattr(cls(), field_name)
-            if env_value != default_value:
-                setattr(config, field_name, env_value)
+        # Merge environment overrides (only fields actually set via env vars)
+        env_fields = getattr(env_config, "_env_fields", set())
+        for field_name in env_fields:
+            setattr(config, field_name, getattr(env_config, field_name))
 
         # Override default target if set in env
         if env_config.default_target:
@@ -260,6 +248,11 @@ class ConnectorConfig:
 
         if not self.channel:
             errors.append("channel is required")
+        elif not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', self.channel):
+            errors.append(
+                "channel must contain only alphanumeric characters, "
+                "hyphens, and underscores"
+            )
 
         if not self.token:
             errors.append("token is required")
@@ -290,6 +283,7 @@ class ConnectorConfig:
     def get_stream_url(self) -> str:
         """Get the full streaming URL for the configured channel."""
         base_url = self.cloud_url.rstrip("/")
+        safe_channel = quote(self.channel, safe="")
 
         if self.protocol == "websocket":
             # Convert http(s) to ws(s)
@@ -299,11 +293,11 @@ class ConnectorConfig:
                 ws_url = "ws://" + base_url[7:]
             else:
                 ws_url = base_url
-            return f"{ws_url}/connect/stream/{self.channel}"
+            return f"{ws_url}/connect/stream/{safe_channel}"
         elif self.protocol == "sse":
-            return f"{base_url}/connect/stream/{self.channel}/sse"
+            return f"{base_url}/connect/stream/{safe_channel}/sse"
         elif self.protocol == "long_poll":
-            return f"{base_url}/connect/stream/{self.channel}/poll"
+            return f"{base_url}/connect/stream/{safe_channel}/poll"
         else:
             # Should not reach here due to validation, but fallback to SSE
             raise ValueError(f"Unknown protocol: {self.protocol}")

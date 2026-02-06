@@ -12,9 +12,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **After making code changes:**
 - Always restart the dev server so changes can be viewed: `make run` or `pkill -f uvicorn && make run`
 
+**After fixing issues from reports (`reports/roast/`):**
+- Always mark the fixed item as done (`[x]`) in the corresponding report file
+
 ## Project Overview
 
 Core Webhook Module is a FastAPI-based webhook receiver/processor that validates incoming webhooks using 11 authentication methods and routes payloads to 17+ output destinations. Key features include webhook chaining (sequential/parallel execution), live configuration reload, and distributed analytics via ClickHouse.
+
+## Python Environment
+
+This project uses a local virtualenv at `venv/`. Always use the venv Python/pytest:
+
+```bash
+# Activate venv (or prefix commands with venv/bin/)
+source venv/bin/activate
+
+# Direct paths (use these if venv is not activated)
+venv/bin/python           # Python interpreter
+venv/bin/pytest           # Test runner
+```
+
+**Important:** System `python3` does NOT have project dependencies installed. Always use `venv/bin/pytest` or activate the venv first.
 
 ## Common Commands
 
@@ -23,12 +41,12 @@ Core Webhook Module is a FastAPI-based webhook receiver/processor that validates
 make install              # Dev dependencies (default)
 make install-prod         # Production only
 
-# Testing
+# Testing (all use venv automatically via Makefile)
 make test                 # Unit tests (excludes integration)
 make test-integration     # Integration tests (requires Docker services)
 make test-all             # All tests
 make test-cov             # With coverage report
-pytest tests/unit/test_webhooks.py -v  # Single test file
+venv/bin/pytest tests/unit/test_webhooks.py -v  # Single test file
 
 # Docker services for integration tests
 make integration-up       # Start Redis, RabbitMQ, ClickHouse, etc.

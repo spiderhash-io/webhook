@@ -8,6 +8,7 @@ Provides automatic reconnection with exponential backoff.
 import asyncio
 import json
 import logging
+import random
 import ssl
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
@@ -100,10 +101,12 @@ class StreamClient(ABC):
             if self._stop_event.is_set():
                 break
 
-            # Reconnect with exponential backoff
+            # Reconnect with exponential backoff + jitter
             self.state = ConnectionState.RECONNECTING
-            logger.info(f"Reconnecting in {self._reconnect_delay:.1f} seconds...")
-            await asyncio.sleep(self._reconnect_delay)
+            jitter = random.uniform(0, self._reconnect_delay * 0.3)
+            delay = self._reconnect_delay + jitter
+            logger.info(f"Reconnecting in {delay:.1f} seconds...")
+            await asyncio.sleep(delay)
 
             self._reconnect_delay = min(
                 self._reconnect_delay * self.config.reconnect_backoff_multiplier,
@@ -120,8 +123,13 @@ class StreamClient(ABC):
             await self._session.close()
             self._session = None
 
-    def _create_ssl_context(self) -> Optional[ssl.SSLContext]:
-        """Create SSL context from configuration."""
+    def _create_ssl_context(self) -> "Optional[ssl.SSLContext | bool]":
+        """Create SSL context from configuration.
+
+        Returns:
+            ssl.SSLContext for custom certs, False to disable verification,
+            or None to use system defaults.
+        """
         if not self.config.verify_ssl:
             return False  # Disable SSL verification
 
@@ -357,7 +365,10 @@ class SSEClient(StreamClient):
                     event_type = line[6:].strip()
 
                 elif line.startswith("data:"):
-                    event_data = line[5:].strip()
+                    if event_data:
+                        event_data += "\n" + line[5:].strip()
+                    else:
+                        event_data = line[5:].strip()
 
                 elif line == "" and event_data:
                     # End of event

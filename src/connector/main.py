@@ -315,24 +315,18 @@ def main() -> int:
             logger.error(f"  - {error}")
         return 1
 
-    # Print startup banner
-    print("\n" + "=" * 60)
-    print(
-        """
-    ██╗      ██████╗  ██████╗ █████╗ ██╗
-    ██║     ██╔═══██╗██╔════╝██╔══██╗██║
-    ██║     ██║   ██║██║     ███████║██║
-    ██║     ██║   ██║██║     ██╔══██║██║
-    ███████╗╚██████╔╝╚██████╗██║  ██║███████╗
-    ╚══════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝╚══════╝
-    """
+    # Log startup banner
+    banner = (
+        "\n" + "=" * 60 + "\n"
+        "\n"
+        "    Webhook Connect - Local Connector\n"
+        "=" * 60 + "\n"
+        f"  Channel:   {config.channel}\n"
+        f"  Protocol:  {config.protocol}\n"
+        f"  Cloud URL: {config.cloud_url}\n"
+        "=" * 60 + "\n"
     )
-    print("    Webhook Connect - Local Connector")
-    print("=" * 60)
-    print(f"  Channel:   {config.channel}")
-    print(f"  Protocol:  {config.protocol}")
-    print(f"  Cloud URL: {config.cloud_url}")
-    print("=" * 60 + "\n")
+    logger.info(banner)
 
     # Create and run connector
     connector = LocalConnector(config)

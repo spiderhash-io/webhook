@@ -325,8 +325,6 @@ class ProcessingStats:
 
     messages_delivered: int = 0
     messages_failed: int = 0
-    messages_retried: int = 0
-    total_delivery_time_ms: float = 0.0
 
 
 class BatchProcessor:
@@ -360,7 +358,7 @@ class BatchProcessor:
         self.batch_size = batch_size
         self.batch_timeout = batch_timeout
 
-        self._queue: asyncio.Queue = asyncio.Queue()
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
         self._running = False
         self._batch_task: Optional[asyncio.Task] = None
         self._session: Optional[aiohttp.ClientSession] = None
@@ -455,14 +453,12 @@ class BatchProcessor:
                     await self.nack_callback(msg.get("message_id"), False)
                 continue
 
-            # TODO: Implement batch delivery
-            # For now, just process individually
-            for msg in messages:
-                processor = MessageProcessor(
-                    self.config, self.ack_callback, self.nack_callback
-                )
-                await processor.start()
-                try:
+            processor = MessageProcessor(
+                self.config, self.ack_callback, self.nack_callback
+            )
+            await processor.start()
+            try:
+                for msg in messages:
                     await processor.process(msg)
-                finally:
-                    await processor.stop()
+            finally:
+                await processor.stop()
