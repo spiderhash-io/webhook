@@ -1,6 +1,6 @@
 # Advanced Webhook Connect
 
-This guide covers advanced configurations for Webhook Connect, including multi-channel setups, webhook chaining, production deployment, security hardening, and performance tuning.
+This guide covers advanced configurations for Webhook Connect, including multi-channel setups, module mode, production deployment, security hardening, and performance tuning.
 
 ## Multi-Channel Configuration
 
@@ -55,211 +55,219 @@ Configure multiple webhooks to relay to different channels:
 }
 ```
 
-### Connector Subscribing to Multiple Channels
+### One Connector Per Channel
 
+Each connector subscribes to a single channel. To process multiple channels, run multiple connector instances:
+
+**Connector 1 — Stripe payments (module mode):**
+
+`connector-stripe.json`:
 ```json
 {
-    "cloud": {
-        "url": "wss://webhook-cloud.example.com/connect/stream",
-        "connector_id": "prod-processor-01"
+    "cloud_url": "https://webhook-cloud.example.com",
+    "channel": "stripe-payments",
+    "token": "{$STRIPE_CHANNEL_TOKEN}",
+    "protocol": "websocket",
+    "max_concurrent_requests": 20,
+    "webhooks_config": "./stripe-webhooks.json",
+    "connections_config": "./connections.json"
+}
+```
+
+`stripe-webhooks.json`:
+```json
+{
+    "stripe_relay": {
+        "module": "kafka",
+        "module-config": {
+            "topic": "payment-events",
+            "bootstrap_servers": "kafka-1:9092,kafka-2:9092"
+        }
+    }
+}
+```
+
+**Connector 2 — GitHub events (module mode with chaining):**
+
+`connector-github.json`:
+```json
+{
+    "cloud_url": "https://webhook-cloud.example.com",
+    "channel": "github-events",
+    "token": "{$GITHUB_CHANNEL_TOKEN}",
+    "protocol": "websocket",
+    "webhooks_config": "./github-webhooks.json",
+    "connections_config": "./connections.json"
+}
+```
+
+`github-webhooks.json`:
+```json
+{
+    "github_relay": {
+        "chain": ["postgresql", "redis_rq"],
+        "chain-config": {
+            "execution": "parallel"
+        },
+        "connection": "events_db",
+        "module-config": {
+            "table": "github_events"
+        }
+    }
+}
+```
+
+**Connector 3 — Shopify orders (HTTP mode):**
+
+`connector-shopify.json`:
+```json
+{
+    "cloud_url": "https://webhook-cloud.example.com",
+    "channel": "shopify-orders",
+    "token": "{$SHOPIFY_CHANNEL_TOKEN}",
+    "protocol": "websocket",
+    "default_target": {
+        "url": "http://order-service:8080/webhooks",
+        "method": "POST",
+        "timeout_seconds": 30,
+        "retry_enabled": true,
+        "retry_max_attempts": 5
+    }
+}
+```
+
+Shared `connections.json`:
+```json
+{
+    "events_db": {
+        "type": "postgresql",
+        "host": "postgres-primary",
+        "port": 5432,
+        "database": "events",
+        "user": "{$DB_USER}",
+        "password": "{$DB_PASSWORD}"
     },
-    "concurrency": 20,
-    "routes": {
-        "stripe-payments": {
-            "token": "{$STRIPE_CHANNEL_TOKEN}",
-            "module": "kafka",
-            "connection": "kafka_cluster",
-            "module-config": {
-                "topic": "payment-events"
-            }
-        },
-        "github-events": {
-            "token": "{$GITHUB_CHANNEL_TOKEN}",
-            "chain": [
-                {
-                    "module": "postgresql",
-                    "connection": "events_db",
-                    "module-config": {
-                        "table": "github_events"
-                    }
-                },
-                {
-                    "module": "redis_rq",
-                    "connection": "job_queue",
-                    "module-config": {
-                        "queue_name": "ci-triggers"
-                    }
+    "job_queue": {
+        "type": "redis",
+        "host": "redis-master",
+        "port": 6379
+    }
+}
+```
+
+## Module Mode Deep Dive
+
+Module mode lets the connector dispatch to the same internal modules used by the main webhook processor. This means you can reuse your existing `webhooks.json` configuration.
+
+### How It Works
+
+1. Cloud receiver receives webhook, buffers it with `webhook_id`
+2. Connector receives the message containing `{webhook_id, payload, headers}`
+3. ModuleProcessor looks up `webhook_id` in the local `webhooks.json`
+4. Dispatches to the configured module (or chain) via ModuleRegistry/ChainProcessor
+5. On success → ACK, on failure → NACK (with retry)
+
+### Config Fields Used vs Ignored
+
+The connector uses a subset of the webhook config fields:
+
+| Field | Used | Notes |
+|-------|------|-------|
+| `module` | Yes | Which output module to use |
+| `module-config` | Yes | Module-specific settings |
+| `chain` | Yes | Multi-module chain |
+| `chain-config` | Yes | Chain execution settings (sequential/parallel) |
+| `connection` | Yes | Named connection reference |
+| `authorization` | No | Auth handled on cloud side |
+| `data_type` | No | Parsing handled on cloud side |
+| `rate_limit` | No | Rate limiting handled on cloud side |
+| `allowed_ips` | No | IP filtering handled on cloud side |
+| `require_https` | No | Transport handled on cloud side |
+
+### Webhook Chaining in Module Mode
+
+Sequential processing — save to database, then queue for processing:
+
+`webhooks.json`:
+```json
+{
+    "payment-events": {
+        "chain": [
+            {
+                "module": "postgresql",
+                "connection": "primary_db",
+                "module-config": {
+                    "table": "payment_events",
+                    "storage_mode": "json"
                 }
-            ],
-            "chain-config": {
-                "execution": "parallel"
+            },
+            {
+                "module": "redis_rq",
+                "connection": "job_redis",
+                "module-config": {
+                    "queue_name": "payment-processor"
+                }
+            },
+            {
+                "module": "http_webhook",
+                "module-config": {
+                    "url": "http://internal-api:8080/notify",
+                    "method": "POST"
+                }
             }
-        },
-        "shopify-orders": {
-            "token": "{$SHOPIFY_CHANNEL_TOKEN}",
-            "module": "rabbitmq",
-            "connection": "order_queue",
-            "module-config": {
-                "queue_name": "order-processing"
-            }
-        }
-    },
-    "connections": {
-        "kafka_cluster": {
-            "type": "kafka",
-            "bootstrap_servers": "kafka-1:9092,kafka-2:9092,kafka-3:9092"
-        },
-        "events_db": {
-            "type": "postgresql",
-            "host": "postgres-primary",
-            "port": 5432,
-            "database": "events",
-            "user": "{$DB_USER}",
-            "password": "{$DB_PASSWORD}"
-        },
-        "job_queue": {
-            "type": "redis",
-            "host": "redis-master",
-            "port": 6379
-        },
-        "order_queue": {
-            "type": "rabbitmq",
-            "host": "rabbitmq-cluster",
-            "port": 5672,
-            "user": "{$RABBITMQ_USER}",
-            "pass": "{$RABBITMQ_PASS}"
+        ],
+        "chain-config": {
+            "execution": "sequential",
+            "continue_on_error": false
         }
     }
 }
 ```
 
-## Webhook Chaining with Relay
-
-Combine Webhook Connect with chaining for complex local routing:
-
-### Sequential Processing
-
-Process webhooks in order - save to database, then queue for processing:
+Parallel fan-out — send to multiple destinations simultaneously:
 
 ```json
 {
-    "routes": {
-        "payment-events": {
-            "token": "payment_token",
-            "chain": [
-                {
-                    "module": "postgresql",
-                    "connection": "primary_db",
-                    "module-config": {
-                        "table": "payment_events",
-                        "storage_mode": "json"
-                    }
-                },
-                {
-                    "module": "redis_rq",
-                    "connection": "job_redis",
-                    "module-config": {
-                        "queue_name": "payment-processor"
-                    }
-                },
-                {
-                    "module": "http_webhook",
-                    "module-config": {
-                        "url": "http://internal-api:8080/notify",
-                        "method": "POST"
-                    }
+    "order-events": {
+        "chain": [
+            {
+                "module": "postgresql",
+                "connection": "orders_db",
+                "module-config": { "table": "orders" }
+            },
+            {
+                "module": "kafka",
+                "module-config": {
+                    "topic": "order-analytics",
+                    "bootstrap_servers": "kafka:9092"
                 }
-            ],
-            "chain-config": {
-                "execution": "sequential",
-                "continue_on_error": false
+            },
+            {
+                "module": "s3",
+                "module-config": { "bucket": "order-archive" }
             }
+        ],
+        "chain-config": {
+            "execution": "parallel",
+            "continue_on_error": true
         }
     }
 }
 ```
 
-### Parallel Fan-Out
+### Environment Variable Configuration
 
-Send to multiple destinations simultaneously:
+All connector settings can be set via environment variables:
 
-```json
-{
-    "routes": {
-        "order-events": {
-            "token": "order_token",
-            "chain": [
-                {
-                    "module": "postgresql",
-                    "connection": "orders_db",
-                    "module-config": {
-                        "table": "orders"
-                    }
-                },
-                {
-                    "module": "kafka",
-                    "connection": "analytics_kafka",
-                    "module-config": {
-                        "topic": "order-analytics"
-                    }
-                },
-                {
-                    "module": "s3",
-                    "connection": "archive_s3",
-                    "module-config": {
-                        "bucket": "order-archive"
-                    }
-                },
-                {
-                    "module": "http_webhook",
-                    "module-config": {
-                        "url": "http://notification-service/orders"
-                    }
-                }
-            ],
-            "chain-config": {
-                "execution": "parallel",
-                "continue_on_error": true
-            }
-        }
-    }
-}
-```
-
-### Mixed Sequential and Parallel (Advanced)
-
-For complex workflows, run multiple connectors with different configurations:
-
-**Connector 1 - Primary Processing:**
-```json
-{
-    "routes": {
-        "payment-events": {
-            "token": "payment_token",
-            "chain": [
-                {
-                    "module": "postgresql",
-                    "connection": "primary_db",
-                    "module-config": { "table": "payments" }
-                }
-            ]
-        }
-    }
-}
-```
-
-**Connector 2 - Analytics:**
-```json
-{
-    "routes": {
-        "payment-events": {
-            "token": "payment_token",
-            "module": "kafka",
-            "connection": "analytics_kafka",
-            "module-config": { "topic": "payment-analytics" }
-        }
-    }
-}
+```bash
+export CONNECTOR_CLOUD_URL=https://webhook-cloud.example.com
+export CONNECTOR_CHANNEL=my-channel
+export CONNECTOR_TOKEN=secret_token
+export CONNECTOR_PROTOCOL=websocket
+export CONNECTOR_WEBHOOKS_CONFIG=/etc/cwm/webhooks.json
+export CONNECTOR_CONNECTIONS_CONFIG=/etc/cwm/connections.json
+export CONNECTOR_MAX_CONCURRENT_REQUESTS=20
+export CONNECTOR_LOG_LEVEL=INFO
 ```
 
 ## Production Deployment
@@ -417,16 +425,16 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: webhook-connector
+  name: webhook-connector-stripe
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: webhook-connector
+      app: webhook-connector-stripe
   template:
     metadata:
       labels:
-        app: webhook-connector
+        app: webhook-connector-stripe
     spec:
       containers:
       - name: connector
@@ -436,20 +444,15 @@ spec:
         - name: config
           mountPath: /config
         env:
-        - name: STRIPE_CHANNEL_TOKEN
+        - name: CONNECTOR_TOKEN
           valueFrom:
             secretKeyRef:
               name: channel-tokens
               key: stripe
-        - name: GITHUB_CHANNEL_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: channel-tokens
-              key: github
       volumes:
       - name: config
         configMap:
-          name: connector-config
+          name: connector-stripe-config
 ```
 
 ## Security Hardening
@@ -477,29 +480,9 @@ Response:
 
 Update connectors with the new token during the grace period.
 
-### IP Allowlisting
-
-Restrict connector connections to specific IPs:
-
-```json
-{
-    "stripe_relay": {
-        "module": "webhook_connect",
-        "module-config": {
-            "channel": "stripe-payments",
-            "channel_token": "token",
-            "allowed_connector_ips": [
-                "10.0.0.0/8",
-                "192.168.1.100"
-            ]
-        }
-    }
-}
-```
-
 ### Rate Limiting
 
-Apply rate limits to webhook ingestion:
+Apply rate limits to webhook ingestion on the cloud side:
 
 ```json
 {
@@ -551,25 +534,19 @@ Automatically redact sensitive data:
 
 ### Connector Tuning
 
+Key settings for high-throughput connectors:
+
 ```json
 {
-    "cloud": {
-        "url": "wss://webhook-cloud.example.com/connect/stream",
-        "connector_id": "high-perf-connector"
-    },
-    "concurrency": 50,
-    "routes": {
-        "high-volume-channel": {
-            "token": "token",
-            "module": "kafka",
-            "connection": "kafka_cluster",
-            "module-config": {
-                "topic": "events",
-                "batch_size": 100,
-                "linger_ms": 10
-            }
-        }
-    }
+    "cloud_url": "https://webhook-cloud.example.com",
+    "channel": "high-volume-channel",
+    "token": "token",
+    "protocol": "websocket",
+    "max_concurrent_requests": 50,
+    "reconnect_delay": 1.0,
+    "max_reconnect_delay": 30.0,
+    "heartbeat_timeout": 60.0,
+    "webhooks_config": "./webhooks.json"
 }
 ```
 
@@ -593,23 +570,6 @@ export WEBHOOK_CONNECT_RABBITMQ_URL=amqp://user:pass@rabbitmq:5672/
 
 ## Monitoring
 
-### Prometheus Metrics
-
-```
-# Cloud Receiver Metrics
-webhook_connect_messages_received_total{channel="stripe-payments"} 15000
-webhook_connect_messages_queued{channel="stripe-payments"} 150
-webhook_connect_messages_delivered_total{channel="stripe-payments"} 14850
-webhook_connect_connections_active{channel="stripe-payments"} 2
-webhook_connect_ingest_latency_seconds{channel="stripe-payments",quantile="0.95"} 0.025
-
-# Connector Metrics
-webhook_connector_messages_received_total{channel="stripe-payments"} 500
-webhook_connector_messages_acked_total{channel="stripe-payments"} 498
-webhook_connector_processing_latency_seconds{quantile="0.95"} 0.150
-webhook_connector_connection_status{channel="stripe-payments"} 1
-```
-
 ### Admin API Endpoints
 
 ```bash
@@ -624,20 +584,22 @@ curl -s https://cloud.example.com/admin/webhook-connect/channels/stripe-payments
 # Get channel stats
 curl -s https://cloud.example.com/admin/webhook-connect/channels/stripe-payments/stats \
   -H "Authorization: Bearer ${ADMIN_TOKEN}"
+
+# View dead letter queue
+curl -s https://cloud.example.com/admin/webhook-connect/channels/stripe-payments/dead-letters \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
+
+# Get overview of all channels
+curl -s https://cloud.example.com/admin/webhook-connect/overview \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
 ```
 
 ### Health Checks
 
 **Cloud Receiver:**
 ```bash
-curl http://cloud.example.com/health
-# {"status": "healthy", "buffer": "connected", "channels": 5}
-```
-
-**Connector:**
-```bash
-curl http://connector:8080/health
-# {"status": "healthy", "channels": {"stripe-payments": "connected"}}
+curl http://cloud.example.com/admin/webhook-connect/health
+# {"status": "healthy"}
 ```
 
 ## Related Documentation

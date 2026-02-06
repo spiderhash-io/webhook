@@ -1,0 +1,48 @@
+{
+    "cloud-webhook-alpha": {
+        "data_type": "json",
+        "module": "webhook_connect",
+        "module-config": {
+            "channel": "channel-alpha",
+            "channel_token": "alpha_secret_token_123",
+            "ttl_seconds": 3600,
+            "max_queue_size": 100,
+            "max_connections": 10,
+            "max_in_flight": 50
+        }
+    },
+    "cloud-webhook-beta": {
+        "data_type": "json",
+        "module": "webhook_connect",
+        "module-config": {
+            "channel": "channel-beta",
+            "channel_token": "beta_secret_token_456",
+            "ttl_seconds": 3600,
+            "max_queue_size": 100,
+            "max_connections": 10,
+            "max_in_flight": 50
+        }
+    },
+    "cloud-webhook-overflow": {
+        "data_type": "json",
+        "module": "webhook_connect",
+        "module-config": {
+            "channel": "channel-overflow",
+            "channel_token": "overflow_token_789",
+            "ttl_seconds": 3600,
+            "max_queue_size": 3,
+            "max_connections": 5
+        }
+    },
+    "cloud-webhook-module-mode": {
+        "data_type": "json",
+        "module": "webhook_connect",
+        "module-config": {
+            "channel": "channel-module",
+            "channel_token": "module_secret_token_321",
+            "ttl_seconds": 3600,
+            "max_queue_size": 100,
+            "max_connections": 10
+        }
+    }
+}

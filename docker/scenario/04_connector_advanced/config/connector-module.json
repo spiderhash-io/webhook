@@ -1,0 +1,10 @@
+{
+    "cloud_url": "http://cloud-receiver:8000",
+    "channel": "channel-module",
+    "token": "module_secret_token_321",
+    "protocol": "websocket",
+    "connector_id": "connector-module-mode",
+    "webhooks_config": "/app/module-webhooks.json",
+    "reconnect_delay": 2.0,
+    "max_reconnect_delay": 30.0
+}

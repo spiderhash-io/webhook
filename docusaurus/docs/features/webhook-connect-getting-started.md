@@ -59,41 +59,90 @@ This creates:
 
 ## Step 3: Create Local Connector Configuration
 
-Create a `connector.json` file for the local connector:
+The connector supports two delivery modes. Choose the one that fits your needs:
+
+### Option A: HTTP Mode (Simple Forwarding)
+
+Forward webhooks to a local HTTP endpoint. Best for development or when you have an existing HTTP service.
+
+Create `connector.json`:
 
 ```json
 {
-    "cloud": {
-        "url": "http://localhost:8000/connect/stream",
-        "connector_id": "my-local-connector"
-    },
-    "routes": {
-        "my-channel": {
-            "token": "secret_token_123",
-            "module": "log"
+    "cloud_url": "http://localhost:8000",
+    "channel": "my-channel",
+    "token": "secret_token_123",
+    "protocol": "websocket",
+    "default_target": {
+        "url": "http://localhost:3000/webhooks",
+        "method": "POST",
+        "timeout_seconds": 30
+    }
+}
+```
+
+### Option B: Module Mode (Internal Modules)
+
+Dispatch to CWM's built-in modules (log, kafka, save_to_disk, postgresql, etc.) using the standard `webhooks.json` format. Best when you want the connector to process webhooks directly without a separate HTTP service.
+
+Create `connector.json`:
+
+```json
+{
+    "cloud_url": "http://localhost:8000",
+    "channel": "my-channel",
+    "token": "secret_token_123",
+    "protocol": "websocket",
+    "webhooks_config": "./local-webhooks.json"
+}
+```
+
+Create `local-webhooks.json` (same format as the main CWM webhooks.json):
+
+```json
+{
+    "my_relay": {
+        "module": "log",
+        "module-config": {
+            "pretty_print": true
         }
     }
 }
 ```
 
-This configures:
-- Connection to the cloud receiver at `localhost:8000`
-- Subscription to `my-channel`
-- Logging received webhooks to stdout
+The `webhook_id` from the cloud message maps to the key in your local `webhooks.json`. Auth fields (`authorization`, `data_type`, `rate_limit`) are ignored on the connector side since authentication is already handled on the cloud.
 
 ## Step 4: Start the Local Connector
 
 ```bash
+# With config file
 python -m src.connector.main --config connector.json
+
+# Or with CLI arguments (HTTP mode)
+python -m src.connector.main \
+    --cloud-url http://localhost:8000 \
+    --channel my-channel \
+    --token secret_token_123 \
+    --target-url http://localhost:3000/webhooks
+
+# Or with CLI arguments (Module mode)
+python -m src.connector.main \
+    --cloud-url http://localhost:8000 \
+    --channel my-channel \
+    --token secret_token_123 \
+    --webhooks-config ./local-webhooks.json
 ```
 
 You should see output like:
 ```
-Starting Webhook Connector...
-Cloud URL: http://localhost:8000/connect/stream
-Channels: ['my-channel']
-[my-channel] Connecting to http://localhost:8000/connect/stream/my-channel...
-[my-channel] Connected!
+============================================================
+    Webhook Connect - Local Connector
+============================================================
+  Channel:   my-channel
+  Protocol:  websocket
+  Cloud URL: http://localhost:8000
+  Mode:      module
+============================================================
 ```
 
 ## Step 5: Test the Relay
@@ -106,16 +155,11 @@ curl -X POST http://localhost:8000/webhook/my_relay \
   -d '{"event": "test", "message": "Hello from cloud!"}'
 ```
 
-You should see the webhook logged in the connector output:
-```
-[my-channel] Received: msg_abc123def456
-{"event": "test", "message": "Hello from cloud!"}
-[my-channel] ACK: msg_abc123def456
-```
+You should see the webhook logged in the connector output.
 
 ## Step 6: Add Authentication
 
-Secure your webhook endpoint with authentication:
+Secure your webhook endpoint with authentication on the cloud side:
 
 ```json
 {
@@ -140,92 +184,119 @@ Now external services must provide:
 - `Authorization: Bearer webhook_secret_token` header
 - Valid HMAC signature in `X-Signature` header
 
-## Step 7: Route to a Real Destination
+The connector does **not** need to know about these auth settings — authentication is fully handled on the cloud side.
 
-Instead of just logging, route webhooks to a useful destination:
+## Step 7: Route to Real Destinations
 
-### Route to Redis Queue
+### HTTP Mode: Forward to Local Service
 
 ```json
 {
-    "cloud": {
-        "url": "http://localhost:8000/connect/stream",
-        "connector_id": "processor-01"
+    "cloud_url": "http://localhost:8000",
+    "channel": "my-channel",
+    "token": "secret_token_123",
+    "default_target": {
+        "url": "http://localhost:3000/webhooks",
+        "method": "POST",
+        "timeout_seconds": 30,
+        "retry_enabled": true,
+        "retry_max_attempts": 3
+    }
+}
+```
+
+### HTTP Mode: Route by Webhook ID
+
+```json
+{
+    "cloud_url": "http://localhost:8000",
+    "channel": "my-channel",
+    "token": "secret_token_123",
+    "default_target": {
+        "url": "http://localhost:3000/default"
     },
-    "routes": {
-        "my-channel": {
-            "token": "secret_token_123",
-            "module": "redis_rq",
-            "connection": "local_redis",
-            "module-config": {
-                "queue_name": "webhook_processing"
-            }
-        }
-    },
-    "connections": {
-        "local_redis": {
-            "type": "redis",
-            "host": "localhost",
-            "port": 6379
+    "targets": {
+        "stripe_relay": {
+            "url": "http://localhost:3000/stripe",
+            "method": "POST"
+        },
+        "github_relay": {
+            "url": "http://localhost:3000/github",
+            "method": "POST"
         }
     }
 }
 ```
 
-### Route to PostgreSQL
+### Module Mode: Route to PostgreSQL
 
+`connector.json`:
 ```json
 {
-    "cloud": {
-        "url": "http://localhost:8000/connect/stream",
-        "connector_id": "db-writer-01"
-    },
-    "routes": {
-        "my-channel": {
-            "token": "secret_token_123",
-            "module": "postgresql",
-            "connection": "local_db",
-            "module-config": {
-                "table": "webhook_events",
-                "storage_mode": "json"
-            }
-        }
-    },
-    "connections": {
-        "local_db": {
-            "type": "postgresql",
-            "host": "localhost",
-            "port": 5432,
-            "database": "webhooks",
-            "user": "postgres",
-            "password": "password"
+    "cloud_url": "http://localhost:8000",
+    "channel": "my-channel",
+    "token": "secret_token_123",
+    "webhooks_config": "./local-webhooks.json",
+    "connections_config": "./local-connections.json"
+}
+```
+
+`local-webhooks.json`:
+```json
+{
+    "my_relay": {
+        "module": "postgresql",
+        "connection": "local_db",
+        "module-config": {
+            "table": "webhook_events",
+            "storage_mode": "json"
         }
     }
 }
 ```
 
-### Route to Kafka
-
+`local-connections.json`:
 ```json
 {
-    "cloud": {
-        "url": "http://localhost:8000/connect/stream",
-        "connector_id": "kafka-publisher-01"
-    },
-    "routes": {
-        "my-channel": {
-            "token": "secret_token_123",
-            "module": "kafka",
-            "connection": "local_kafka",
-            "module-config": {
-                "topic": "webhook-events"
-            }
-        }
-    },
-    "connections": {
-        "local_kafka": {
-            "type": "kafka",
+    "local_db": {
+        "type": "postgresql",
+        "host": "localhost",
+        "port": 5432,
+        "database": "webhooks",
+        "user": "postgres",
+        "password": "password"
+    }
+}
+```
+
+### Module Mode: Route to Kafka
+
+`local-webhooks.json`:
+```json
+{
+    "my_relay": {
+        "module": "kafka",
+        "module-config": {
+            "topic": "webhook-events",
             "bootstrap_servers": "localhost:9092"
+        }
+    }
+}
+```
+
+### Module Mode: Chain to Multiple Destinations
+
+`local-webhooks.json`:
+```json
+{
+    "my_relay": {
+        "chain": ["log", "postgresql"],
+        "chain-config": {
+            "execution": "parallel"
+        },
+        "connection": "local_db",
+        "module-config": {
+            "pretty_print": true
         }
     }
 }
@@ -261,7 +332,7 @@ services:
     depends_on:
       - redis
 
-  # Local connector
+  # Local connector (HTTP mode)
   connector:
     image: core-webhook-module:latest
     command: python -m src.connector.main --config /app/connector.json
@@ -328,85 +399,6 @@ Webhook Connect buffers messages when the connector is offline.
 
    You'll see both queued messages delivered automatically.
 
-## Common Patterns
-
-### Pattern 1: Simple Logging (Development)
-
-```json
-{
-    "routes": {
-        "my-channel": {
-            "token": "dev_token",
-            "module": "log"
-        }
-    }
-}
-```
-
-### Pattern 2: Save to Disk (Debugging)
-
-```json
-{
-    "routes": {
-        "my-channel": {
-            "token": "debug_token",
-            "module": "save_to_disk",
-            "module-config": {
-                "path": "/var/log/webhooks"
-            }
-        }
-    }
-}
-```
-
-### Pattern 3: Forward to Local HTTP Service
-
-```json
-{
-    "routes": {
-        "my-channel": {
-            "token": "forward_token",
-            "module": "http_webhook",
-            "module-config": {
-                "url": "http://localhost:3000/webhooks",
-                "method": "POST"
-            }
-        }
-    }
-}
-```
-
-### Pattern 4: Multiple Destinations (Chaining)
-
-```json
-{
-    "routes": {
-        "my-channel": {
-            "token": "chain_token",
-            "chain": [
-                {
-                    "module": "postgresql",
-                    "connection": "local_db",
-                    "module-config": {
-                        "table": "webhook_events"
-                    }
-                },
-                {
-                    "module": "redis_rq",
-                    "connection": "local_redis",
-                    "module-config": {
-                        "queue_name": "processing"
-                    }
-                }
-            ],
-            "chain-config": {
-                "execution": "parallel"
-            }
-        }
-    }
-}
-```
-
 ## Verification Checklist
 
 After setup, verify everything works:
@@ -421,6 +413,6 @@ After setup, verify everything works:
 
 ## Next Steps
 
-- Learn about [advanced configurations](webhook-connect-advanced) including multi-channel setups, production deployment, and webhook chaining
+- Learn about [advanced configurations](webhook-connect-advanced) including production deployment, token rotation, and performance tuning
 - Review [troubleshooting guide](webhook-connect-troubleshooting) for common issues
 - Read the [full Webhook Connect reference](webhook-connect) for all configuration options

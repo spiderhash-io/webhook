@@ -172,11 +172,14 @@ class MessageProcessor:
                     f"(status={result.status_code}, attempts={result.attempts})"
                 )
             else:
-                # Send NACK
-                retry = (
-                    msg_info.target.retry_enabled
-                    and result.attempts < msg_info.target.retry_max_attempts
+                # Send NACK - determine if cloud should re-queue
+                # For client errors (4xx), don't retry (bad request)
+                # For server/network errors, re-queue so connector can retry later
+                is_client_error = (
+                    result.status_code is not None
+                    and 400 <= result.status_code < 500
                 )
+                retry = not is_client_error
                 await self.nack_callback(msg_info.message_id, retry)
                 self._stats.messages_failed += 1
                 logger.error(

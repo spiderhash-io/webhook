@@ -1,0 +1,17 @@
+{
+    "cloud_url": "http://cloud-receiver:8000",
+    "channel": "channel-alpha",
+    "token": "alpha_secret_token_123",
+    "protocol": "sse",
+    "connector_id": "connector-sse-alpha",
+    "default_target": {
+        "url": "http://local-processor-a:8000/webhook/local-receiver-a",
+        "method": "POST",
+        "timeout_seconds": 30,
+        "headers": {
+            "Content-Type": "application/json"
+        }
+    },
+    "reconnect_delay": 2.0,
+    "max_reconnect_delay": 30.0
+}

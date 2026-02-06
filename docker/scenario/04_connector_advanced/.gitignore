@@ -1,0 +1,4 @@
+logs/cloud/*
+logs/local-a/*
+logs/local-b/*
+!logs/**/.gitkeep

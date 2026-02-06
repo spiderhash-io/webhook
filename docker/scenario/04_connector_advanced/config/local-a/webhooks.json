@@ -1,0 +1,11 @@
+{
+    "local-receiver-a": {
+        "data_type": "json",
+        "module": "save_to_disk",
+        "module-config": {
+            "path": "/app/logs/webhooks.log",
+            "format": "json",
+            "append": true
+        }
+    }
+}

@@ -1,0 +1,8 @@
+{
+    "cloud-webhook-module-mode": {
+        "module": "save_to_disk",
+        "module-config": {
+            "path": "/app/logs/webhooks.log"
+        }
+    }
+}

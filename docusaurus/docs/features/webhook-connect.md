@@ -39,11 +39,18 @@ Webhook Connect enables secure, real-time forwarding of webhook data between geo
                          │                                                  │
                          │  - Connects outbound via HTTP/WebSocket         │
                          │  - Receives webhooks from stream                │
-                         │  - Routes to local destinations                 │
+                         │  - Two delivery modes:                          │
                          │                                                  │
-                         │    ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐  │
-                         │    │ Kafka  │ │ Redis  │ │Postgres│ │  HTTP  │  │
-                         │    └────────┘ └────────┘ └────────┘ └────────┘  │
+                         │  HTTP Mode:          Module Mode:               │
+                         │  ┌────────────┐      ┌──────────────────────┐   │
+                         │  │ HTTP POST  │      │ ModuleRegistry       │   │
+                         │  │ to target  │      │ ┌──────┐ ┌────────┐ │   │
+                         │  └────────────┘      │ │Kafka │ │Postgres│ │   │
+                         │                      │ └──────┘ └────────┘ │   │
+                         │                      │ ┌──────┐ ┌────────┐ │   │
+                         │                      │ │ Log  │ │  S3    │ │   │
+                         │                      │ └──────┘ └────────┘ │   │
+                         │                      └──────────────────────┘   │
                          └─────────────────────────────────────────────────┘
 ```
 
@@ -93,19 +100,43 @@ export WEBHOOK_CONNECT_ADMIN_TOKEN=your_admin_secret
 
 ### 2. Local Connector Configuration
 
-Create `connector.json`:
+The connector supports two delivery modes:
+
+**HTTP Mode** — forward webhooks to a local HTTP endpoint (simplest):
 
 ```json
 {
-    "cloud": {
-        "url": "wss://webhook-cloud.example.com/connect/stream",
-        "connector_id": "local-dev-01"
-    },
-    "routes": {
-        "stripe-payments": {
-            "token": "ch_tok_abc123secret",
-            "module": "log"
-        }
+    "cloud_url": "https://webhook-cloud.example.com",
+    "channel": "stripe-payments",
+    "token": "ch_tok_abc123secret",
+    "protocol": "websocket",
+    "default_target": {
+        "url": "http://localhost:3000/webhooks",
+        "method": "POST",
+        "timeout_seconds": 30
+    }
+}
+```
+
+**Module Mode** — dispatch to internal modules using the same `webhooks.json` format as the main CWM:
+
+```json
+{
+    "cloud_url": "https://webhook-cloud.example.com",
+    "channel": "stripe-payments",
+    "token": "ch_tok_abc123secret",
+    "protocol": "websocket",
+    "webhooks_config": "/path/to/webhooks.json",
+    "connections_config": "/path/to/connections.json"
+}
+```
+
+Where `webhooks.json` uses the exact same format as the main webhook processor:
+```json
+{
+    "stripe_relay": {
+        "module": "log",
+        "module-config": { "pretty_print": true }
     }
 }
 ```
@@ -180,24 +211,50 @@ Webhooks are buffered during connector downtime:
 
 ### Local Connector Configuration
 
+The connector has two mutually exclusive delivery modes:
+
+**HTTP Mode** (simple forwarding):
 ```json
 {
-    "cloud": {
-        "url": "wss://host/connect/stream",
-        "connector_id": "unique-id"
-    },
-    "concurrency": 10,
-    "routes": {
-        "channel-name": {
-            "token": "channel_token",
-            "module": "kafka",
-            "connection": "local_kafka",
-            "module-config": { ... }
-        }
-    },
-    "connections": { ... }
+    "cloud_url": "https://host",
+    "channel": "channel-name",
+    "token": "channel_token",
+    "protocol": "websocket",
+    "max_concurrent_requests": 10,
+    "default_target": {
+        "url": "http://localhost:8000/webhook",
+        "method": "POST",
+        "timeout_seconds": 30,
+        "retry_enabled": true,
+        "retry_max_attempts": 3
+    }
 }
 ```
+
+**Module Mode** (use internal CWM modules):
+```json
+{
+    "cloud_url": "https://host",
+    "channel": "channel-name",
+    "token": "channel_token",
+    "protocol": "websocket",
+    "max_concurrent_requests": 10,
+    "webhooks_config": "/path/to/webhooks.json",
+    "connections_config": "/path/to/connections.json"
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `cloud_url` | string | required | Cloud Receiver base URL |
+| `channel` | string | required | Channel to subscribe to |
+| `token` | string | required | Channel authentication token |
+| `protocol` | string | `"websocket"` | `"websocket"`, `"sse"`, or `"long_poll"` |
+| `max_concurrent_requests` | int | `10` | Parallel processing limit |
+| `default_target` | object | - | HTTP mode: default target config |
+| `targets` | object | - | HTTP mode: per-webhook_id target routing |
+| `webhooks_config` | string | - | Module mode: path to webhooks.json |
+| `connections_config` | string | - | Module mode: path to connections.json |
 
 ## Streaming Protocols
 

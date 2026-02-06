@@ -23,13 +23,12 @@ This guide covers common issues and solutions when working with Webhook Connect.
 
 2. **Wrong URL in connector config:**
    ```json
-   // Check the URL format
+   // Check the cloud_url format — should be the base URL, not the stream endpoint
    {
-       "cloud": {
-           "url": "ws://cloud-receiver:8000/connect/stream",  // WebSocket
-           // or
-           "url": "http://cloud-receiver:8000/connect/stream"  // SSE
-       }
+       "cloud_url": "http://cloud-receiver:8000",
+       "channel": "my-channel",
+       "token": "secret_token",
+       "protocol": "websocket"
    }
    ```
 
@@ -79,11 +78,9 @@ This guide covers common issues and solutions when working with Webhook Connect.
    Connector (`connector.json`):
    ```json
    {
-       "routes": {
-           "my-channel": {
-               "token": "secret_token_123"  // Must match!
-           }
-       }
+       "cloud_url": "http://cloud:8000",
+       "channel": "my-channel",
+       "token": "secret_token_123"  // Must match!
    }
    ```
 
@@ -345,7 +342,7 @@ docker-compose restart cloud-receiver
 1. **Reduce concurrency:**
    ```json
    {
-       "concurrency": 5  // Reduce from default 10
+       "max_concurrent_requests": 5  // Reduce from default 10
    }
    ```
 
@@ -371,7 +368,7 @@ docker-compose restart cloud-receiver
 1. **Increase concurrency:**
    ```json
    {
-       "concurrency": 50  // Increase parallel processing
+       "max_concurrent_requests": 50  // Increase parallel processing
    }
    ```
 

@@ -41,6 +41,10 @@ def __getattr__(name):
         from src.connector.processor import MessageProcessor
 
         return MessageProcessor
+    elif name == "ModuleProcessor":
+        from src.connector.module_processor import ModuleProcessor
+
+        return ModuleProcessor
     elif name == "LocalConnector":
         from src.connector.main import LocalConnector
 
@@ -56,5 +60,6 @@ __all__ = [
     "SSEClient",
     "create_client",
     "MessageProcessor",
+    "ModuleProcessor",
     "LocalConnector",
 ]

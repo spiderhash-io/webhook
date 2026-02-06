@@ -1,0 +1,179 @@
+# Docker Compose for Advanced Webhook Connect Scenario
+#
+# Services:
+#   - redis: Message buffer
+#   - cloud-receiver: Accepts webhooks, queues to channels
+#   - local-processor-a: Receives from connector-sse (channel-alpha)
+#   - local-processor-b: Receives from connector-ws (channel-beta)
+#   - connector-sse: SSE connector for channel-alpha
+#   - connector-ws: WebSocket connector for channel-beta
+#   - flaky-target: Returns configurable error codes for retry testing
+#
+# Sub-tests:
+#   multi-channel, websocket, long-poll, admin-api,
+#   token-rotation, target-routing, queue-overflow, retry-delivery
+
+services:
+  # Redis for Webhook Connect message buffer
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Cloud Receiver - Accepts external webhooks and queues for connectors
+  cloud-receiver:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8010:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/cloud/webhooks.json:/app/webhooks.json:ro
+      - ./config/cloud/connections.json:/app/connections.json:ro
+      - ./logs/cloud:/app/logs:rw
+    environment:
+      - WEBHOOK_CONNECT_ENABLED=true
+      - WEBHOOK_CONNECT_REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
+      - WEBHOOK_CONNECT_ADMIN_TOKEN=admin_secret_123
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  # Local Processor A - Receives from SSE connector (channel-alpha)
+  local-processor-a:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8011:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/local-a/webhooks.json:/app/webhooks.json:ro
+      - ./config/local-a/connections.json:/app/connections.json:ro
+      - ./logs/local-a:/app/logs:rw
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    profiles:
+      - with-local
+
+  # Local Processor B - Receives from WebSocket connector (channel-beta)
+  local-processor-b:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8012:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/local-b/webhooks.json:/app/webhooks.json:ro
+      - ./config/local-b/connections.json:/app/connections.json:ro
+      - ./logs/local-b:/app/logs:rw
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    profiles:
+      - with-local
+
+  # SSE Connector for channel-alpha
+  connector-sse:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    command: ["python", "-m", "src.connector.main"]
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connector-sse.json:/app/connector.json:ro
+    environment:
+      - CONNECTOR_CLOUD_URL=http://cloud-receiver:8000
+      - CONNECTOR_CHANNEL=channel-alpha
+      - CONNECTOR_TOKEN=alpha_secret_token_123
+      - CONNECTOR_TARGET_URL=http://local-processor-a:8000/webhook/local-receiver-a
+      - CONNECTOR_PROTOCOL=sse
+      - CONNECTOR_LOG_LEVEL=DEBUG
+    depends_on:
+      cloud-receiver:
+        condition: service_healthy
+    profiles:
+      - with-connector-sse
+
+  # WebSocket Connector for channel-beta
+  connector-ws:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    command: ["python", "-m", "src.connector.main"]
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connector-ws.json:/app/connector.json:ro
+    environment:
+      - CONNECTOR_CLOUD_URL=http://cloud-receiver:8000
+      - CONNECTOR_CHANNEL=channel-beta
+      - CONNECTOR_TOKEN=beta_secret_token_456
+      - CONNECTOR_TARGET_URL=http://local-processor-b:8000/webhook/local-receiver-b
+      - CONNECTOR_PROTOCOL=websocket
+      - CONNECTOR_LOG_LEVEL=DEBUG
+    depends_on:
+      cloud-receiver:
+        condition: service_healthy
+    profiles:
+      - with-connector-ws
+
+  # Module-mode Connector for channel-module (uses internal modules instead of HTTP)
+  connector-module:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    command: ["python", "-m", "src.connector.main", "--config", "/app/connector.json"]
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connector-module.json:/app/connector.json:ro
+      - ./config/module-webhooks.json:/app/module-webhooks.json:ro
+      - ./logs/module:/app/logs:rw
+    environment:
+      - CONNECTOR_LOG_LEVEL=DEBUG
+    depends_on:
+      cloud-receiver:
+        condition: service_healthy
+    profiles:
+      - with-connector-module
+
+  # Flaky target - returns errors then succeeds (for retry testing)
+  flaky-target:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8013:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/local-a/webhooks.json:/app/webhooks.json:ro
+      - ./config/local-a/connections.json:/app/connections.json:ro
+      - ./logs/local-a:/app/logs:rw
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    profiles:
+      - with-flaky

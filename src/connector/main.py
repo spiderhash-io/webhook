@@ -29,6 +29,7 @@ from typing import Dict, Any, Optional
 from src.connector.config import ConnectorConfig, TargetConfig
 from src.connector.stream_client import create_client, ConnectionState
 from src.connector.processor import MessageProcessor
+from src.connector.module_processor import ModuleProcessor, load_json_config
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class LocalConnector:
             config: Connector configuration
         """
         self.config = config
-        self.processor: Optional[MessageProcessor] = None
+        self.processor = None  # MessageProcessor or ModuleProcessor
         self.client = None
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -68,13 +69,29 @@ class LocalConnector:
         logger.info(f"  Channel: {self.config.channel}")
         logger.info(f"  Protocol: {self.config.protocol}")
         logger.info(f"  Cloud URL: {self.config.cloud_url}")
+        logger.info(f"  Delivery mode: {self.config.delivery_mode}")
 
-        # Create processor
-        self.processor = MessageProcessor(
-            config=self.config,
-            ack_callback=self._send_ack,
-            nack_callback=self._send_nack,
-        )
+        # Create processor based on delivery mode
+        if self.config.delivery_mode == "module":
+            webhooks = load_json_config(self.config.webhooks_config)
+            connections = (
+                load_json_config(self.config.connections_config)
+                if self.config.connections_config
+                else {}
+            )
+            self.processor = ModuleProcessor(
+                config=self.config,
+                webhooks=webhooks,
+                connections=connections,
+                ack_callback=self._send_ack,
+                nack_callback=self._send_nack,
+            )
+        else:
+            self.processor = MessageProcessor(
+                config=self.config,
+                ack_callback=self._send_ack,
+                nack_callback=self._send_nack,
+            )
         await self.processor.start()
 
         # Create stream client
@@ -232,6 +249,17 @@ Examples:
         help="Disable SSL certificate verification",
     )
 
+    # Module mode arguments
+    parser.add_argument(
+        "--webhooks-config",
+        help="Path to webhooks.json for module mode (standard CWM format)",
+    )
+
+    parser.add_argument(
+        "--connections-config",
+        help="Path to connections.json for module mode (standard CWM format)",
+    )
+
     return parser.parse_args()
 
 
@@ -259,9 +287,15 @@ def build_config(args: argparse.Namespace) -> ConnectorConfig:
     if args.no_verify_ssl:
         config.verify_ssl = False
 
-    # Set default target if provided
+    # Set default target if provided (HTTP mode)
     if args.target_url:
         config.default_target = TargetConfig(url=args.target_url)
+
+    # Module mode overrides
+    if args.webhooks_config:
+        config.webhooks_config = args.webhooks_config
+    if args.connections_config:
+        config.connections_config = args.connections_config
 
     return config
 
@@ -324,6 +358,7 @@ def main() -> int:
         f"  Channel:   {config.channel}\n"
         f"  Protocol:  {config.protocol}\n"
         f"  Cloud URL: {config.cloud_url}\n"
+        f"  Mode:      {config.delivery_mode}\n"
         "=" * 60 + "\n"
     )
     logger.info(banner)

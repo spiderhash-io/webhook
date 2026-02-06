@@ -15,6 +15,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **After fixing issues from reports (`reports/roast/`):**
 - Always mark the fixed item as done (`[x]`) in the corresponding report file
 
+**After ANY change that affects documented structure, patterns, or standards:**
+- Automatically update `docs/DEVELOPMENT_STANDARDS.md` to reflect the change (e.g., new module added, file renamed/moved, new pattern introduced, new auth method, config key changed, test convention changed)
+- Update this `CLAUDE.md` if the change affects architecture overview, module list, command references, or key documentation paths
+- This is mandatory — documentation must always match the actual codebase
+
 ## Project Overview
 
 Core Webhook Module is a FastAPI-based webhook receiver/processor that validates incoming webhooks using 11 authentication methods and routes payloads to 17+ output destinations. Key features include webhook chaining (sequential/parallel execution), live configuration reload, and distributed analytics via ClickHouse.
@@ -133,16 +138,55 @@ Example webhook config:
 
 ## Adding New Features
 
+> **Full guide: `docs/DEVELOPMENT_STANDARDS.md`** - Complete templates, checklists, and examples.
+
 ### New Output Module
 1. Create `src/modules/<name>.py` extending `BaseModule`
-2. Implement `process()` method
-3. Register in `src/modules/registry.py`
-4. Add tests in `tests/unit/test_<name>_module.py`
+2. Register in `src/modules/registry.py` (both `MODULE_MAP` and `IMPORT_MAP`)
+3. Add unit tests: `tests/unit/test_<name>_module.py`
+4. Add security audit tests: `tests/unit/test_<name>_security_audit.py`
+5. Add docker-compose scenario: `docker/compose/<name>/`
+6. Add documentation: `docusaurus/docs/modules/<name>.md`
 
 ### New Auth Method
-1. Add validator class in `src/validators.py`
+1. Add validator class in `src/validators.py` extending `BaseValidator`
 2. Integrate into validation flow in `src/webhook.py`
-3. Add corresponding tests
+3. Add unit tests and security audit tests
+4. Add documentation: `docusaurus/docs/authentication/<name>.md`
+
+## Mandatory Development Rules
+
+> Derived from 6 code review reports (79 findings). Follow these to prevent recurring issues.
+
+### Security (ALWAYS)
+- **Type-validate ALL config** in `__init__`, not in `process()` — use `isinstance()` checks
+- **SSRF-protect ALL network connections** — block localhost, private IPs (`10.x`, `172.16.x`, `192.168.x`), metadata endpoints (`169.254.169.254`)
+- **Validate destination/topic/channel names** — block path traversal (`..`), control chars, excessive length
+- **Use `hmac.compare_digest()`** for ALL secret/token comparison — never `==`
+- **Sanitize ALL error messages** before returning to clients — use `sanitize_error_message()`
+- **Redact credentials in logs** — define `SENSITIVE_KEYS` set in each module
+- **Validate header names** — block newline/null byte injection with regex
+
+### Reliability (ALWAYS)
+- **Timeout ALL external operations** — use `asyncio.wait_for(coro, timeout=N)`
+- **Bound ALL queues** — use `asyncio.Queue(maxsize=N)`, never unbounded
+- **Initialize locks in `__init__`** — never lazy-init (causes race conditions)
+- **Add jitter to reconnection backoff** — prevents thundering herd
+- **Track async tasks** — never fire-and-forget; use task sets with done callbacks
+
+### Code Quality (ALWAYS)
+- **Use `logger`, NEVER `print()`** for operational output
+- **Keep functions under 50 lines** — extract helpers for complex logic
+- **Type hints on ALL function signatures**
+- **Docstrings on ALL classes and public methods**
+- **No magic numbers** — define as named constants
+- **No duplicated validation** — use shared utilities from `src/utils.py`
+
+### Testing (ALWAYS)
+- **Every component needs `test_<name>_security_audit.py`** with: type confusion, SSRF, injection, disclosure, payload limits
+- **Follow Arrange-Act-Assert pattern** with descriptive docstrings
+- **Use `@pytest.mark.asyncio`** for all async tests
+- **Mock external deps** with `AsyncMock` / `MagicMock` / `patch`
 
 ## Security
 
@@ -151,11 +195,16 @@ Example webhook config:
 - Input sanitization with size/depth limits
 - Credential redaction in logs
 - Constant-time HMAC comparison
+- SSRF prevention on all network modules
+- Header injection prevention
+- Error message sanitization
 
 ## Key Documentation
 
+- **`docs/DEVELOPMENT_STANDARDS.md`** - **Complete development guide, standards, checklists** (START HERE)
 - `docs/ARCHITECTURE.md` - Module system, adding new modules
 - `docs/DEVELOPMENT.md` - Local development workflow
 - `docs/LIVE_CONFIG_RELOAD_FEATURE.md` - Config reload, pool versioning
 - `docs/WEBHOOK_CHAINING_FEATURE.md` - Multi-destination patterns
 - `agent-instructions.md` - Comprehensive webhook config guide
+- `reports/roast/` - Code review findings (mark `[x]` when fixing)

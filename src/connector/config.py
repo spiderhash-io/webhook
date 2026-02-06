@@ -91,6 +91,11 @@ class ConnectorConfig:
     # Connector identification
     connector_id: Optional[str] = None
 
+    # Module mode: path to webhooks.json (standard CWM format)
+    webhooks_config: Optional[str] = None
+    # Module mode: path to connections.json (standard CWM format)
+    connections_config: Optional[str] = None
+
     @classmethod
     def from_file(cls, path: str) -> "ConnectorConfig":
         """Load configuration from a file."""
@@ -137,6 +142,8 @@ class ConnectorConfig:
             "client_cert_path",
             "client_key_path",
             "connector_id",
+            "webhooks_config",
+            "connections_config",
         ]
 
         for field_name in simple_fields:
@@ -178,6 +185,8 @@ class ConnectorConfig:
             "CONNECTOR_CLIENT_CERT_PATH": "client_cert_path",
             "CONNECTOR_CLIENT_KEY_PATH": "client_key_path",
             "CONNECTOR_ID": "connector_id",
+            "CONNECTOR_WEBHOOKS_CONFIG": "webhooks_config",
+            "CONNECTOR_CONNECTIONS_CONFIG": "connections_config",
         }
 
         config._env_fields: set = set()
@@ -262,8 +271,16 @@ class ConnectorConfig:
                 f"protocol must be 'websocket', 'sse', or 'long_poll', got '{self.protocol}'"
             )
 
-        if not self.default_target and not self.targets:
-            errors.append("Either default_target or targets must be configured")
+        has_http_mode = self.default_target is not None or bool(self.targets)
+        has_module_mode = self.webhooks_config is not None
+        if not has_http_mode and not has_module_mode:
+            errors.append(
+                "Either default_target/targets or webhooks_config must be configured"
+            )
+        if has_http_mode and has_module_mode:
+            errors.append(
+                "Cannot configure both HTTP targets and webhooks_config (module mode)"
+            )
 
         if self.reconnect_delay <= 0:
             errors.append("reconnect_delay must be positive")
@@ -275,6 +292,13 @@ class ConnectorConfig:
             errors.append("heartbeat_timeout must be positive")
 
         return errors
+
+    @property
+    def delivery_mode(self) -> str:
+        """Return 'module' or 'http' based on config."""
+        if self.webhooks_config:
+            return "module"
+        return "http"
 
     def get_target(self, webhook_id: str) -> Optional[TargetConfig]:
         """Get target configuration for a webhook ID."""
@@ -317,6 +341,8 @@ class ConnectorConfig:
             "log_level": self.log_level,
             "verify_ssl": self.verify_ssl,
             "connector_id": self.connector_id,
+            "delivery_mode": self.delivery_mode,
             "targets_count": len(self.targets),
             "has_default_target": self.default_target is not None,
+            "has_webhooks_config": self.webhooks_config is not None,
         }

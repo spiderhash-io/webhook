@@ -1,0 +1,17 @@
+{
+    "cloud_url": "http://cloud-receiver:8000",
+    "channel": "channel-beta",
+    "token": "beta_secret_token_456",
+    "protocol": "websocket",
+    "connector_id": "connector-ws-beta",
+    "default_target": {
+        "url": "http://local-processor-b:8000/webhook/local-receiver-b",
+        "method": "POST",
+        "timeout_seconds": 30,
+        "headers": {
+            "Content-Type": "application/json"
+        }
+    },
+    "reconnect_delay": 2.0,
+    "max_reconnect_delay": 30.0
+}
