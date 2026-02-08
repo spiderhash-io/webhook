@@ -136,7 +136,7 @@ class TestConnectorConfigModuleMode:
             token="tok",
         )
         errors = config.validate()
-        assert any("Either default_target/targets or webhooks_config" in e for e in errors)
+        assert any("default_target/targets" in e or "etcd_host" in e for e in errors)
 
     def test_validate_both_http_and_module(self):
         config = ConnectorConfig(
@@ -147,7 +147,7 @@ class TestConnectorConfigModuleMode:
             webhooks_config="/path/to/webhooks.json",
         )
         errors = config.validate()
-        assert any("Cannot configure both" in e for e in errors)
+        assert any("Only one delivery mode" in e for e in errors)
 
     def test_validate_targets_and_module(self):
         config = ConnectorConfig(
@@ -158,7 +158,7 @@ class TestConnectorConfigModuleMode:
             webhooks_config="/path/to/webhooks.json",
         )
         errors = config.validate()
-        assert any("Cannot configure both" in e for e in errors)
+        assert any("Only one delivery mode" in e for e in errors)
 
     def test_validate_module_mode_ok(self):
         config = ConnectorConfig(

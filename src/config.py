@@ -63,24 +63,25 @@ else:
         }
     }
 
-# Load connections.json (required)
-try:
-    with open(CONNECTIONS_CONFIG_FILE, "r") as connections_file:
-        connection_config = json.load(connections_file)
-    # Update the configuration with environment variables
-    connection_config = load_env_vars(connection_config)
-except FileNotFoundError:
-    # SECURITY: Sanitize file not found errors to prevent information disclosure
-    print("ERROR: connections.json file not found")
-    raise ValueError("connections.json configuration file is required but not found")
-except json.JSONDecodeError as e:
-    # SECURITY: Sanitize JSON parsing errors to prevent information disclosure
-    print(f"ERROR: Failed to parse connections.json: Invalid JSON format")
-    raise ValueError("Invalid connections.json configuration file format")
-except Exception as e:
-    # SECURITY: Sanitize file loading errors to prevent information disclosure
-    print(f"ERROR: Failed to load connections.json: {e}")
-    raise ValueError("Failed to load connections.json configuration file")
+# Load connections.json (optional — etcd backend loads connections from etcd)
+connection_config = {}
+if os.path.exists(CONNECTIONS_CONFIG_FILE):
+    try:
+        with open(CONNECTIONS_CONFIG_FILE, "r") as connections_file:
+            connection_config = json.load(connections_file)
+        # Update the configuration with environment variables
+        connection_config = load_env_vars(connection_config)
+    except json.JSONDecodeError as e:
+        # SECURITY: Sanitize JSON parsing errors to prevent information disclosure
+        print("ERROR: Failed to parse connections.json: Invalid JSON format")
+        raise ValueError("Invalid connections.json configuration file format")
+    except Exception as e:
+        # SECURITY: Sanitize file loading errors to prevent information disclosure
+        print(f"ERROR: Failed to load connections.json: {e}")
+        raise ValueError("Failed to load connections.json configuration file")
+else:
+    print("INFO: connections.json not found. No legacy connections configured.")
+    print("INFO: Connections will be loaded by ConfigManager from the configured backend.")
 
 
 def _validate_connection_host(host: str, connection_type: str) -> str:

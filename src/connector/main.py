@@ -72,7 +72,43 @@ class LocalConnector:
         logger.info(f"  Delivery mode: {self.config.delivery_mode}")
 
         # Create processor based on delivery mode
-        if self.config.delivery_mode == "module":
+        if self.config.delivery_mode == "etcd":
+            # Load config from etcd
+            from src.etcd_config_provider import EtcdConfigProvider
+
+            provider = EtcdConfigProvider(
+                host=self.config.etcd_host,
+                port=self.config.etcd_port,
+                prefix=self.config.etcd_prefix,
+                namespace=self.config.namespace,
+            )
+            # Initialize synchronously in executor (etcd3 is sync)
+            import asyncio
+
+            await asyncio.get_running_loop().run_in_executor(
+                None, provider._sync_initialize
+            )
+            self._etcd_provider = provider
+
+            ns = self.config.namespace or "default"
+            webhooks = provider.get_all_webhook_configs(namespace=ns)
+            connections = provider.get_all_connection_configs()
+            logger.info(
+                "Loaded %d webhook(s), %d connection(s) from etcd (namespace: %s)",
+                len(webhooks),
+                len(connections),
+                ns,
+            )
+            self.processor = ModuleProcessor(
+                config=self.config,
+                webhooks=webhooks,
+                connections=connections,
+                ack_callback=self._send_ack,
+                nack_callback=self._send_nack,
+                config_provider=provider,
+                config_namespace=ns,
+            )
+        elif self.config.delivery_mode == "module":
             webhooks = load_json_config(self.config.webhooks_config)
             connections = (
                 load_json_config(self.config.connections_config)
@@ -124,6 +160,10 @@ class LocalConnector:
 
         if self.processor:
             await self.processor.stop()
+
+        # Shut down etcd provider if used
+        if hasattr(self, "_etcd_provider") and self._etcd_provider:
+            await self._etcd_provider.shutdown()
 
         logger.info("Local Connector shutdown complete")
 

@@ -6,6 +6,7 @@ This module provides:
 - Configuration validation
 - Reload orchestration
 - Integration with ConnectionPoolRegistry
+- Pluggable config backends via ConfigProvider (file, etcd)
 """
 
 import json
@@ -19,6 +20,7 @@ from dataclasses import dataclass
 
 from src.utils import load_env_vars, sanitize_error_message
 from src.config import _validate_connection_host, _validate_connection_port
+from src.config_provider import ConfigProvider
 
 logger = logging.getLogger(__name__)
 from src.modules.registry import ModuleRegistry
@@ -61,6 +63,7 @@ class ConfigManager:
         webhook_config_file: str = "webhooks.json",
         connection_config_file: str = "connections.json",
         pool_registry: Optional[ConnectionPoolRegistry] = None,
+        provider: Optional[ConfigProvider] = None,
     ):
         """
         Initialize ConfigManager.
@@ -69,16 +72,67 @@ class ConfigManager:
             webhook_config_file: Path to webhooks.json file
             connection_config_file: Path to connections.json file
             pool_registry: Optional ConnectionPoolRegistry instance (creates new if None)
+            provider: Optional ConfigProvider backend. When set, config reads
+                      are delegated to the provider instead of internal dicts.
         """
         self.webhook_config_file = webhook_config_file
         self.connection_config_file = connection_config_file
         self.pool_registry = pool_registry or ConnectionPoolRegistry()
+        self.provider = provider
 
         self._webhook_config: Dict[str, Any] = {}
         self._connection_config: Dict[str, Any] = {}
         self._lock: Optional[asyncio.Lock] = None
         self._reload_in_progress = False
         self._last_reload: Optional[datetime] = None
+        # Gate for provider reads: only delegate to provider after validation passes.
+        # Ensures reads fall back to internal cache (last known-good) on failure.
+        self._provider_validated = False
+
+    @classmethod
+    async def create(
+        cls,
+        backend: str = "file",
+        webhook_config_file: str = "webhooks.json",
+        connection_config_file: str = "connections.json",
+        pool_registry: Optional[ConnectionPoolRegistry] = None,
+        **kwargs: Any,
+    ) -> "ConfigManager":
+        """
+        Factory method to create a ConfigManager with the specified backend.
+
+        Args:
+            backend: Config backend type — "file" (default) or "etcd".
+            webhook_config_file: Path to webhooks.json (file backend).
+            connection_config_file: Path to connections.json (file backend).
+            pool_registry: Optional ConnectionPoolRegistry instance.
+            **kwargs: Backend-specific options passed to the provider constructor.
+                For etcd: host, port, prefix, namespace, username, password.
+
+        Returns:
+            An initialized ConfigManager instance.
+        """
+        if backend == "file":
+            from src.file_config_provider import FileConfigProvider
+
+            provider = FileConfigProvider(
+                webhook_config_file=webhook_config_file,
+                connection_config_file=connection_config_file,
+            )
+        elif backend == "etcd":
+            from src.etcd_config_provider import EtcdConfigProvider
+
+            provider = EtcdConfigProvider(**kwargs)
+        else:
+            raise ValueError(f"Unknown config backend: {backend!r}")
+
+        manager = cls(
+            webhook_config_file=webhook_config_file,
+            connection_config_file=connection_config_file,
+            pool_registry=pool_registry,
+            provider=provider,
+        )
+        return manager
 
     def _get_lock(self) -> asyncio.Lock:
         """Get or create the async lock (lazy initialization)."""
@@ -90,10 +144,49 @@ class ConfigManager:
         """
         Initialize config manager by loading initial configurations.
 
+        When a provider is set, delegates initialization to the provider.
+        Otherwise falls back to the legacy file-reload path.
+
         Returns:
             ReloadResult indicating success or failure
         """
         try:
+            if self.provider:
+                await self.provider.initialize()
+                # Sync internal caches from provider for backward compat
+                webhook_config = self.provider.get_all_webhook_configs()
+                connection_config = self.provider.get_all_connection_configs()
+
+                # Validate configs (same rules as legacy path)
+                validation_error = await self._validate_webhook_config(webhook_config)
+                if validation_error:
+                    return ReloadResult(
+                        success=False,
+                        error=f"Validation failed: {validation_error}",
+                    )
+                validation_error = await self._validate_connection_config(
+                    connection_config
+                )
+                if validation_error:
+                    return ReloadResult(
+                        success=False,
+                        error=f"Validation failed: {validation_error}",
+                    )
+
+                self._webhook_config = webhook_config
+                self._connection_config = connection_config
+                self._provider_validated = True
+                self._last_reload = datetime.now(timezone.utc)
+                return ReloadResult(
+                    success=True,
+                    details={
+                        "webhooks_loaded": len(self._webhook_config),
+                        "connections_loaded": len(self._connection_config),
+                        "backend": self.provider.get_status().get("backend", "unknown"),
+                    },
+                )
+
+            # Legacy path: load from files directly
             # Load webhooks
             webhook_result = await self.reload_webhooks()
             if not webhook_result.success:
@@ -120,11 +213,58 @@ class ConfigManager:
 
     async def reload_webhooks(self) -> ReloadResult:
         """
-        Reload webhook configuration from file.
+        Reload webhook configuration from file (or provider).
 
         Returns:
             ReloadResult with reload status and statistics
         """
+        # If using a file provider, delegate reload to it
+        if self.provider:
+            from src.file_config_provider import FileConfigProvider
+
+            if isinstance(self.provider, FileConfigProvider):
+                try:
+                    old_keys = set(self._webhook_config.keys())
+                    new_config = self.provider.reload_webhooks()
+
+                    # Validate before applying
+                    validation_error = await self._validate_webhook_config(new_config)
+                    if validation_error:
+                        # Fail closed: stop delegating reads to provider
+                        self._provider_validated = False
+                        return ReloadResult(
+                            success=False,
+                            error=f"Validation failed: {validation_error}",
+                        )
+
+                    new_keys = set(new_config.keys())
+                    self._webhook_config = new_config
+                    self._provider_validated = True
+                    self._last_reload = datetime.now(timezone.utc)
+                    return ReloadResult(
+                        success=True,
+                        details={
+                            "webhooks_added": len(new_keys - old_keys),
+                            "webhooks_removed": len(old_keys - new_keys),
+                            "total_webhooks": len(new_config),
+                        },
+                    )
+                except Exception as e:
+                    self._provider_validated = False
+                    sanitized_error = sanitize_error_message(
+                        e, "ConfigManager.reload_webhooks"
+                    )
+                    return ReloadResult(
+                        success=False,
+                        error=f"Failed to reload webhooks: {sanitized_error}",
+                    )
+            else:
+                # Non-file providers manage their own updates (e.g., etcd watch)
+                return ReloadResult(
+                    success=True,
+                    details={"note": "Provider manages its own updates"},
+                )
+
         async with self._get_lock():
             if self._reload_in_progress:
                 return ReloadResult(success=False, error="Reload already in progress")
@@ -192,11 +332,60 @@ class ConfigManager:
 
     async def reload_connections(self) -> ReloadResult:
         """
-        Reload connection configuration from file.
+        Reload connection configuration from file (or provider).
 
         Returns:
             ReloadResult with reload status and statistics
         """
+        # If using a file provider, delegate reload to it
+        if self.provider:
+            from src.file_config_provider import FileConfigProvider
+
+            if isinstance(self.provider, FileConfigProvider):
+                try:
+                    old_keys = set(self._connection_config.keys())
+                    new_config = self.provider.reload_connections()
+
+                    # Validate before applying
+                    validation_error = await self._validate_connection_config(
+                        new_config
+                    )
+                    if validation_error:
+                        # Fail closed: stop delegating reads to provider
+                        self._provider_validated = False
+                        return ReloadResult(
+                            success=False,
+                            error=f"Validation failed: {validation_error}",
+                        )
+
+                    new_keys = set(new_config.keys())
+                    self._connection_config = new_config
+                    self._provider_validated = True
+                    self._last_reload = datetime.now(timezone.utc)
+                    return ReloadResult(
+                        success=True,
+                        details={
+                            "connections_added": len(new_keys - old_keys),
+                            "connections_removed": len(old_keys - new_keys),
+                            "total_connections": len(new_config),
+                        },
+                    )
+                except Exception as e:
+                    self._provider_validated = False
+                    sanitized_error = sanitize_error_message(
+                        e, "ConfigManager.reload_connections"
+                    )
+                    return ReloadResult(
+                        success=False,
+                        error=f"Failed to reload connections: {sanitized_error}",
+                    )
+            else:
+                # Non-file providers manage their own updates
+                return ReloadResult(
+                    success=True,
+                    details={"note": "Provider manages its own updates"},
+                )
+
         async with self._get_lock():
             if self._reload_in_progress:
                 return ReloadResult(success=False, error="Reload already in progress")
@@ -305,26 +494,38 @@ class ConfigManager:
                 },
             )
 
-    def get_webhook_config(self, webhook_id: str) -> Optional[Dict[str, Any]]:
+    def get_webhook_config(
+        self, webhook_id: str, namespace: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """
         Get webhook configuration by ID (async-safe read).
 
         Args:
             webhook_id: Webhook identifier
+            namespace: Optional namespace (only meaningful for etcd backend)
 
         Returns:
             Webhook configuration dictionary or None if not found
         """
+        if self.provider and self._provider_validated:
+            return self.provider.get_webhook_config(webhook_id, namespace=namespace)
         return self._webhook_config.get(webhook_id)
 
-    def get_all_webhook_configs(self) -> Dict[str, Any]:
+    def get_all_webhook_configs(
+        self, namespace: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Get all webhook configurations (async-safe read).
 
+        Args:
+            namespace: Optional namespace (only meaningful for etcd backend)
+
         Returns:
-            Deep copy of all webhook configurations.
+            Copy of all webhook configurations.
             Safe to modify without affecting internal state.
         """
+        if self.provider and self._provider_validated:
+            return self.provider.get_all_webhook_configs(namespace=namespace)
         return copy.deepcopy(self._webhook_config)
 
     def get_connection_config(self, connection_name: str) -> Optional[Dict[str, Any]]:
@@ -337,6 +538,8 @@ class ConfigManager:
         Returns:
             Connection configuration dictionary or None if not found
         """
+        if self.provider and self._provider_validated:
+            return self.provider.get_connection_config(connection_name)
         return self._connection_config.get(connection_name)
 
     def get_all_connection_configs(self) -> Dict[str, Any]:
@@ -344,9 +547,11 @@ class ConfigManager:
         Get all connection configurations (async-safe read).
 
         Returns:
-            Deep copy of all connection configurations.
+            Copy of all connection configurations.
             Safe to modify without affecting internal state.
         """
+        if self.provider and self._provider_validated:
+            return self.provider.get_all_connection_configs()
         return copy.deepcopy(self._connection_config)
 
     def get_status(self) -> Dict[str, Any]:
@@ -358,7 +563,7 @@ class ConfigManager:
         """
         pool_info = self.pool_registry.get_all_pools_info()
 
-        return {
+        status: Dict[str, Any] = {
             "last_reload": self._last_reload.isoformat() if self._last_reload else None,
             "reload_in_progress": self._reload_in_progress,
             "webhooks_count": len(self._webhook_config),
@@ -373,6 +578,11 @@ class ConfigManager:
             },
             "pool_details": pool_info,
         }
+
+        if self.provider:
+            status["provider"] = self.provider.get_status()
+
+        return status
 
     async def _load_webhook_config(self) -> Dict[str, Any]:
         """Load webhook config from file with environment variable substitution."""

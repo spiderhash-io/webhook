@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Core Webhook Module is a FastAPI-based webhook receiver/processor that validates incoming webhooks using 11 authentication methods and routes payloads to 17+ output destinations. Key features include webhook chaining (sequential/parallel execution), live configuration reload, and distributed analytics via ClickHouse.
+Core Webhook Module is a FastAPI-based webhook receiver/processor that validates incoming webhooks using 11 authentication methods and routes payloads to 17+ output destinations. Key features include webhook chaining (sequential/parallel execution), live configuration reload, distributed analytics via ClickHouse, and optional etcd-based distributed configuration with namespace support.
 
 ## Python Environment
 
@@ -95,7 +95,10 @@ HTTP Request → FastAPI (main.py) → WebhookHandler (webhook.py)
 |-----------|----------|---------|
 | main.py | src/ | FastAPI app, routes, startup/shutdown |
 | webhook.py | src/ | Core webhook processing, validation orchestration |
-| config_manager.py | src/ | Live config reload, async-safe management |
+| config_manager.py | src/ | Live config reload, async-safe management, provider delegation |
+| config_provider.py | src/ | ConfigProvider ABC (read-only interface for config backends) |
+| file_config_provider.py | src/ | File-based config provider (wraps JSON file loading) |
+| etcd_config_provider.py | src/ | etcd config provider (in-memory cache + watch + reconnect) |
 | validators.py | src/ | 11 auth validators (JWT, HMAC, OAuth, etc.) |
 | chain_processor.py | src/ | Multi-module sequential/parallel execution |
 | connection_pool_registry.py | src/ | Connection lifecycle, versioned pools |
@@ -110,11 +113,21 @@ log, save_to_disk, rabbitmq, redis_rq, redis_publish, http_webhook, kafka, s3, w
 
 Cloud-to-local webhook relay (similar to ngrok):
 - **Cloud side**: `src/webhook_connect/` - WebSocket/SSE/Long-Poll streaming, channel management, admin API
-- **Local connector**: `src/connector/` - Two delivery modes:
+- **Local connector**: `src/connector/` - Three delivery modes:
   - **HTTP mode**: Forwards to local HTTP targets via `default_target`/`targets`
   - **Module mode**: Dispatches to internal modules (kafka, save_to_disk, etc.) via `webhooks_config`
+  - **etcd mode**: Loads webhook/connection config from etcd namespace via `CONNECTOR_ETCD_HOST`
 
 ## Configuration
+
+Two config backends are supported:
+
+| Backend | Env Var | Description |
+|---------|---------|-------------|
+| **file** (default) | `CONFIG_BACKEND=file` | JSON files (`webhooks.json`, `connections.json`) |
+| **etcd** | `CONFIG_BACKEND=etcd` | etcd cluster with namespace-scoped configs |
+
+### File Backend (default)
 
 - **Files**: `webhooks.json`, `connections.json` (root or via env vars `WEBHOOKS_CONFIG_FILE`, `CONNECTIONS_CONFIG_FILE`)
 - **Env var substitution**: `{$VAR}` or `{$VAR:default_value}`
@@ -132,11 +145,42 @@ Example webhook config:
 }
 ```
 
+### etcd Backend
+
+- **Key layout**: `/cwm/{namespace}/webhooks/{webhook_id}` and `/cwm/global/connections/{conn_name}`
+- **Namespaces**: organizational grouping (`[a-zA-Z0-9_-]{1,64}`)
+- **Routes**: `POST /webhook/{namespace}/{webhook_id}` (namespaced) and `POST /webhook/{webhook_id}` (uses default namespace)
+- **Live updates**: etcd watch detects changes in real-time (no restart needed)
+- **Users manage etcd directly** with `etcdctl` or any etcd client; the app is read-only
+
+See `docs/DISTRIBUTED_CONFIG_ETCD.md` for full etcd documentation.
+
+### etcd Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONFIG_BACKEND` | `file` | Config backend: `file` or `etcd` |
+| `ETCD_HOST` | `localhost` | etcd server hostname |
+| `ETCD_PORT` | `2379` | etcd server port |
+| `ETCD_PREFIX` | `/cwm/` | Key prefix in etcd |
+| `ETCD_NAMESPACE` | `default` | Default namespace for non-namespaced routes |
+| `ETCD_USERNAME` | (none) | etcd authentication username |
+| `ETCD_PASSWORD` | (none) | etcd authentication password |
+
+### Connector etcd Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONNECTOR_ETCD_HOST` | (none) | etcd host for connector (enables etcd mode) |
+| `CONNECTOR_ETCD_PORT` | `2379` | etcd port for connector |
+| `CONNECTOR_ETCD_PREFIX` | `/cwm/` | Key prefix for connector |
+| `CONNECTOR_NAMESPACE` | (none) | Namespace for connector webhook lookups |
+
 ## Testing Structure
 
 - Test markers: `integration`, `unit`, `performance`, `slow`, `longrunning`, `external_services`
 - `make test` excludes: longrunning, todo, external_services
-- 151 test files, 2493+ passing tests
+- 250+ test files, 3000+ passing tests
 
 ## Adding New Features
 
@@ -206,6 +250,7 @@ Example webhook config:
 - **`docs/DEVELOPMENT_STANDARDS.md`** - **Complete development guide, standards, checklists** (START HERE)
 - `docs/ARCHITECTURE.md` - Module system, adding new modules
 - `docs/DEVELOPMENT.md` - Local development workflow
+- `docs/DISTRIBUTED_CONFIG_ETCD.md` - etcd backend, namespaces, watch behavior, migration
 - `docs/LIVE_CONFIG_RELOAD_FEATURE.md` - Config reload, pool versioning
 - `docs/WEBHOOK_CHAINING_FEATURE.md` - Multi-destination patterns
 - `agent-instructions.md` - Comprehensive webhook config guide

@@ -96,6 +96,12 @@ class ConnectorConfig:
     # Module mode: path to connections.json (standard CWM format)
     connections_config: Optional[str] = None
 
+    # etcd config backend (alternative to webhooks_config/connections_config files)
+    etcd_host: Optional[str] = None
+    etcd_port: int = 2379
+    etcd_prefix: str = "/cwm/"
+    namespace: Optional[str] = None
+
     @classmethod
     def from_file(cls, path: str) -> "ConnectorConfig":
         """Load configuration from a file."""
@@ -144,6 +150,10 @@ class ConnectorConfig:
             "connector_id",
             "webhooks_config",
             "connections_config",
+            "etcd_host",
+            "etcd_port",
+            "etcd_prefix",
+            "namespace",
         ]
 
         for field_name in simple_fields:
@@ -187,6 +197,10 @@ class ConnectorConfig:
             "CONNECTOR_ID": "connector_id",
             "CONNECTOR_WEBHOOKS_CONFIG": "webhooks_config",
             "CONNECTOR_CONNECTIONS_CONFIG": "connections_config",
+            "CONNECTOR_ETCD_HOST": "etcd_host",
+            "CONNECTOR_ETCD_PORT": ("etcd_port", int),
+            "CONNECTOR_ETCD_PREFIX": "etcd_prefix",
+            "CONNECTOR_NAMESPACE": "namespace",
         }
 
         config._env_fields: set = set()
@@ -272,14 +286,16 @@ class ConnectorConfig:
             )
 
         has_http_mode = self.default_target is not None or bool(self.targets)
-        has_module_mode = self.webhooks_config is not None
-        if not has_http_mode and not has_module_mode:
+        has_module_mode = bool(self.webhooks_config)
+        has_etcd_mode = bool(self.etcd_host)
+        if not has_http_mode and not has_module_mode and not has_etcd_mode:
             errors.append(
-                "Either default_target/targets or webhooks_config must be configured"
+                "Either default_target/targets, webhooks_config, or etcd_host must be configured"
             )
-        if has_http_mode and has_module_mode:
+        modes_count = sum([has_http_mode, has_module_mode, has_etcd_mode])
+        if modes_count > 1:
             errors.append(
-                "Cannot configure both HTTP targets and webhooks_config (module mode)"
+                "Only one delivery mode allowed: HTTP targets, webhooks_config, or etcd_host"
             )
 
         if self.reconnect_delay <= 0:
@@ -295,7 +311,9 @@ class ConnectorConfig:
 
     @property
     def delivery_mode(self) -> str:
-        """Return 'module' or 'http' based on config."""
+        """Return 'module', 'etcd', or 'http' based on config."""
+        if self.etcd_host:
+            return "etcd"
         if self.webhooks_config:
             return "module"
         return "http"
@@ -345,4 +363,6 @@ class ConnectorConfig:
             "targets_count": len(self.targets),
             "has_default_target": self.default_target is not None,
             "has_webhooks_config": self.webhooks_config is not None,
+            "has_etcd_config": self.etcd_host is not None,
+            "namespace": self.namespace,
         }

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Callable, Awaitable
 
 from src.connector.config import ConnectorConfig
+from src.config_provider import ConfigProvider
 
 logger = logging.getLogger(__name__)
 
@@ -78,12 +79,16 @@ class ModuleProcessor:
         connections: Dict[str, Any],
         ack_callback: Callable[[str], Awaitable[bool]],
         nack_callback: Callable[[str, bool], Awaitable[bool]],
+        config_provider: Optional[ConfigProvider] = None,
+        config_namespace: Optional[str] = None,
     ):
         self.config = config
         self.webhooks = webhooks
         self.connections = connections
         self.ack_callback = ack_callback
         self.nack_callback = nack_callback
+        self._config_provider = config_provider
+        self._config_namespace = config_namespace
 
         self._max_concurrent = config.max_concurrent_requests
         self._semaphore = None  # Lazy init to avoid event loop requirement in __init__
@@ -96,6 +101,26 @@ class ModuleProcessor:
         self._pool_registry = None
         self._ModuleRegistry = None
         self._ChainProcessor = None
+
+    def _resolve_webhook_config(self, webhook_id: str) -> Optional[Dict[str, Any]]:
+        """Look up webhook config from live provider or static dict."""
+        if self._config_provider:
+            return self._config_provider.get_webhook_config(
+                webhook_id, namespace=self._config_namespace
+            )
+        return self.webhooks.get(webhook_id)
+
+    def _resolve_connection_config(self, conn_name: str) -> Optional[Dict[str, Any]]:
+        """Look up connection config from live provider or static dict."""
+        if self._config_provider:
+            return self._config_provider.get_connection_config(conn_name)
+        return self.connections.get(conn_name)
+
+    def _resolve_all_connections(self) -> Dict[str, Any]:
+        """Get all connection configs from live provider or static dict."""
+        if self._config_provider:
+            return self._config_provider.get_all_connection_configs()
+        return self.connections
 
     def _get_pool_registry(self):
         if self._pool_registry is None:
@@ -175,8 +200,8 @@ class ModuleProcessor:
             await self.nack_callback(message_id, False)
             return
 
-        # Look up webhook config by webhook_id
-        webhook_config = self.webhooks.get(webhook_id)
+        # Look up webhook config by webhook_id (live from provider if available)
+        webhook_config = self._resolve_webhook_config(webhook_id)
         if not webhook_config:
             logger.error(
                 f"No webhook config for webhook_id '{webhook_id}' in webhooks.json"
@@ -251,12 +276,14 @@ class ModuleProcessor:
 
         # Inject connection_details if connection is specified
         connection_name = webhook_config.get("connection")
-        if connection_name and connection_name in self.connections:
-            try:
-                connection_details = copy.deepcopy(self.connections[connection_name])
-            except (RecursionError, MemoryError):
-                connection_details = dict(self.connections[connection_name])
-            module_config["connection_details"] = connection_details
+        if connection_name:
+            conn_cfg = self._resolve_connection_config(connection_name)
+            if conn_cfg:
+                try:
+                    connection_details = copy.deepcopy(conn_cfg)
+                except (RecursionError, MemoryError):
+                    connection_details = dict(conn_cfg)
+                module_config["connection_details"] = connection_details
 
         pool_registry = self._get_pool_registry()
         module = module_class(module_config, pool_registry=pool_registry)
@@ -287,7 +314,7 @@ class ModuleProcessor:
             chain_config=chain_config,
             webhook_config=webhook_config_with_id,
             pool_registry=pool_registry,
-            connection_config=self.connections,
+            connection_config=self._resolve_all_connections(),
         )
 
         results = await processor.execute(payload, headers)

@@ -252,6 +252,7 @@ class WebhookHandler:
         connection_config,
         request: Request,
         pool_registry=None,
+        namespace: Optional[str] = None,
     ):
         # SECURITY: Validate webhook_id early to prevent injection attacks
         is_valid, msg = InputValidator.validate_webhook_id(webhook_id)
@@ -259,6 +260,7 @@ class WebhookHandler:
             raise HTTPException(status_code=400, detail=msg)
 
         self.webhook_id = webhook_id
+        self.namespace = namespace
         self.config = configs.get(webhook_id)
         # Fallback to default webhook if requested webhook_id not found and default exists
         if not self.config and "default" in configs:

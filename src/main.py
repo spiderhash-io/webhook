@@ -25,6 +25,9 @@ from src.webhook_connect import api as webhook_connect_api
 from src.webhook_connect import admin_api as webhook_connect_admin_api
 from src.modules.webhook_connect_module import WebhookConnectModule
 
+# Configuration backend: "file" (default) or "etcd"
+CONFIG_BACKEND = os.getenv("CONFIG_BACKEND", "file").lower()
+
 # Check if OpenAPI docs should be disabled
 DISABLE_OPENAPI_DOCS = os.getenv("DISABLE_OPENAPI_DOCS", "false").lower() == "true"
 
@@ -72,14 +75,41 @@ async def startup_logic(app: FastAPI):
 
     # Initialize ConfigManager for live reload
     print("📋 Initializing configuration manager...")
-    app.state.config_manager = ConfigManager()
+    print(f"   Config backend: {CONFIG_BACKEND}")
     try:
+        if CONFIG_BACKEND == "etcd":
+            # Create ConfigManager with etcd backend
+            etcd_host = os.getenv("ETCD_HOST", "localhost")
+            etcd_port = int(os.getenv("ETCD_PORT", "2379"))
+            etcd_prefix = os.getenv("ETCD_PREFIX", "/cwm/")
+            etcd_namespace = os.getenv("ETCD_NAMESPACE", "default")
+            etcd_username = os.getenv("ETCD_USERNAME", "") or None
+            etcd_password = os.getenv("ETCD_PASSWORD", "") or None
+
+            app.state.config_manager = await ConfigManager.create(
+                backend="etcd",
+                host=etcd_host,
+                port=etcd_port,
+                prefix=etcd_prefix,
+                namespace=etcd_namespace,
+                username=etcd_username,
+                password=etcd_password,
+            )
+        else:
+            # Create ConfigManager with file backend (default)
+            app.state.config_manager = await ConfigManager.create(
+                backend="file",
+                webhook_config_file=os.getenv("WEBHOOKS_CONFIG_FILE", "webhooks.json"),
+                connection_config_file=os.getenv("CONNECTIONS_CONFIG_FILE", "connections.json"),
+            )
+
         init_result = await app.state.config_manager.initialize()
         if init_result.success:
             webhooks_count = init_result.details.get("webhooks_loaded", 0)
             connections_count = init_result.details.get("connections_loaded", 0)
+            backend_name = init_result.details.get("backend", CONFIG_BACKEND)
             print(
-                f"✅ ConfigManager initialized: {webhooks_count} webhook(s), {connections_count} connection(s)"
+                f"✅ ConfigManager initialized ({backend_name}): {webhooks_count} webhook(s), {connections_count} connection(s)"
             )
         else:
             print(f"⚠️  ConfigManager initialization warning: {init_result.error}")
@@ -187,12 +217,12 @@ async def startup_logic(app: FastAPI):
             print("   Webhook Connect module will not be available")
             app.state.webhook_connect_channel_manager = None
 
-    # Start file watcher if enabled
+    # Start file watcher if enabled (only for file backend — etcd has its own watch)
     app.state.config_watcher = None
     file_watching_enabled = (
         os.getenv("CONFIG_FILE_WATCHING_ENABLED", "false").lower() == "true"
     )
-    if file_watching_enabled and app.state.config_manager:
+    if file_watching_enabled and app.state.config_manager and CONFIG_BACKEND == "file":
         try:
             # SECURITY: Validate debounce_seconds to prevent DoS via invalid values
             debounce_str = os.getenv("CONFIG_RELOAD_DEBOUNCE_SECONDS", "3.0")
@@ -278,6 +308,16 @@ async def shutdown_logic(app: FastAPI):
                 e, "shutdown_logic.ConnectionPools"
             )
             print(f"Error closing connection pools: {sanitized_error}")
+
+        # Shutdown config provider (closes etcd connections, stops watch threads)
+        if app.state.config_manager.provider:
+            try:
+                await app.state.config_manager.provider.shutdown()
+            except Exception as e:
+                sanitized_error = sanitize_error_message(
+                    e, "shutdown_logic.ConfigProvider"
+                )
+                print(f"Error shutting down config provider: {sanitized_error}")
 
     if hasattr(app.state, "clickhouse_logger") and app.state.clickhouse_logger:
         try:
@@ -1145,6 +1185,123 @@ async def read_webhook(webhook_id: str, request: Request):
     return JSONResponse(content={"message": "200 OK"})
 
 
+@app.post("/webhook/{namespace}/{webhook_id}", tags=["Webhooks"])
+async def read_webhook_namespaced(namespace: str, webhook_id: str, request: Request):
+    """
+    Namespaced webhook endpoint.
+
+    Routes the request to the webhook identified by {webhook_id} within
+    the given {namespace}. Namespace is used to scope config lookups when
+    using the etcd config backend. For the file backend, namespace is ignored.
+    """
+    import re
+
+    # SECURITY: Validate namespace format
+    if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", namespace):
+        raise HTTPException(status_code=400, detail="Invalid namespace format")
+
+    config_manager = getattr(request.app.state, "config_manager", None)
+    if config_manager:
+        # Get namespace-scoped webhook configs
+        webhook_configs = config_manager.get_all_webhook_configs(namespace=namespace)
+        conn_configs = config_manager.get_all_connection_configs()
+        pool_registry = config_manager.pool_registry
+    else:
+        # Fallback to old config system (namespace ignored)
+        webhook_configs = getattr(
+            request.app.state, "webhook_config_data", webhook_config_data
+        )
+        conn_configs = connection_config
+        pool_registry = None
+
+    try:
+        webhook_handler = WebhookHandler(
+            webhook_id,
+            webhook_configs,
+            conn_configs,
+            request,
+            pool_registry=pool_registry,
+            namespace=namespace,
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"ERROR: Failed to initialize webhook handler for '{namespace}/{webhook_id}': {e}")
+        raise HTTPException(
+            status_code=500, detail=sanitize_error_message(e, "webhook initialization")
+        )
+
+    is_valid, message = await webhook_handler.validate_webhook()
+    if not is_valid:
+        raise HTTPException(status_code=401, detail=message)
+
+    try:
+        result = await webhook_handler.process_webhook()
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"ERROR: Failed to process webhook '{namespace}/{webhook_id}': {e}")
+        raise HTTPException(
+            status_code=500, detail=sanitize_error_message(e, "webhook processing")
+        )
+
+    payload, headers, task = result
+
+    # Update stats
+    try:
+        await stats.increment(f"{namespace}/{webhook_id}")
+    except Exception:
+        pass  # nosec B110
+
+    # ClickHouse logging
+    clickhouse_logger = getattr(request.app.state, "clickhouse_logger", None)
+    if clickhouse_logger and clickhouse_logger.client:
+        try:
+            from src.webhook import task_manager
+
+            async def log_to_clickhouse():
+                await clickhouse_logger.save_log(
+                    f"{namespace}/{webhook_id}", payload, headers
+                )
+
+            await task_manager.create_task(log_to_clickhouse())
+        except Exception:
+            pass  # nosec B110
+
+    # Handle retry
+    retry_config = webhook_handler.config.get("retry", {})
+    if task and retry_config.get("enabled", False):
+        await asyncio.sleep(0.1)
+        if task.done():
+            try:
+                success, error = task.result()
+                if success:
+                    return JSONResponse(
+                        content={"message": "200 OK", "status": "processed"}
+                    )
+            except Exception:
+                pass
+            return JSONResponse(
+                content={
+                    "message": "202 Accepted",
+                    "status": "accepted",
+                    "note": "Request accepted, processing in background with retries",
+                },
+                status_code=202,
+            )
+        else:
+            return JSONResponse(
+                content={
+                    "message": "202 Accepted",
+                    "status": "accepted",
+                    "note": "Request accepted, processing in background",
+                },
+                status_code=202,
+            )
+
+    return JSONResponse(content={"message": "200 OK"})
+
+
 @app.get("/")
 async def default_endpoint(request: Request):
     """
@@ -1235,6 +1392,24 @@ async def health_endpoint(request: Request):
             components["clickhouse"] = "unavailable"
     else:
         components["clickhouse"] = "not_configured"
+
+    # Check config provider (if using etcd)
+    try:
+        provider = getattr(config_manager, "provider", None) if config_manager else None
+        if provider and hasattr(provider, "get_status") and callable(provider.get_status):
+            provider_status = provider.get_status()
+            if isinstance(provider_status, dict):
+                backend = provider_status.get("backend", "unknown")
+                if backend == "etcd":
+                    if provider_status.get("connected", False):
+                        components["etcd"] = "healthy"
+                    else:
+                        components["etcd"] = "disconnected"
+                        # etcd disconnection is non-critical (cache continues serving)
+                else:
+                    components["config_backend"] = backend
+    except Exception:
+        pass  # Provider status check is non-critical
 
     # Check Webhook Connect (if enabled)
     webhook_connect_manager = getattr(

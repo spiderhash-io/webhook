@@ -32,16 +32,20 @@ class TestMainStartupShutdown:
 
         test_app = FastAPI()
 
+        mock_cm = MagicMock()
+        mock_cm.initialize = AsyncMock(
+            return_value=Mock(
+                success=True,
+                details={"webhooks_loaded": 0, "connections_loaded": 0},
+            )
+        )
+        mock_cm.get_all_connection_configs.return_value = {}
+        mock_cm.provider = None
+
         with patch("src.main.webhook_config_data", {}), patch(
             "src.main.connection_config", {}
         ), patch("src.main.ConfigManager") as mock_cm_class:
-
-            mock_cm = AsyncMock()
-            mock_cm.initialize.return_value = Mock(
-                success=True, details={"webhooks_loaded": 0, "connections_loaded": 0}
-            )
-            mock_cm.get_all_connection_configs.return_value = {}
-            mock_cm_class.return_value = mock_cm
+            mock_cm_class.create = AsyncMock(return_value=mock_cm)
 
             await startup_logic(test_app)
 
@@ -62,15 +66,11 @@ class TestMainStartupShutdown:
         ), patch(
             "src.main.ConfigManager"
         ) as mock_cm_class:
-
-            mock_cm = AsyncMock()
-            mock_cm.initialize.side_effect = Exception("Init failed")
-            mock_cm_class.return_value = mock_cm
+            mock_cm_class.create = AsyncMock(side_effect=Exception("Init failed"))
 
             await startup_logic(test_app)
 
             # Should handle error gracefully
-            mock_cm.initialize.assert_called_once()
             assert test_app.state.config_manager is None
 
     @pytest.mark.asyncio
@@ -80,22 +80,25 @@ class TestMainStartupShutdown:
 
         test_app = FastAPI()
 
+        mock_cm = MagicMock()
+        mock_cm.initialize = AsyncMock(
+            return_value=Mock(
+                success=True,
+                details={"webhooks_loaded": 0, "connections_loaded": 1},
+            )
+        )
+        clickhouse_conn = {"type": "clickhouse", "host": "localhost"}
+        mock_cm.get_all_connection_configs.return_value = {
+            "clickhouse1": clickhouse_conn
+        }
+        mock_cm.provider = None
+
         with patch("src.main.webhook_config_data", {}), patch(
             "src.main.connection_config", {}
         ), patch("src.main.ConfigManager") as mock_cm_class, patch(
             "src.main.ClickHouseAnalytics"
         ) as mock_ch_class:
-
-            mock_cm = AsyncMock()
-            mock_cm.initialize.return_value = Mock(
-                success=True, details={"webhooks_loaded": 0, "connections_loaded": 1}
-            )
-            # Return a dict with clickhouse connection - the code iterates over items()
-            clickhouse_conn = {"type": "clickhouse", "host": "localhost"}
-            mock_cm.get_all_connection_configs.return_value = {
-                "clickhouse1": clickhouse_conn
-            }
-            mock_cm_class.return_value = mock_cm
+            mock_cm_class.create = AsyncMock(return_value=mock_cm)
 
             mock_ch_instance = AsyncMock()
             mock_ch_instance.connect = AsyncMock()
@@ -103,15 +106,10 @@ class TestMainStartupShutdown:
 
             await startup_logic(test_app)
 
-            # ClickHouse should be initialized if config was found
-            # Check if ClickHouseAnalytics was called (it should be if clickhouse config exists)
             if mock_ch_class.called:
                 mock_ch_class.assert_called_once()
-                # The instance's connect should be called
                 mock_ch_instance.connect.assert_called_once()
             else:
-                # If not called, it means clickhouse config wasn't found - this is also valid
-                # Just verify the app state is set correctly
                 assert hasattr(test_app.state, "clickhouse_logger")
 
     @pytest.mark.asyncio
@@ -121,20 +119,23 @@ class TestMainStartupShutdown:
 
         test_app = FastAPI()
 
+        mock_cm = MagicMock()
+        mock_cm.initialize = AsyncMock(
+            return_value=Mock(
+                success=True,
+                details={"webhooks_loaded": 0, "connections_loaded": 0},
+            )
+        )
+        mock_cm.get_all_connection_configs.return_value = {}
+        mock_cm.provider = None
+
         with patch("src.main.webhook_config_data", {}), patch(
             "src.main.connection_config", {}
         ), patch("src.main.ConfigManager") as mock_cm_class:
-
-            mock_cm = AsyncMock()
-            mock_cm.initialize.return_value = Mock(
-                success=True, details={"webhooks_loaded": 0, "connections_loaded": 0}
-            )
-            mock_cm.get_all_connection_configs.return_value = {}
-            mock_cm_class.return_value = mock_cm
+            mock_cm_class.create = AsyncMock(return_value=mock_cm)
 
             await startup_logic(test_app)
 
-            # Should not fail even without ClickHouse
             assert test_app.state.clickhouse_logger is None
 
     @pytest.mark.asyncio

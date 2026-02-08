@@ -35,8 +35,11 @@ core-webhook-module/
 │   ├── main.py                   # FastAPI app, routes, startup/shutdown
 │   ├── webhook.py                # Core webhook processing + validation orchestration
 │   ├── config.py                 # Configuration loading + env var substitution
-│   ├── config_manager.py         # Live config reload, async-safe config access
+│   ├── config_manager.py         # Live config reload, async-safe config access, provider delegation
+│   ├── config_provider.py        # ConfigProvider ABC (read-only interface for config backends)
 │   ├── config_watcher.py         # File watcher for config changes
+│   ├── file_config_provider.py   # File-based config provider (wraps JSON loading)
+│   ├── etcd_config_provider.py   # etcd config provider (cache + watch + reconnect)
 │   ├── validators.py             # 11 authentication validators
 │   ├── input_validator.py        # Payload validation (size, depth, type)
 │   ├── rate_limiter.py           # Rate limiting (sliding window)
@@ -120,7 +123,8 @@ core-webhook-module/
 │       ├── 01_live_config/       # Live reload demo
 │       ├── 02_connector/         # Connector demo
 │       ├── 03_kubernetes/        # K8s deployment
-│       └── 04_connector_advanced/ # Advanced connector
+│       ├── 04_connector_advanced/ # Advanced connector
+│       └── 05_etcd_namespaces/   # etcd namespace integration test
 │
 ├── docs/                         # Developer documentation
 ├── docusaurus/                   # User-facing documentation site
@@ -898,6 +902,36 @@ Config files support `{$VAR}` and `{$VAR:default}` syntax:
 }
 ```
 
+### 6.5 Config Backend Architecture
+
+The configuration system uses a provider pattern with two backends:
+
+```
+CONFIG_BACKEND=file (default):
+  JSON files → FileConfigProvider → ConfigManager → WebhookHandler
+
+CONFIG_BACKEND=etcd:
+  etcd cluster → EtcdConfigProvider (in-memory cache + watch) → ConfigManager → WebhookHandler
+```
+
+**Key interfaces:**
+
+| File | Purpose |
+|------|---------|
+| `src/config_provider.py` | `ConfigProvider` ABC — read-only interface all backends implement |
+| `src/file_config_provider.py` | File-based provider (wraps JSON file loading) |
+| `src/etcd_config_provider.py` | etcd provider (in-memory cache + background watch thread) |
+| `src/config_manager.py` | `ConfigManager.create(backend=...)` factory, delegates reads to provider |
+
+**Adding a new config backend:**
+
+1. Create `src/<name>_config_provider.py` implementing `ConfigProvider` ABC
+2. Add backend option to `ConfigManager.create()` factory in `src/config_manager.py`
+3. Add startup/shutdown handling in `src/main.py`
+4. Create tests: `tests/unit/test_<name>_config_provider.py`
+
+**etcd-specific details:** See `docs/DISTRIBUTED_CONFIG_ETCD.md` for key layout, namespace rules, watch behavior, env vars, and migration guide.
+
 ---
 
 ## 7. Error Handling Standards
@@ -1342,7 +1376,10 @@ See individual reports in `reports/roast/` for detailed findings.
 | Simple module example | `src/modules/log.py` | Reference implementation |
 | Complex module example | `src/modules/http_webhook.py` | Full SSRF, validation |
 | Chain processing | `src/chain_processor.py` | Sequential/parallel execution |
-| Config management | `src/config_manager.py` | Live reload, async safety |
+| Config management | `src/config_manager.py` | Live reload, async safety, provider delegation |
+| Config provider ABC | `src/config_provider.py` | Read-only interface for config backends |
+| File config provider | `src/file_config_provider.py` | File-based provider (wraps JSON loading) |
+| etcd config provider | `src/etcd_config_provider.py` | etcd provider (cache + watch + reconnect) |
 | Input validation | `src/input_validator.py` | Size, depth, type limits |
 | Utilities | `src/utils.py` | Shared helpers |
 | Global test fixtures | `conftest.py` | Env vars, nonce cleanup |
