@@ -1,0 +1,27 @@
+{
+    "test_vault_log": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer {$vault:webhooks/auth#bearer_token}",
+        "module-config": {
+            "pretty_print": true
+        }
+    },
+    "test_vault_save": {
+        "data_type": "json",
+        "module": "save_to_disk",
+        "authorization": "Bearer {$vault:webhooks/auth#bearer_token}",
+        "module-config": {
+            "path": "/tmp/webhooks",
+            "filename_template": "vault_webhook_{timestamp}.json"
+        }
+    },
+    "test_vault_fallback": {
+        "data_type": "json",
+        "module": "log",
+        "authorization": "Bearer {$vault:webhooks/nonexistent#token:fallback_token_999}",
+        "module-config": {
+            "pretty_print": true
+        }
+    }
+}

@@ -1,0 +1,93 @@
+# Docker Compose for Vault secret provider testing
+# Usage: docker-compose -f docker/compose/vault/docker-compose.yaml up -d
+
+services:
+  webhook:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src:/app/src
+      - ./config/connections.json:/app/connections.json:ro
+      - ./config/webhooks.json:/app/webhooks.json:ro
+    env_file:
+      - .env
+    depends_on:
+      vault-seed:
+        condition: service_completed_successfully
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  vault:
+    image: hashicorp/vault:1.15
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: test-root-token
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://127.0.0.1:8200
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - webhook-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # One-shot container to seed Vault with test secrets
+  vault-seed:
+    image: hashicorp/vault:1.15
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - webhook-network
+    restart: "no"
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: test-root-token
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        echo "Seeding Vault with test secrets..."
+
+        # Store webhook authorization token
+        vault kv put secret/webhooks/auth \
+          bearer_token="vault_secret_token_789" \
+          basic_user="admin" \
+          basic_pass="vault_admin_pass"
+
+        # Store database credentials
+        vault kv put secret/db/postgres \
+          password="vault_pg_password_123" \
+          username="webhook_user"
+
+        # Store API keys
+        vault kv put secret/integrations/api \
+          api_key="vault_api_key_abc123" \
+          api_secret="vault_api_secret_xyz789"
+
+        echo "Verifying seeded secrets..."
+        vault kv get secret/webhooks/auth
+        vault kv get secret/db/postgres
+        vault kv get secret/integrations/api
+
+        echo "Vault seeding complete!"
+
+networks:
+  webhook-network:
+    driver: bridge

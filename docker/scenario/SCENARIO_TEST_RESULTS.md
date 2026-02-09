@@ -1,6 +1,6 @@
 # Docker Scenario Test Results
 
-**Date:** 2026-02-06
+**Date:** 2026-02-09 (scenarios 05-06), 2026-02-06 (scenarios 02-04)
 **Tested by:** Automated (Claude Code)
 
 ---
@@ -141,6 +141,64 @@ Verified via multi-channel test — each channel routes to correct local process
 
 ---
 
+## Scenario 05: etcd Namespaces
+
+**Location:** `docker/scenario/05_etcd_namespaces/`
+**Services:** etcd (v3.5.14), redis, webhook-receiver (CONFIG_BACKEND=etcd)
+
+### Tests
+
+| Step | Description | Expected | Actual | Result |
+|------|-------------|----------|--------|--------|
+| 1 | Seed etcd with ns_alpha (hook1, hook2) and ns_beta (hook1) | Seeded | Seeded | PASS |
+| 2 | POST /webhook/ns_alpha/hook1 | 200 | 200 | PASS |
+| 3 | POST /webhook/ns_alpha/hook2 | 200 | 200 | PASS |
+| 4 | POST /webhook/ns_beta/hook1 | 200 | 200 | PASS |
+| 5 | POST /webhook/ns_beta/hook2 (not seeded) | 404 | 404 | PASS |
+| 6 | Live add: etcdctl put ns_beta/hook_new, then POST | 200 | 200 | PASS |
+| 7 | Live delete: etcdctl del ns_alpha/hook2, then POST | 404 | 404 | PASS |
+| 8 | Non-namespaced fallback: POST /webhook/fallback_hook | 200 | 200 | PASS |
+
+**Result: PASS (7/7)**
+
+### Fixes Applied
+
+- **docker-compose.yaml**: Replaced `bitnamilegacy/etcd:3.5.11` (unavailable) with `quay.io/coreos/etcd:v3.5.14` with explicit `command` args. Fixed `Dockerfile` reference to `docker/Dockerfile.smaller`.
+- **seed_etcd.sh**: Replaced host `etcdctl` with `docker compose exec -T etcd /usr/local/bin/etcdctl` (etcdctl not installed on host).
+- **run_test.sh**: Same etcdctl fix + added `docker compose up -d --build` startup and cleanup.
+
+---
+
+## Scenario 06: Vault + etcd Secrets (End-to-End)
+
+**Location:** `docker/scenario/06_vault_etcd_secrets/`
+**Services:** etcd (v3.5.14), vault (1.16 dev mode), redis, webhook-receiver (CONFIG_BACKEND=etcd + SECRETS_BACKEND=vault)
+
+### Tests
+
+| Step | Description | Expected | Actual | Result |
+|------|-------------|----------|--------|--------|
+| 1 | vault_auth without token | 401 | 401 | PASS |
+| 2 | vault_auth with wrong token | 401 | 401 | PASS |
+| 3 | vault_auth with vault-resolved token | 200 | 200 | PASS |
+| 4 | vault_hmac with wrong signature | 401 | 401 | PASS |
+| 5 | vault_hmac with vault-resolved HMAC secret | 200 | 200 | PASS |
+| 6 | Legacy env placeholder (`{$LEGACY_ENV_TOKEN}`) | 200 | 200 | PASS |
+| 7 | Secret rotation: old token rejected | 401 | 401 | PASS |
+| 8 | Secret rotation: new token accepted | 200 | 200 | PASS |
+
+**Result: PASS (8/8)**
+
+### Key Observations
+
+- Vault KV v2 secrets engine enabled at custom mount point `webhooks/`
+- Secret references in etcd config: `{$vault:app/auth#webhook_token}`, `{$vault:app/auth#hmac_secret}`
+- Legacy env var placeholders (`{$LEGACY_ENV_TOKEN}`) work alongside Vault references
+- Secret rotation works: update Vault + re-publish etcd config triggers re-resolution
+- Cache TTL set to 1 second for rotation test responsiveness
+
+---
+
 ## Code Fix Applied During Testing
 
 ### NACK retry semantics (`src/connector/processor.py`)
@@ -175,8 +233,13 @@ Updated `test_no_target_nacks_immediately` to properly test the "no target" case
 | 04 | websocket | **PASS** |
 | 04 | target-routing | **PASS** |
 | 04 | retry-delivery | **PASS** |
+| 05 | etcd-namespaces | **PASS** (7/7) |
+| 06 | vault-auth | **PASS** (3/3) |
+| 06 | vault-hmac | **PASS** (2/2) |
+| 06 | legacy-env | **PASS** |
+| 06 | secret-rotation | **PASS** (2/2) |
 
-**Overall: 10/10 PASS**
+**Overall: 15/15 PASS**
 
 ### Test Infrastructure
 - Docker Compose v2 with profiles

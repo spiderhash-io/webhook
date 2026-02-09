@@ -31,6 +31,10 @@ Each subdirectory contains a complete setup for testing individual modules with 
 - **`aws-sqs/`** - AWS SQS module testing (using LocalStack)
 - **`gcp-pubsub/`** - GCP Pub/Sub module testing (using Pub/Sub Emulator)
 
+**Infrastructure / Config Backends:**
+- **`etcd/`** - etcd distributed config backend (replaces file-based config)
+- **`vault/`** - HashiCorp Vault secret provider (resolves `{$vault:...}` references)
+
 **Full Stack:**
 - **`full-stack/`** - All services together (webhook + all dependencies)
 
@@ -176,6 +180,8 @@ Default ports used by services (each module uses port 8000 for webhook):
 - **MinIO (S3)**: 9000 (API), 9001 (Console)
 - **LocalStack (AWS SQS)**: 4566 (Gateway), 4510-4559 (External services)
 - **GCP Pub/Sub Emulator**: 8085
+- **etcd**: 2379 (client API)
+- **Vault**: 8200 (HTTP API + UI)
 
 **Note**: Port conflicts may occur if multiple modules are running simultaneously. Each module is designed to run independently.
 
@@ -218,6 +224,8 @@ Some modules include automatic resource creation for easier testing:
 | `s3` | `s3/` | MinIO | S3-compatible storage |
 | `aws_sqs` | `aws-sqs/` | LocalStack | Auto-creates queues |
 | `gcp_pubsub` | `gcp-pubsub/` | Pub/Sub Emulator | Auto-creates topics |
+| etcd backend | `etcd/` | etcd v3.5 | Distributed config (replaces JSON files) |
+| Vault secrets | `vault/` | Vault 1.15 | Secret resolution (`{$vault:...}` syntax) |
 
 ## Troubleshooting
 
