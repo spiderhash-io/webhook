@@ -96,6 +96,8 @@ const sidebars = {
         'features/ip-whitelisting',
         'features/retry-handling',
         'features/live-config-reload',
+        'features/distributed-config-etcd',
+        'features/vault-secrets',
         'features/connection-pooling',
         'features/statistics',
         'features/clickhouse-analytics',

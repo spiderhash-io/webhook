@@ -21,7 +21,7 @@ import time
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from src.config_provider import ConfigChangeCallback, ConfigProvider
-from src.utils import sanitize_error_message
+from src.utils import load_env_vars, sanitize_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +209,9 @@ class EtcdConfigProvider(ConfigProvider):
             logger.warning("Non-dict value at key %s, skipping", key)
             return
 
+        # Apply env/vault variable substitution to etcd-loaded config values.
+        config = load_env_vars(config)
+
         # Route: {namespace}/webhooks/{webhook_id}
         if len(parts) == 3 and parts[1] == "webhooks":
             namespace = parts[0]
@@ -345,7 +348,7 @@ class EtcdConfigProvider(ConfigProvider):
             config = None
             if value is not None:
                 try:
-                    config = json.loads(value.decode("utf-8"))
+                    config = load_env_vars(json.loads(value.decode("utf-8")))
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
 

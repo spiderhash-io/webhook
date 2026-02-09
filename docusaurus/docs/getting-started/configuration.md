@@ -47,6 +47,52 @@ Configuration files support environment variable substitution using the `{$VAR}`
 }
 ```
 
+### Vault Secret References
+
+In addition to environment variables, you can reference secrets stored in HashiCorp Vault using the `{$vault:...}` syntax:
+
+```
+{$vault:path/to/secret#field}
+{$vault:path/to/secret#field:default_value}
+```
+
+**Example:**
+```json
+{
+    "github_webhook": {
+        "authorization": "Bearer {$vault:webhooks/github#token}",
+        "hmac": {
+            "secret": "{$vault:webhooks/github#hmac_secret}"
+        }
+    }
+}
+```
+
+Vault references require enabling Vault via `SECRETS_BACKEND=vault` (or `VAULT_ENABLED=true`) and setting `VAULT_ADDR`. See [Vault Secret Management](../features/vault-secrets.md) for full setup.
+
+:::tip
+You can mix `{$VAR}` environment variables and `{$vault:...}` references in the same config file.
+:::
+
+## Configuration Backends
+
+The application supports two configuration backends:
+
+| Backend | Env Var | Description |
+|---------|---------|-------------|
+| **file** (default) | `CONFIG_BACKEND=file` | JSON files (`webhooks.json`, `connections.json`) |
+| **etcd** | `CONFIG_BACKEND=etcd` | etcd cluster with namespace-scoped configs |
+
+To use etcd:
+
+```bash
+export CONFIG_BACKEND=etcd
+export ETCD_HOST=localhost
+export ETCD_PORT=2379
+```
+
+The etcd backend enables namespace-scoped webhooks, multi-node config sync, and real-time config updates via etcd watch. See [Distributed Config (etcd)](../features/distributed-config-etcd.md) for full setup.
+
 ## Basic Webhook Configuration
 
 ```json

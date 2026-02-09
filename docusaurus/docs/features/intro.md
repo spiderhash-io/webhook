@@ -18,6 +18,8 @@ The Core Webhook Module includes several powerful features for processing and ma
 - **[IP Whitelisting](ip-whitelisting)** - Restrict access by IP address
 - **[Retry Handling](retry-handling)** - Automatic retry with exponential backoff
 - **[Live Config Reload](live-config-reload)** - Hot-reload configurations
+- **[Distributed Config (etcd)](distributed-config-etcd)** - Distributed, namespace-scoped configuration via etcd
+- **[Vault Secret Management](vault-secrets)** - Resolve secrets from HashiCorp Vault
 - **[Connection Pooling](connection-pooling)** - Efficient connection management
 - **[Statistics](statistics)** - Webhook usage tracking
 - **[ClickHouse Analytics](clickhouse-analytics)** - Analytics and monitoring

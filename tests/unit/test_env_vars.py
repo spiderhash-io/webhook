@@ -4,6 +4,7 @@ Tests for environment variable loading functionality.
 
 import pytest
 import os
+from unittest.mock import patch
 from src.utils import load_env_vars
 
 
@@ -187,3 +188,65 @@ def test_load_env_vars_no_replacement_needed():
     assert result["normal_string"] == "no variables here"
     assert result["number"] == 123
     assert result["boolean"] is True
+
+
+def test_load_env_vars_vault_exact_replacement():
+    """Test exact Vault placeholder replacement."""
+
+    class DummyResolver:
+        def resolve_reference(self, reference, default=None, context_key=None):
+            if reference == "webhooks/dev#token":
+                return "vault_token_123"
+            return default
+
+    with patch(
+        "src.vault_secret_resolver.get_vault_secret_resolver",
+        return_value=DummyResolver(),
+    ):
+        config = {"authorization": "{$vault:webhooks/dev#token}"}
+        result = load_env_vars(config)
+
+    assert result["authorization"] == "vault_token_123"
+
+
+def test_load_env_vars_vault_embedded_and_env_compatibility():
+    """Test embedded Vault placeholder while preserving existing env behavior."""
+    os.environ["HOST"] = "api.example.com"
+
+    class DummyResolver:
+        def resolve_reference(self, reference, default=None, context_key=None):
+            if reference == "shared/secrets#api_key":
+                return "key_from_vault"
+            return default
+
+    with patch(
+        "src.vault_secret_resolver.get_vault_secret_resolver",
+        return_value=DummyResolver(),
+    ):
+        config = {
+            "url": "https://{$HOST}/webhook",
+            "header": "Bearer {$vault:shared/secrets#api_key}",
+        }
+        result = load_env_vars(config)
+
+    assert result["url"] == "https://api.example.com/webhook"
+    assert result["header"] == "Bearer key_from_vault"
+
+
+def test_load_env_vars_vault_default_fallback():
+    """Test Vault reference default fallback when secret cannot be resolved."""
+
+    class DummyResolver:
+        def resolve_reference(self, reference, default=None, context_key=None):
+            if reference.endswith(":default_token"):
+                return "default_token"
+            return default
+
+    with patch(
+        "src.vault_secret_resolver.get_vault_secret_resolver",
+        return_value=DummyResolver(),
+    ):
+        config = {"token": "{$vault:webhooks/missing#token:default_token}"}
+        result = load_env_vars(config)
+
+    assert result["token"] == "default_token"

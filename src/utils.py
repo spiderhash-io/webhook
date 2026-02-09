@@ -13,6 +13,14 @@ import redis.asyncio as redis
 if TYPE_CHECKING:
     from starlette.requests import Request
 
+# Pre-compiled regex patterns for load_env_vars() — compiled once at import time
+_EXACT_ENV_PATTERN = re.compile(r"^\{\$(?!vault:)(\w+)(?::(.*))?\}$")
+_EMBEDDED_ENV_PATTERN = re.compile(r"\{\$(?!vault:)(\w+)(?::([^}]*))?\}")
+_EXACT_VAULT_PATTERN = re.compile(r"^\{\$vault:([^}]+)\}$")
+_EMBEDDED_VAULT_PATTERN = re.compile(r"\{\$vault:([^}]+)\}")
+
+logger = logging.getLogger(__name__)
+
 
 def sanitize_error_message(error: Any, context: str = None) -> str:
     """
@@ -33,9 +41,9 @@ def sanitize_error_message(error: Any, context: str = None) -> str:
 
     # Log detailed error server-side (for debugging)
     if context:
-        print(f"ERROR [{context}]: {error_str}")
+        logger.error("Error [%s]: %s", context, error_str)
     else:
-        print(f"ERROR: {error_str}")
+        logger.error("Error: %s", error_str)
 
     # Return generic message for client
     # Don't expose:
@@ -271,15 +279,17 @@ def detect_encoding_from_content_type(content_type: Optional[str]) -> Optional[s
         # Reject dangerous characters: command separators, path traversal, null bytes, etc.
         MAX_CHARSET_LENGTH = 64  # Prevent DoS via extremely long charset names
         if len(charset_name) > MAX_CHARSET_LENGTH:
-            print(
-                f"WARNING: Charset name too long: {len(charset_name)} characters (max: {MAX_CHARSET_LENGTH}), rejecting"
+            logger.warning(
+                "Charset name too long: %d characters (max: %d), rejecting",
+                len(charset_name), MAX_CHARSET_LENGTH,
             )
             return None
 
         # Validate charset name format (alphanumeric, hyphen, underscore, dot only)
         if not re.match(r"^[a-z0-9._-]+$", charset_name):
-            print(
-                f"WARNING: Invalid charset name format (contains dangerous characters): {charset_name[:50]}, rejecting"
+            logger.warning(
+                "Invalid charset name format (contains dangerous characters): %s, rejecting",
+                charset_name[:50],
             )
             return None
 
@@ -287,8 +297,8 @@ def detect_encoding_from_content_type(content_type: Optional[str]) -> Optional[s
         if "\x00" in charset_name or any(
             ord(c) < 32 and c not in "\t\n\r" for c in charset_name
         ):
-            print(
-                f"WARNING: Charset name contains null bytes or control characters, rejecting"
+            logger.warning(
+                "Charset name contains null bytes or control characters, rejecting"
             )
             return None
 
@@ -344,8 +354,9 @@ def safe_decode_body(
             encodings_to_try.append(detected_encoding)
         else:
             # Unknown/dangerous encoding - log warning and skip
-            print(
-                f"WARNING: Unknown or potentially dangerous encoding '{detected_encoding}' requested, using safe fallback"
+            logger.warning(
+                "Unknown or potentially dangerous encoding '%s' requested, using safe fallback",
+                detected_encoding,
             )
 
     # Add safe encodings as fallback (UTF-8 first, then others)
@@ -367,8 +378,9 @@ def safe_decode_body(
         # Use 'replace' error handling to get partial decode
         decoded = body.decode(default_encoding, errors="replace")
         # If we got here, return it but log a warning
-        print(
-            f"WARNING: Request body decoded with errors using {default_encoding}. Some characters may be lost."
+        logger.warning(
+            "Request body decoded with errors using %s. Some characters may be lost.",
+            default_encoding,
         )
         return decoded, default_encoding
     except Exception:
@@ -424,8 +436,9 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
 
     # Remove null bytes (always dangerous)
     if "\x00" in value:
-        print(
-            f"WARNING: Environment variable value contains null byte (context: {context_key}), removing"
+        logger.warning(
+            "Environment variable value contains null byte (context: %s), removing",
+            context_key,
         )
         value = value.replace("\x00", "")
 
@@ -436,8 +449,9 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
         dangerous_schemes = ["javascript:", "data:", "vbscript:", "file:", "gopher:"]
         for scheme in dangerous_schemes:
             if value.lower().startswith(scheme):
-                print(
-                    f"WARNING: Environment variable value contains dangerous URL scheme (context: {context_key}): {scheme}"
+                logger.warning(
+                    "Environment variable value contains dangerous URL scheme (context: %s): %s",
+                    context_key, scheme,
                 )
                 # Remove the dangerous scheme
                 value = value[len(scheme) :].lstrip()
@@ -447,8 +461,9 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
     dangerous_chars = [";", "|", "&", "`", "$", "(", ")", "{", "}"]
     for char in dangerous_chars:
         if char in value:
-            print(
-                f"WARNING: Environment variable value contains dangerous character '{char}' (context: {context_key}): {value[:50]}"
+            logger.warning(
+                "Environment variable value contains dangerous character '%s' (context: %s): %s",
+                char, context_key, value[:50],
             )
             value = value.replace(char, "")
 
@@ -472,16 +487,18 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
         ]
         for pattern in sql_injection_patterns:
             if re.search(pattern, value, re.IGNORECASE):
-                print(
-                    f"WARNING: Environment variable value contains potential SQL injection pattern (context: {context_key}): {value[:50]}"
+                logger.warning(
+                    "Environment variable value contains potential SQL injection pattern (context: %s): %s",
+                    context_key, value[:50],
                 )
                 # Remove SQL injection patterns
                 value = re.sub(pattern, "", value, flags=re.IGNORECASE)
 
     # Check for path traversal patterns
     if ".." in value:
-        print(
-            f"WARNING: Environment variable value contains path traversal pattern (context: {context_key}): {value[:50]}"
+        logger.warning(
+            "Environment variable value contains path traversal pattern (context: %s): %s",
+            context_key, value[:50],
         )
         # Remove path traversal
         value = value.replace("..", "")
@@ -493,8 +510,9 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
         and "path" not in context_key.lower()
         and "url" not in context_key.lower()
     ):
-        print(
-            f"WARNING: Environment variable value contains absolute path (context: {context_key}): {value[:50]}"
+        logger.warning(
+            "Environment variable value contains absolute path (context: %s): %s",
+            context_key, value[:50],
         )
         # Remove leading slash
         value = value.lstrip("/")
@@ -503,8 +521,9 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
     command_keywords = ["rm ", "rm -rf", "cat ", "ls ", "pwd", "whoami", "id", "uname"]
     for keyword in command_keywords:
         if keyword.lower() in value.lower():
-            print(
-                f"WARNING: Environment variable value contains command keyword '{keyword}' (context: {context_key}): {value[:50]}"
+            logger.warning(
+                "Environment variable value contains command keyword '%s' (context: %s): %s",
+                keyword, context_key, value[:50],
             )
             # Remove the keyword and surrounding context
             value = re.sub(re.escape(keyword), "", value, flags=re.IGNORECASE)
@@ -512,36 +531,43 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
     # Limit length to prevent DoS
     MAX_ENV_VALUE_LENGTH = 4096
     if len(value) > MAX_ENV_VALUE_LENGTH:
-        print(
-            f"WARNING: Environment variable value too long (context: {context_key}): {len(value)} characters, truncating"
+        logger.warning(
+            "Environment variable value too long (context: %s): %d characters, truncating",
+            context_key, len(value),
         )
         value = value[:MAX_ENV_VALUE_LENGTH]
 
     # If value became empty after sanitization, return a safe default
     if not value.strip() and original_value.strip():
-        print(
-            f"WARNING: Environment variable value was completely sanitized (context: {context_key}), using safe default"
+        logger.warning(
+            "Environment variable value was completely sanitized (context: %s), using safe default",
+            context_key,
         )
         return "sanitized_value"
 
     return value
 
 
-def load_env_vars(data, visited=None, depth=0):
+def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
     """
-    Load environment variables from configuration data.
+    Load environment variables and Vault secrets from configuration data.
 
     Supports multiple patterns:
     1. {$VAR} - Replace entire value with environment variable
     2. {$VAR:default} - Use environment variable or default value if not set
     3. Embedded variables in strings: "http://{$HOST}:{$PORT}"
+    4. {$vault:path/to/secret#field} - Replace with Vault secret field
+    5. {$vault:path/to/secret#field:default} - Vault secret with fallback default
+    6. Embedded Vault refs in strings: "Bearer {$vault:auth/api#token}"
 
     Examples:
         "host": "{$REDIS_HOST}" -> replaced with env var value
         "host": "{$REDIS_HOST:localhost}" -> replaced with env var or "localhost"
-        "url": "http://{$HOST}:{$PORT}/api" -> replaced with env vars embedded in string
+        "url": "http://{$HOST}:{$PORT}/api" -> embedded env vars in string
+        "token": "{$vault:secrets/api#token}" -> replaced with Vault secret
+        "token": "{$vault:secrets/api#token:fallback}" -> Vault secret or "fallback"
 
-    Security: All environment variable values are sanitized to prevent injection attacks.
+    Security: All resolved values are sanitized to prevent injection attacks.
 
     SECURITY: Implements depth limit and visited set tracking to prevent:
     - Deep recursion DoS attacks (stack overflow)
@@ -551,9 +577,10 @@ def load_env_vars(data, visited=None, depth=0):
         data: Configuration data (dict, list, or primitive)
         visited: Set of object IDs already visited (for circular reference detection)
         depth: Current recursion depth (for depth limit enforcement)
+        vault_resolver: Optional VaultSecretResolver instance (auto-created if None)
 
     Returns:
-        Data with environment variables replaced and sanitized
+        Data with environment variables and Vault secrets replaced and sanitized
     """
     # SECURITY: Limit recursion depth to prevent stack overflow DoS attacks
     MAX_RECURSION_DEPTH = 100
@@ -573,18 +600,36 @@ def load_env_vars(data, visited=None, depth=0):
             return data
         visited.add(data_id)
 
-    # Pattern 1: Exact match {$VAR} or {$VAR:default} (default can be empty)
-    exact_pattern = re.compile(r"^\{\$(\w+)(?::(.*))?\}$")
-    # Pattern 2: Embedded variables in strings {$VAR} or {$VAR:default}
-    embedded_pattern = re.compile(r"\{\$(\w+)(?::([^}]*))?\}")
+    # Lazy import to avoid unnecessary dependency initialization when Vault is unused
+    if vault_resolver is None:
+        from src.vault_secret_resolver import get_vault_secret_resolver
+
+        vault_resolver = get_vault_secret_resolver()
 
     def process_string(value, context_key=None):
         """Process a string value to replace environment variables."""
-        # Try exact match first (entire string is a variable)
-        exact_match = exact_pattern.match(value)
-        if exact_match:
-            env_var = exact_match.group(1)
-            default = exact_match.group(2)  # Can be None or empty string
+        # Try exact Vault match first (entire string is a Vault reference)
+        exact_vault_match = _EXACT_VAULT_PATTERN.match(value)
+        if exact_vault_match:
+            reference = exact_vault_match.group(1)
+            resolved = vault_resolver.resolve_reference(
+                reference, context_key=context_key
+            )
+
+            if resolved is None:
+                logger.warning(
+                    "Vault secret reference '%s' could not be resolved for key '%s'",
+                    reference, context_key,
+                )
+                return f"Undefined vault secret {reference}"
+
+            return _sanitize_env_value(str(resolved), context_key)
+
+        # Try exact env match next (entire string is an env variable)
+        exact_env_match = _EXACT_ENV_PATTERN.match(value)
+        if exact_env_match:
+            env_var = exact_env_match.group(1)
+            default = exact_env_match.group(2)  # Can be None or empty string
             env_value = os.getenv(env_var)
 
             if env_value is not None:
@@ -597,13 +642,31 @@ def load_env_vars(data, visited=None, depth=0):
                 return sanitized
             else:
                 # No default provided and env var not set
-                print(
-                    f"Warning: Environment variable '{env_var}' not set and no default provided for key '{context_key}'"
+                logger.warning(
+                    "Environment variable '%s' not set and no default provided for key '%s'",
+                    env_var, context_key,
                 )
                 return f"Undefined variable {env_var}"
         else:
-            # Try embedded variables (variables within strings)
-            def replace_embedded(match):
+            # First resolve embedded Vault references (if any)
+            def replace_embedded_vault(match):
+                reference = match.group(1)
+                resolved = vault_resolver.resolve_reference(
+                    reference, context_key=context_key
+                )
+                if resolved is None:
+                    logger.warning(
+                        "Vault secret reference '%s' not resolved in embedded string for key '%s'",
+                        reference, context_key,
+                    )
+                    return match.group(0)  # Keep original placeholder
+
+                return _sanitize_env_value(str(resolved), context_key)
+
+            new_value = _EMBEDDED_VAULT_PATTERN.sub(replace_embedded_vault, value)
+
+            # Then resolve embedded env variables (variables within strings)
+            def replace_embedded_env(match):
                 env_var = match.group(1)
                 default = match.group(2)  # Can be None or empty string
                 env_value = os.getenv(env_var)
@@ -618,13 +681,14 @@ def load_env_vars(data, visited=None, depth=0):
                     return sanitized
                 else:
                     # Keep original if not found and no default
-                    print(
-                        f"Warning: Environment variable '{env_var}' not set in embedded string for key '{context_key}'"
+                    logger.warning(
+                        "Environment variable '%s' not set in embedded string for key '%s'",
+                        env_var, context_key,
                     )
                     return match.group(0)  # Return original placeholder
 
             # Replace all embedded variables
-            new_value = embedded_pattern.sub(replace_embedded, value)
+            new_value = _EMBEDDED_ENV_PATTERN.sub(replace_embedded_env, new_value)
             return new_value
 
     try:
@@ -634,13 +698,13 @@ def load_env_vars(data, visited=None, depth=0):
                     data[key] = process_string(value, key)
                 else:
                     # Recursive call for nested dictionaries or lists
-                    load_env_vars(value, visited, depth + 1)
+                    load_env_vars(value, visited, depth + 1, vault_resolver)
         elif isinstance(data, list):
             for i, item in enumerate(data):
                 if isinstance(item, str):
                     data[i] = process_string(item, f"list[{i}]")
                 else:
-                    load_env_vars(item, visited, depth + 1)
+                    load_env_vars(item, visited, depth + 1, vault_resolver)
         elif isinstance(data, str):
             # SECURITY: Handle string values directly (not in dict/list)
             return process_string(data)
@@ -928,7 +992,7 @@ class RedisEndpointStats:
                 await script(args=[endpoint_name, now])
                 self._known_endpoints.add(endpoint_name)
             except Exception as retry_err:
-                print(f"ERROR: Failed to increment stats even after retry: {retry_err}")
+                logger.error("Failed to increment stats even after retry: %s", retry_err)
 
     # Override increment to use multi-resolution
     async def increment(self, endpoint_name):

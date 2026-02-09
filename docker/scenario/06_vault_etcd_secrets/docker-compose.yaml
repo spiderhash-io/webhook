@@ -1,0 +1,71 @@
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.14
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd0
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd:2380
+      - --initial-cluster=etcd0=http://etcd:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=etcd-cluster-1
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/etcdctl", "--endpoints=http://127.0.0.1:2379", "endpoint", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  vault:
+    image: hashicorp/vault:1.16
+    cap_add:
+      - IPC_LOCK
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=root
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    command: server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
+    healthcheck:
+      test: ["CMD-SHELL", "VAULT_ADDR=http://127.0.0.1:8200 vault status >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  webhook-receiver:
+    build:
+      context: ../../..
+      dockerfile: docker/Dockerfile.smaller
+    ports:
+      - "18000:8000"
+    environment:
+      - CONFIG_BACKEND=etcd
+      - ETCD_HOST=etcd
+      - ETCD_PORT=2379
+      - ETCD_PREFIX=/cwm/
+      - ETCD_NAMESPACE=default
+      - SECRETS_BACKEND=vault
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=root
+      - VAULT_MOUNT_POINT=webhooks
+      - VAULT_KV_VERSION=2
+      - VAULT_CACHE_TTL_SECONDS=1
+      - LEGACY_ENV_TOKEN=legacy_env_token_789
+      - REDIS_URL=redis://redis:6379/0
+      - HOST=0.0.0.0
+      - PORT=8000
+    depends_on:
+      etcd:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

@@ -157,6 +157,22 @@ class TestCacheOperations:
 
         assert provider._connections_cache["redis_main"] == config
 
+    def test_process_put_applies_env_var_substitution(self, monkeypatch):
+        """PUT events should apply env var substitution for etcd compatibility."""
+        provider = EtcdConfigProvider()
+        monkeypatch.setenv("ETCD_TEST_TOKEN", "token_from_env")
+
+        config = {
+            "data_type": "json",
+            "module": "log",
+            "authorization": "Bearer {$ETCD_TEST_TOKEN}",
+        }
+        value = json.dumps(config).encode("utf-8")
+
+        provider._process_put_event("/cwm/ns1/webhooks/hook1", value)
+
+        assert provider._cache["ns1"]["hook1"]["authorization"] == "Bearer token_from_env"
+
     def test_process_put_invalid_json(self):
         """Invalid JSON should be skipped gracefully."""
         provider = EtcdConfigProvider()

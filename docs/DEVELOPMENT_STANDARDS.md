@@ -40,6 +40,7 @@ core-webhook-module/
 │   ├── config_watcher.py         # File watcher for config changes
 │   ├── file_config_provider.py   # File-based config provider (wraps JSON loading)
 │   ├── etcd_config_provider.py   # etcd config provider (cache + watch + reconnect)
+│   ├── vault_secret_resolver.py  # Vault secret resolver ({$vault:path#field} references)
 │   ├── validators.py             # 11 authentication validators
 │   ├── input_validator.py        # Payload validation (size, depth, type)
 │   ├── rate_limiter.py           # Rate limiting (sliding window)
@@ -124,7 +125,8 @@ core-webhook-module/
 │       ├── 02_connector/         # Connector demo
 │       ├── 03_kubernetes/        # K8s deployment
 │       ├── 04_connector_advanced/ # Advanced connector
-│       └── 05_etcd_namespaces/   # etcd namespace integration test
+│       ├── 05_etcd_namespaces/   # etcd namespace integration test
+│       └── 06_vault_etcd_secrets/ # Vault + etcd secret resolution test
 │
 ├── docs/                         # Developer documentation
 ├── docusaurus/                   # User-facing documentation site
@@ -932,6 +934,8 @@ CONFIG_BACKEND=etcd:
 
 **etcd-specific details:** See `docs/DISTRIBUTED_CONFIG_ETCD.md` for key layout, namespace rules, watch behavior, env vars, and migration guide.
 
+**Vault secret resolution:** Config values can reference Vault secrets using `{$vault:path#field}` syntax. The `VaultSecretResolver` in `src/vault_secret_resolver.py` is invoked during env var substitution in `src/utils.py:load_env_vars()`. See `docs/VAULT_INTEGRATION_GUIDE.md` for full setup.
+
 ---
 
 ## 7. Error Handling Standards
@@ -1380,6 +1384,7 @@ See individual reports in `reports/roast/` for detailed findings.
 | Config provider ABC | `src/config_provider.py` | Read-only interface for config backends |
 | File config provider | `src/file_config_provider.py` | File-based provider (wraps JSON loading) |
 | etcd config provider | `src/etcd_config_provider.py` | etcd provider (cache + watch + reconnect) |
+| Vault secret resolver | `src/vault_secret_resolver.py` | Vault `{$vault:path#field}` config references |
 | Input validation | `src/input_validator.py` | Size, depth, type limits |
 | Utilities | `src/utils.py` | Shared helpers |
 | Global test fixtures | `conftest.py` | Env vars, nonce cleanup |

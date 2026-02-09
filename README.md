@@ -10,7 +10,7 @@
 
 A webhook receiver and processor built with FastAPI. Receives HTTP webhook requests, validates them using authentication and validation rules, and forwards payloads to destinations including RabbitMQ, Redis, MQTT, databases, object storage, message queues, and local filesystem.
 
-**Status**: 2,493 passing tests. Supports 11 authentication methods, 17 output modules, and cloud-to-local webhook relay.
+**Status**: 3,100+ passing tests. Supports 11 authentication methods, 17 output modules, cloud-to-local webhook relay, distributed etcd configuration, and Vault secret management.
 
 ## Recent Updates (2025-01)
 
@@ -39,6 +39,8 @@ A webhook receiver and processor built with FastAPI. Receives HTTP webhook reque
 - **Webhook Connect**: Cloud-to-local webhook relay system for receiving webhooks at a cloud endpoint and streaming them to local networks via WebSocket/SSE (similar to ngrok for webhooks).
 - **Plugin Architecture**: Extensible module system. New output modules can be added without modifying core code.
 - **Configuration-Driven**: Configuration via JSON files (`webhooks.json`, `connections.json`) located in `config/development/` (or root directory) and environment variables.
+- **Distributed Configuration (etcd)**: Use etcd as a distributed config backend with namespace-scoped webhooks, real-time watch, and multi-instance sync. See `docs/DISTRIBUTED_CONFIG_ETCD.md`.
+- **Vault Secret Management**: Resolve secrets from HashiCorp Vault using `{$vault:path#field}` syntax in config files. In-memory caching with TTL, AppRole auth, and KV v1/v2 support. See `docs/VAULT_INTEGRATION_GUIDE.md`.
 - **Live Config Reload**: Hot-reload webhook and connection configurations without restarting the application (via ConfigManager and ConfigFileWatcher).
 - **Connection Pool Management**: Centralized connection pool registry with automatic pool lifecycle management and versioning.
 - **Statistics**: Tracks webhook usage statistics (requests per minute, hour, day, etc.) via `/stats`.
@@ -65,6 +67,10 @@ A webhook receiver and processor built with FastAPI. Receives HTTP webhook reque
 - `src/webhook.py`: Core logic for handling and processing webhooks.
 - `src/config.py`: Configuration loading and injection.
 - `src/config_manager.py`: Live configuration management with hot-reload support.
+- `src/config_provider.py`: ConfigProvider ABC (read-only interface for config backends).
+- `src/file_config_provider.py`: File-based config provider (wraps JSON file loading).
+- `src/etcd_config_provider.py`: etcd config provider (in-memory cache + watch + reconnect).
+- `src/vault_secret_resolver.py`: Vault secret resolver for `{$vault:path#field}` config references.
 - `src/config_watcher.py`: File system watcher for automatic config reload on file changes.
 - `src/connection_pool_registry.py`: Centralized connection pool management with versioning and lifecycle control.
 - `src/chain_processor.py`: Chain processor for executing multiple modules sequentially or in parallel.
@@ -259,6 +265,17 @@ See `docs/LIVE_CONFIG_RELOAD_FEATURE.md` for detailed documentation.
 
 ## Configuration
 
+### Configuration Backends
+
+Two configuration backends are supported:
+
+| Backend | Env Var | Description |
+|---------|---------|-------------|
+| **file** (default) | `CONFIG_BACKEND=file` | JSON files (`webhooks.json`, `connections.json`) |
+| **etcd** | `CONFIG_BACKEND=etcd` | etcd cluster with namespace-scoped configs |
+
+For etcd backend setup, see `docs/DISTRIBUTED_CONFIG_ETCD.md`.
+
 ### Configuration File Locations
 
 Configuration files are automatically located in the following order:
@@ -330,9 +347,37 @@ The configuration files (`webhooks.json` and `connections.json`) support environ
 **Notes:**
 - Environment variables are loaded from the system environment and `.env` files (via `python-dotenv`)
 - Default values are used when environment variables are not set
-- Empty string defaults are supported: `{$VAR:}` 
+- Empty string defaults are supported: `{$VAR:}`
 - Variables work in nested dictionaries and lists
 - Missing variables without defaults will show a warning and use a placeholder value
+
+#### Vault Secret References
+
+In addition to environment variables, you can reference secrets stored in HashiCorp Vault:
+
+```
+{$vault:path/to/secret#field}
+{$vault:path/to/secret#field:default_value}
+```
+
+**Example:**
+```json
+{
+    "github_webhook": {
+        "authorization": "Bearer {$vault:webhooks/github#token}",
+        "hmac": {
+            "secret": "{$vault:webhooks/github#hmac_secret}"
+        }
+    }
+}
+```
+
+**Required environment variables:**
+- `SECRETS_BACKEND=vault` (or `VAULT_ENABLED=true`)
+- `VAULT_ADDR` - Vault server URL
+- `VAULT_TOKEN` or `VAULT_ROLE_ID` + `VAULT_SECRET_ID` for authentication
+
+See `docs/VAULT_INTEGRATION_GUIDE.md` for full setup instructions.
 
 ### `webhooks.json`
 Defines the webhooks to listen for.
@@ -1501,6 +1546,8 @@ See `docs/WEBHOOK_CHAINING_FEATURE.md` for detailed documentation.
 - [x] Connection Pool Registry
 - [x] Environment Variable Substitution
 - [x] Configuration Validation
+- [x] Distributed Configuration (etcd backend with namespaces)
+- [x] Vault Secret Management (`{$vault:path#field}` references)
 
 ### Cloud-to-Local Relay
 - [x] Webhook Connect (Cloud Receiver)
@@ -1548,6 +1595,8 @@ Test suites include:
 - CORS tests
 - Integration tests
 - Config manager and watcher tests
+- etcd config provider tests
+- Vault secret resolver tests
 - Connection pool registry tests
 - Analytics processor tests
 - Chain processor and validator tests
