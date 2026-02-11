@@ -48,8 +48,8 @@ class MockBuffer:
     async def close(self):
         self.connected = False
 
-    async def ensure_channel(self, channel: str, ttl_seconds: int = 86400):
-        self.channels[channel] = {"ttl": ttl_seconds, "messages": []}
+    async def ensure_channel(self, channel: str, ttl_seconds: int = 86400, webhook_id: str = None):
+        self.channels.setdefault(channel, {"ttl": ttl_seconds, "messages": []})
         self.dead_letters.setdefault(channel, [])
 
     async def push(self, channel: str, message: WebhookMessage) -> bool:
@@ -58,12 +58,15 @@ class MockBuffer:
         self.channels[channel]["messages"].append(message)
         return True
 
-    async def get_queue_depth(self, channel: str) -> int:
+    async def get_queue_depth(self, channel: str, webhook_id: str = None) -> int:
         if channel not in self.channels:
             return 0
         return len(self.channels[channel]["messages"])
 
-    async def delete_channel(self, channel: str) -> bool:
+    async def get_webhook_queue_depths(self, channel, webhook_ids):
+        return {}
+
+    async def delete_channel(self, channel: str, webhook_ids=None) -> bool:
         if channel in self.channels:
             del self.channels[channel]
             return True
@@ -94,6 +97,10 @@ class MockBuffer:
 
     async def subscribe(self, channel: str, callback, prefetch=10):
         await asyncio.sleep(0.1)
+        return f"mock-tag-{channel}"
+
+    async def unsubscribe(self, consumer_tag: str):
+        pass
 
     async def get_in_flight_count(self, channel: str) -> int:
         return 0
@@ -553,6 +560,9 @@ def _make_admin_mock_manager():
                 ),
             )
 
+        async def get_webhook_queue_depths(self, channel):
+            return {}
+
         async def health_check(self):
             return {"buffer": True, "channels_count": 2, "connections_count": 1}
 
@@ -805,6 +815,10 @@ def _make_streaming_mock_manager():
     class _MockBuffer:
         async def subscribe(self, channel, callback, prefetch=10):
             await asyncio.sleep(0.1)
+            return f"mock-tag-{channel}"
+
+        async def unsubscribe(self, consumer_tag):
+            pass
 
         async def get_dead_letters(self, channel, limit=100):
             return []
@@ -831,6 +845,9 @@ def _make_streaming_mock_manager():
             if not cfg:
                 return False
             return cfg.channel_token == token
+
+        def register_send_fn(self, connection_id, send_fn):
+            pass  # No-op for mock
 
         async def add_connection(self, conn):
             ch = conn.channel

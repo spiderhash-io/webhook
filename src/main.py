@@ -20,7 +20,7 @@ from src.config_watcher import ConfigFileWatcher
 
 # Webhook Connect imports
 from src.webhook_connect.channel_manager import ChannelManager
-from src.webhook_connect.buffer.redis_buffer import RedisBuffer
+from src.webhook_connect.buffer.rabbitmq_buffer import RabbitMQBuffer
 from src.webhook_connect import api as webhook_connect_api
 from src.webhook_connect import admin_api as webhook_connect_admin_api
 from src.modules.webhook_connect_module import WebhookConnectModule
@@ -189,14 +189,14 @@ async def startup_logic(app: FastAPI):
     if webhook_connect_enabled:
         print("🔗 Initializing Webhook Connect...")
         try:
-            # Get Redis URL for buffer (use same Redis as stats or dedicated one)
-            redis_url = os.getenv(
-                "WEBHOOK_CONNECT_REDIS_URL",
-                os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+            # Get RabbitMQ URL for buffer
+            rabbitmq_url = os.getenv(
+                "WEBHOOK_CONNECT_RABBITMQ_URL",
+                os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
             )
 
-            # Create Redis buffer
-            buffer = RedisBuffer(url=redis_url, prefix="webhook_connect")
+            # Create RabbitMQ buffer
+            buffer = RabbitMQBuffer(url=rabbitmq_url, exchange_name="webhook_connect")
 
             # Create channel manager
             channel_manager = ChannelManager(buffer)

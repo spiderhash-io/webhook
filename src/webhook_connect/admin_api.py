@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, Header, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from src.webhook_connect.channel_manager import ChannelManager
@@ -176,12 +177,18 @@ async def get_channel_details(channel: str, _: bool = Depends(verify_admin_token
     stats = await channel_manager.get_channel_stats(channel)
     connections = channel_manager.get_channel_connections(channel)
 
+    # Get per-webhook queue depths
+    webhook_depths = await channel_manager.get_webhook_queue_depths(channel)
+
     return ChannelDetailResponse(
         name=channel,
         webhook_id=config.webhook_id,
         created_at=config.created_at.isoformat(),
         config=config.to_dict(),
-        stats=stats.to_dict() if stats else {},
+        stats={
+            **(stats.to_dict() if stats else {}),
+            "webhook_stats": webhook_depths,
+        },
         connected_clients=[conn.to_dict() for conn in connections],
     )
 
@@ -239,6 +246,31 @@ async def disconnect_connection(
     await channel_manager.remove_connection(connection_id)
 
     return {"status": "disconnected", "connection_id": connection_id}
+
+
+@router.get("/channels/{channel}/webhook-stats")
+async def get_webhook_stats(channel: str, _: bool = Depends(verify_admin_token)):
+    """
+    Get per-webhook queue depths for a channel.
+
+    Returns pending message count for each webhook routed through
+    this channel, enabling per-webhook visibility.
+    """
+    channel_manager = get_channel_manager()
+
+    if not channel_manager.get_channel(channel):
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    depths = await channel_manager.get_webhook_queue_depths(channel)
+    return JSONResponse(
+        content={
+            "channel": channel,
+            "webhooks": {
+                webhook_id: {"pending": count}
+                for webhook_id, count in depths.items()
+            },
+        }
+    )
 
 
 @router.get("/channels/{channel}/stats")

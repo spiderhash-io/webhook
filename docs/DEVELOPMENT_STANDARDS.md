@@ -1134,6 +1134,103 @@ async def _reconnect(self):
             delay = min(delay * self._backoff_multiplier, self._max_delay)
 ```
 
+### 9.6 Relay Resilience (Webhook Connect)
+
+When a relay-client (WebSocket/SSE/long-poll) disconnects and reconnects, messages
+must be preserved for redelivery, not permanently lost to the DLQ.
+
+**Requeue on callback failure (not DLQ):**
+
+```python
+# BAD: Immediate DLQ on any callback failure
+except Exception as e:
+    await amqp_message.reject(requeue=False)  # Lost forever
+
+# GOOD: Requeue with retry limit
+except Exception as e:
+    self._requeue_counts[msg_id] = self._requeue_counts.get(msg_id, 0) + 1
+    if self._requeue_counts[msg_id] >= self.max_redelivery_attempts:
+        self._requeue_counts.pop(msg_id, None)
+        await amqp_message.reject(requeue=False)  # DLQ only after N attempts
+    else:
+        await asyncio.sleep(self.requeue_delay_seconds)  # Prevent tight loop
+        await amqp_message.reject(requeue=True)  # Requeue for redelivery
+```
+
+**Stale connection eviction:**
+
+Dead connections consume consumer slots and count against `max_connections`.
+Use protocol-aware heartbeat monitoring to detect and evict stale connections:
+
+- **WebSocket**: Stale if `last_heartbeat_at` older than `heartbeat_interval * 3`
+- **SSE**: Stale if no activity for 24 hours
+- **Long-poll**: Stale if no activity for 5 minutes
+
+The eviction loop runs in `ChannelManager._eviction_loop()` on a 30-second interval.
+
+**Always set initial heartbeat timestamp:**
+
+```python
+connection.last_heartbeat_at = datetime.now(timezone.utc)  # Baseline for eviction
+```
+
+### 9.7 Per-Webhook Queues & Deferred Consumption (Webhook Connect)
+
+Messages are routed to per-webhook queues for independent visibility, backpressure,
+and admin stats. Consumption only starts when a relay-client connects.
+
+**Queue naming and routing (RabbitMQ):**
+
+- Exchange: topic exchange `webhook_connect`
+- Per-webhook queue: `wc.{channel}.{webhook_id}` bound with routing key `{channel}.{webhook_id}`
+- Collector queue (subscribe): transient auto-delete queue bound with wildcard `{channel}.*`
+- DLQ: `wc.{channel}.{webhook_id}.dlq`
+
+```python
+# Push routes to per-webhook queue via routing key
+routing_key = f"{channel}.{webhook_id}"
+await exchange.publish(message, routing_key=routing_key)
+
+# Subscribe creates a collector that receives from ALL per-webhook queues
+collector = await channel.declare_queue(exclusive=True, auto_delete=True)
+await collector.bind(exchange, routing_key=f"{channel}.*")
+```
+
+**Redis Streams equivalent:**
+
+- Per-webhook stream key: `{prefix}:stream:{channel}:{webhook_id}`
+- Subscribe uses SCAN to discover all streams, reads via XREADGROUP
+- Stream discovery runs every `STREAM_DISCOVERY_INTERVAL` seconds to pick up new webhooks
+
+**Deferred consumption pattern:**
+
+Buffer consumers only start when the first client connects and stop when the last
+client disconnects. This prevents messages piling up in transient collector queues
+when no clients are connected — messages stay safely in per-webhook queues.
+
+```python
+# In add_connection(): start consumer on first client
+if channel not in self._consumer_tags:
+    callback = self._make_delivery_callback(channel)
+    consumer_tag = await self.buffer.subscribe(channel, callback)
+    self._consumer_tags[channel] = consumer_tag
+
+# In _cleanup_connection(): stop consumer when last client leaves
+if not remaining_connections:
+    consumer_tag = self._consumer_tags.pop(channel, None)
+    if consumer_tag:
+        await self.buffer.unsubscribe(consumer_tag)
+```
+
+**Per-connection send functions:**
+
+Each transport (WebSocket/SSE/long-poll) registers a send function. The delivery
+callback tries all connected clients for the channel, falling back to nack+requeue.
+
+```python
+channel_manager.register_send_fn(connection.connection_id, ws_send)
+```
+
 ---
 
 ## 10. Common Pitfalls

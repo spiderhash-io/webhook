@@ -8,21 +8,31 @@ the Cloud Receiver and Local Connectors.
 import asyncio
 import json
 import logging
+import random
 import secrets
-from typing import Dict, Optional, Set, List
+from typing import Dict, Optional, Set, List, Callable, Awaitable
 from datetime import datetime, timedelta, timezone
 
 from src.webhook_connect.models import (
     WebhookMessage,
     ChannelConfig,
     ConnectorConnection,
+    ConnectionProtocol,
     ChannelStats,
     ConnectionState,
     MessageState,
 )
 from src.webhook_connect.buffer.interface import MessageBufferInterface
 
+
 logger = logging.getLogger(__name__)
+
+# Stale connection eviction settings
+EVICTION_CHECK_INTERVAL_SECONDS = 30
+STALE_HEARTBEAT_MULTIPLIER = 3  # stale after heartbeat_interval * this
+INITIAL_HEARTBEAT_GRACE_SECONDS = 60
+SSE_STALE_SECONDS = 86400  # 24 hours
+LONG_POLL_STALE_SECONDS = 300  # 5 minutes
 
 
 class ChannelManager:
@@ -62,13 +72,45 @@ class ChannelManager:
         # Sequence counter per channel
         self._sequence_counters: Dict[str, int] = {}
 
+        # Stale connection eviction task
+        self._eviction_task: Optional[asyncio.Task] = None
+
+        # Deferred consumption: consumer tags per channel
+        self._consumer_tags: Dict[str, str] = {}  # channel_name -> consumer_tag
+
+        # Track which webhook_ids belong to each channel
+        self._channel_webhook_ids: Dict[str, Set[str]] = {}  # channel -> set of webhook_ids
+
+        # Per-connection send functions: connection_id -> async send(message)
+        self._connection_send_fns: Dict[
+            str, Callable[[WebhookMessage], Awaitable[None]]
+        ] = {}
+
     async def start(self) -> None:
         """Start the channel manager and connect to buffer."""
         await self.buffer.connect()
+        self._eviction_task = asyncio.create_task(self._eviction_loop())
         logger.info("ChannelManager started")
 
     async def stop(self) -> None:
         """Stop the channel manager and cleanup."""
+        # Cancel eviction task
+        if self._eviction_task and not self._eviction_task.done():
+            self._eviction_task.cancel()
+            try:
+                await self._eviction_task
+            except asyncio.CancelledError:
+                pass
+            self._eviction_task = None
+
+        # Cancel all buffer consumers
+        for channel, tag in list(self._consumer_tags.items()):
+            try:
+                await self.buffer.unsubscribe(tag)
+            except Exception as e:
+                logger.error(f"Error cancelling consumer for {channel}: {e}")
+        self._consumer_tags.clear()
+
         # Close all connections
         async with self._connections_lock:
             for connection_id in list(self.connections.keys()):
@@ -120,8 +162,24 @@ class ChannelManager:
             if name not in self._sequence_counters:
                 self._sequence_counters[name] = 0
 
-        # Ensure channel exists in buffer
-        await self.buffer.ensure_channel(name, int(ttl.total_seconds()))
+        # Create per-webhook queue in buffer
+        await self.buffer.ensure_channel(
+            name, int(ttl.total_seconds()), webhook_id=webhook_id
+        )
+
+        # Track which webhook_ids belong to this channel
+        if name not in self._channel_webhook_ids:
+            self._channel_webhook_ids[name] = set()
+        self._channel_webhook_ids[name].add(webhook_id)
+
+        # If a connector is already consuming this channel, dynamically add
+        # a consumer for the new per-webhook queue
+        if name in self._consumer_tags:
+            callback = self._make_delivery_callback(name)
+            await self.buffer.subscribe_webhook(name, webhook_id, callback)
+            logger.info(
+                f"Dynamically added consumer for webhook {webhook_id} on channel {name}"
+            )
 
         logger.info(f"Registered channel: {name} for webhook {webhook_id}")
         return config
@@ -149,8 +207,14 @@ class ChannelManager:
             self.channel_connections.pop(name, None)
             self._sequence_counters.pop(name, None)
 
-        # Delete channel from buffer
-        await self.buffer.delete_channel(name)
+        # Stop consumer if running
+        consumer_tag = self._consumer_tags.pop(name, None)
+        if consumer_tag:
+            await self.buffer.unsubscribe(consumer_tag)
+
+        # Delete channel from buffer (pass webhook_ids for per-webhook cleanup)
+        webhook_ids = list(self._channel_webhook_ids.pop(name, set()))
+        await self.buffer.delete_channel(name, webhook_ids=webhook_ids or None)
 
         logger.info(f"Unregistered channel: {name}")
         return True
@@ -263,6 +327,8 @@ class ChannelManager:
         """
         Add a new connector connection.
 
+        Starts buffer consumer on first client for deferred consumption.
+
         Args:
             connection: Connection to add
 
@@ -288,6 +354,20 @@ class ChannelManager:
             self.connections[connection.connection_id] = connection
             self.channel_connections[channel].add(connection.connection_id)
             connection.state = ConnectionState.CONNECTED
+
+        # Start buffer consumer if this is the first client for this channel
+        if channel not in self._consumer_tags:
+            callback = self._make_delivery_callback(channel)
+            webhook_ids = list(self._channel_webhook_ids.get(channel, set()))
+            consumer_tag = await self.buffer.subscribe(
+                channel, callback, webhook_ids=webhook_ids
+            )
+            if consumer_tag:
+                self._consumer_tags[channel] = consumer_tag
+                logger.info(
+                    f"Started buffer consumer for {channel} (first client connected, "
+                    f"{len(webhook_ids)} webhook queue(s))"
+                )
 
         logger.info(f"Added connection {connection.connection_id} to channel {channel}")
         return True
@@ -318,7 +398,184 @@ class ChannelManager:
             await self.buffer.nack(channel, msg_id, retry=True)
 
         connection.state = ConnectionState.DISCONNECTED
+
+        # Remove per-connection send function
+        self._connection_send_fns.pop(connection_id, None)
+
+        # If no more clients on this channel, stop consuming (deferred consumption)
+        remaining = self.channel_connections.get(channel, set())
+        if not remaining:
+            consumer_tag = self._consumer_tags.pop(channel, None)
+            if consumer_tag:
+                await self.buffer.unsubscribe(consumer_tag)
+                logger.info(
+                    f"Stopped buffer consumer for {channel} (no clients remaining)"
+                )
+
         logger.info(f"Removed connection {connection_id} from channel {channel}")
+
+    async def _eviction_loop(self) -> None:
+        """Periodically check for and evict stale connections."""
+        try:
+            while True:
+                await asyncio.sleep(EVICTION_CHECK_INTERVAL_SECONDS)
+                try:
+                    await self._evict_stale_connections()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.error(f"Error during stale connection eviction: {e}")
+                    # Add jitter on error to prevent thundering herd
+                    jitter = random.uniform(0, EVICTION_CHECK_INTERVAL_SECONDS * 0.5)
+                    await asyncio.sleep(jitter)
+        except asyncio.CancelledError:
+            logger.debug("Eviction loop cancelled")
+
+    async def _evict_stale_connections(self) -> None:
+        """Detect and remove stale connections based on protocol-aware thresholds."""
+        now = datetime.now(timezone.utc)
+        stale_ids: List[str] = []
+
+        async with self._connections_lock:
+            for conn_id, conn in self.connections.items():
+                if self._is_connection_stale(conn, now):
+                    stale_ids.append(conn_id)
+
+        # Remove stale connections outside lock (remove_connection acquires lock)
+        for conn_id in stale_ids:
+            logger.warning(f"Evicting stale connection: {conn_id}")
+            await self.remove_connection(conn_id)
+
+    def _is_connection_stale(
+        self, conn: ConnectorConnection, now: datetime
+    ) -> bool:
+        """
+        Check if a connection is stale based on its protocol.
+
+        Args:
+            conn: The connection to check
+            now: Current UTC timestamp
+
+        Returns:
+            True if the connection should be evicted
+        """
+        if conn.state != ConnectionState.CONNECTED:
+            return False
+
+        if conn.protocol == ConnectionProtocol.WEBSOCKET:
+            return self._is_ws_stale(conn, now)
+        elif conn.protocol == ConnectionProtocol.SSE:
+            return self._is_sse_stale(conn, now)
+        elif conn.protocol == ConnectionProtocol.LONG_POLL:
+            return self._is_long_poll_stale(conn, now)
+        return False
+
+    def _is_ws_stale(self, conn: ConnectorConnection, now: datetime) -> bool:
+        """Check if a WebSocket connection is stale."""
+        channel_config = self.channels.get(conn.channel)
+        if not channel_config:
+            return True  # Channel no longer exists
+
+        if conn.last_heartbeat_at is not None:
+            heartbeat_threshold = (
+                channel_config.heartbeat_interval.total_seconds()
+                * STALE_HEARTBEAT_MULTIPLIER
+            )
+            elapsed = (now - conn.last_heartbeat_at).total_seconds()
+            return elapsed > heartbeat_threshold
+        else:
+            # No heartbeat yet — use grace period from connected_at
+            elapsed = (now - conn.connected_at).total_seconds()
+            return elapsed > INITIAL_HEARTBEAT_GRACE_SECONDS
+
+    def _is_sse_stale(self, conn: ConnectorConnection, now: datetime) -> bool:
+        """Check if an SSE connection is stale."""
+        last_activity = conn.last_message_at or conn.connected_at
+        elapsed = (now - last_activity).total_seconds()
+        return elapsed > SSE_STALE_SECONDS
+
+    def _is_long_poll_stale(
+        self, conn: ConnectorConnection, now: datetime
+    ) -> bool:
+        """Check if a long-poll connection is stale."""
+        last_activity = conn.last_message_at or conn.connected_at
+        elapsed = (now - last_activity).total_seconds()
+        return elapsed > LONG_POLL_STALE_SECONDS
+
+    def _make_delivery_callback(
+        self, channel: str
+    ) -> Callable[[WebhookMessage], Awaitable[None]]:
+        """
+        Create a delivery callback for buffer subscription.
+
+        The callback tries all connected clients for the channel.
+        If no clients are available, it nacks with requeue so the
+        message stays in the buffer.
+
+        Args:
+            channel: Channel name
+
+        Returns:
+            Async callback that delivers messages to connections
+        """
+
+        async def deliver(message: WebhookMessage) -> None:
+            connection_ids = list(self.channel_connections.get(channel, set()))
+            if not connection_ids:
+                # No clients -- nack with requeue so it stays in buffer
+                await self.buffer.nack(channel, message.message_id, retry=True)
+                return
+
+            last_error = None
+            for conn_id in connection_ids:
+                conn = self.connections.get(conn_id)
+                if not conn or conn.state != ConnectionState.CONNECTED:
+                    continue
+                try:
+                    send_fn = self._connection_send_fns.get(conn_id)
+                    if send_fn:
+                        await send_fn(message)
+                    else:
+                        raise RuntimeError(f"No send function for {conn_id}")
+                    return  # Success -- delivered to one client
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"Delivery failed to {conn_id}: {e}")
+
+            # All connections failed
+            if last_error:
+                raise last_error  # Buffer will requeue
+
+        return deliver
+
+    def register_send_fn(
+        self,
+        connection_id: str,
+        send_fn: Callable[[WebhookMessage], Awaitable[None]],
+    ) -> None:
+        """
+        Register a per-connection send function for message delivery.
+
+        Args:
+            connection_id: Connection ID
+            send_fn: Async function that sends a message to this connection
+        """
+        self._connection_send_fns[connection_id] = send_fn
+
+    async def get_webhook_queue_depths(self, channel: str) -> Dict[str, int]:
+        """
+        Get pending message count per webhook for a channel.
+
+        Args:
+            channel: Channel name
+
+        Returns:
+            Dict mapping webhook_id to pending message count
+        """
+        webhook_ids = list(self._channel_webhook_ids.get(channel, set()))
+        if not webhook_ids:
+            return {}
+        return await self.buffer.get_webhook_queue_depths(channel, webhook_ids)
 
     def get_connection(self, connection_id: str) -> Optional[ConnectorConnection]:
         """Get connection by ID."""

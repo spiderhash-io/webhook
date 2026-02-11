@@ -43,6 +43,9 @@ class MockChannelManager:
             return False
         return config.channel_token == token
 
+    def register_send_fn(self, connection_id, send_fn):
+        pass  # No-op for mock
+
     async def add_connection(self, connection: ConnectorConnection) -> bool:
         channel = connection.channel
         if channel not in self.channels:
@@ -110,9 +113,13 @@ class MockBuffer:
     def __init__(self):
         self.messages = {}
 
-    async def subscribe(self, channel: str, callback):
+    async def subscribe(self, channel: str, callback, prefetch=10):
         # Simulate subscription - just wait
         await asyncio.sleep(0.1)
+        return f"mock-tag-{channel}"
+
+    async def unsubscribe(self, consumer_tag):
+        pass
 
     async def get_dead_letters(self, channel: str, limit: int = 100):
         return []

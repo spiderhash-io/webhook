@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional, Callable, Awaitable
+from typing import Optional
 
 from fastapi import (
     APIRouter,
@@ -108,7 +108,44 @@ async def websocket_stream(
         user_agent=websocket.headers.get("user-agent"),
     )
 
-    # Register connection
+    # Set initial heartbeat baseline for eviction tracking
+    connection.last_heartbeat_at = datetime.now(timezone.utc)
+
+    # Register per-connection send function for deferred consumption delivery
+    async def _ws_send(message: WebhookMessage) -> None:
+        """Send message to this WebSocket connection."""
+        if websocket.client_state != WebSocketState.CONNECTED:
+            raise Exception("WebSocket disconnected")
+
+        # Backpressure: wait for in-flight to drop below limit
+        while len(connection.in_flight_messages) >= channel_config.max_in_flight:
+            if websocket.client_state != WebSocketState.CONNECTED:
+                raise Exception("WebSocket disconnected")
+            await asyncio.sleep(0.1)
+
+        if websocket.client_state != WebSocketState.CONNECTED:
+            raise Exception("WebSocket disconnected")
+
+        # Track in-flight
+        connection.in_flight_messages.add(message.message_id)
+        message.delivery_count += 1
+        message.last_delivered_to = connection.connection_id
+        message.last_delivered_at = datetime.now(timezone.utc)
+
+        try:
+            await websocket.send_json(message.to_wire_format())
+            connection.messages_received += 1
+            connection.last_message_at = datetime.now(timezone.utc)
+            logger.debug(
+                f"Sent message {message.message_id} to {connection.connection_id}"
+            )
+        except Exception:
+            connection.in_flight_messages.discard(message.message_id)
+            raise
+
+    channel_manager.register_send_fn(connection.connection_id, _ws_send)
+
+    # Register connection (starts buffer consumer on first client)
     if not await channel_manager.add_connection(connection):
         await websocket.close(code=4003, reason="Max connections reached")
         logger.warning(
@@ -156,55 +193,19 @@ async def _stream_messages_ws(
     connection: ConnectorConnection,
     channel_manager: ChannelManager,
 ) -> None:
-    """Stream messages from buffer to WebSocket."""
-    channel_config = channel_manager.get_channel(channel)
-    if not channel_config:
-        return
+    """
+    Wait for WebSocket closure.
 
-    buffer = channel_manager.buffer
-
-    async def send_message(message: WebhookMessage) -> None:
-        """Callback to send message to WebSocket."""
-        # Check WebSocket state first
-        if websocket.client_state != WebSocketState.CONNECTED:
-            raise Exception("WebSocket disconnected")
-
-        # Check in-flight limit
-        while len(connection.in_flight_messages) >= channel_config.max_in_flight:
-            if websocket.client_state != WebSocketState.CONNECTED:
-                raise Exception("WebSocket disconnected")
-            await asyncio.sleep(0.1)  # Backpressure
-
-        # Final check before sending
-        if websocket.client_state != WebSocketState.CONNECTED:
-            raise Exception("WebSocket disconnected")
-
-        # Track in-flight
-        connection.in_flight_messages.add(message.message_id)
-        message.delivery_count += 1
-        message.last_delivered_to = connection.connection_id
-        message.last_delivered_at = datetime.now(timezone.utc)
-
-        try:
-            # Send to client
-            await websocket.send_json(message.to_wire_format())
-            connection.messages_received += 1
-            connection.last_message_at = datetime.now(timezone.utc)
-            logger.debug(
-                f"Sent message {message.message_id} to {connection.connection_id}"
-            )
-        except Exception as e:
-            # Remove from in-flight on send failure
-            connection.in_flight_messages.discard(message.message_id)
-            raise
-
+    Messages are delivered via channel_manager's deferred consumption
+    callback (started in add_connection, stopped in remove_connection).
+    This coroutine just keeps the gather() alive while the WebSocket
+    is open.
+    """
     try:
-        # Subscribe to channel and stream messages
-        await buffer.subscribe(channel, send_message)
+        while websocket.client_state == WebSocketState.CONNECTED:
+            await asyncio.sleep(1)
     except asyncio.CancelledError:
         pass
-    except Exception as e:
-        logger.error(f"Error streaming messages: {e}")
 
 
 async def _handle_client_messages_ws(
@@ -312,6 +313,8 @@ async def sse_stream(
             channel=channel,
             protocol=ConnectionProtocol.SSE,
         )
+        # Set initial heartbeat baseline for eviction tracking
+        connection.last_heartbeat_at = datetime.now(timezone.utc)
 
         # Register connection
         if not await channel_manager.add_connection(connection):
@@ -320,33 +323,27 @@ async def sse_stream(
 
         # Create message queue for SSE delivery
         message_queue: asyncio.Queue[WebhookMessage] = asyncio.Queue()
-        subscription_task: Optional[asyncio.Task] = None
+
+        # Register per-connection send function for deferred consumption
+        async def _sse_send(message: WebhookMessage) -> None:
+            """Send message to SSE queue for delivery."""
+            # Backpressure
+            while len(connection.in_flight_messages) >= channel_config.max_in_flight:
+                await asyncio.sleep(0.1)
+
+            connection.in_flight_messages.add(message.message_id)
+            message.delivery_count += 1
+            message.last_delivered_to = connection.connection_id
+            message.last_delivered_at = datetime.now(timezone.utc)
+
+            await message_queue.put(message)
+
+        channel_manager.register_send_fn(connection.connection_id, _sse_send)
 
         try:
             # Send connected event
             connected_data = {"connection_id": connection.connection_id, "channel": channel}
             yield f"event: connected\ndata: {json.dumps(connected_data)}\n\n"
-
-            buffer = channel_manager.buffer
-
-            async def send_message(message: WebhookMessage) -> None:
-                """Callback to put messages into the queue for SSE delivery."""
-                # Check in-flight limit
-                while len(connection.in_flight_messages) >= channel_config.max_in_flight:
-                    await asyncio.sleep(0.1)  # Backpressure
-
-                # Track in-flight
-                connection.in_flight_messages.add(message.message_id)
-                message.delivery_count += 1
-                message.last_delivered_to = connection.connection_id
-                message.last_delivered_at = datetime.now(timezone.utc)
-
-                await message_queue.put(message)
-
-            # Start subscription in background task
-            subscription_task = asyncio.create_task(
-                buffer.subscribe(channel, send_message)
-            )
 
             # Heartbeat interval from channel config
             heartbeat_interval = channel_config.heartbeat_interval.total_seconds()
@@ -384,13 +381,6 @@ async def sse_stream(
             logger.error(f"SSE stream error for connection {connection.connection_id}: {e}")
             yield f"event: error\ndata: {json.dumps({'error': 'Internal server error'})}\n\n"
         finally:
-            # Cancel subscription task
-            if subscription_task:
-                subscription_task.cancel()
-                try:
-                    await subscription_task
-                except asyncio.CancelledError:
-                    pass
             await channel_manager.remove_connection(connection.connection_id)
 
     return StreamingResponse(
@@ -453,6 +443,8 @@ async def long_poll_stream(
         channel=channel,
         protocol=ConnectionProtocol.LONG_POLL,
     )
+    # Set initial heartbeat baseline for eviction tracking
+    connection.last_heartbeat_at = datetime.now(timezone.utc)
 
     # Register connection
     if not await channel_manager.add_connection(connection):
@@ -461,26 +453,20 @@ async def long_poll_stream(
     # Create message queue for collection
     message_queue: asyncio.Queue[WebhookMessage] = asyncio.Queue()
     collected_messages: list = []
-    subscription_task: Optional[asyncio.Task] = None
+
+    # Register per-connection send function for deferred consumption
+    async def _poll_send(message: WebhookMessage) -> None:
+        """Collect messages for long-poll response."""
+        connection.in_flight_messages.add(message.message_id)
+        message.delivery_count += 1
+        message.last_delivered_to = connection.connection_id
+        message.last_delivered_at = datetime.now(timezone.utc)
+
+        await message_queue.put(message)
+
+    channel_manager.register_send_fn(connection.connection_id, _poll_send)
 
     try:
-        buffer = channel_manager.buffer
-
-        async def send_message(message: WebhookMessage) -> None:
-            """Callback to collect messages."""
-            # Track in-flight
-            connection.in_flight_messages.add(message.message_id)
-            message.delivery_count += 1
-            message.last_delivered_to = connection.connection_id
-            message.last_delivered_at = datetime.now(timezone.utc)
-
-            await message_queue.put(message)
-
-        # Start subscription in background
-        subscription_task = asyncio.create_task(
-            buffer.subscribe(channel, send_message)
-        )
-
         # Collect messages until timeout or max_messages reached
         start_time = datetime.now(timezone.utc)
         remaining_timeout = float(timeout)
@@ -495,7 +481,6 @@ async def long_poll_stream(
                 connection.last_message_at = datetime.now(timezone.utc)
 
                 # If we got at least one message, return immediately
-                # (don't wait for more unless caller explicitly wants batching)
                 if len(collected_messages) >= 1:
                     break
 
@@ -504,22 +489,12 @@ async def long_poll_stream(
                 elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
                 remaining_timeout = timeout - elapsed
 
-        # Cancel subscription
-        if subscription_task:
-            subscription_task.cancel()
-            try:
-                await subscription_task
-            except asyncio.CancelledError:
-                pass
-
         if not collected_messages:
             # No messages within timeout - return 204
             await channel_manager.remove_connection(connection.connection_id)
             return Response(status_code=204)
 
         # Return collected messages
-        # Note: Connection is cleaned up after response - client must ACK messages
-        # then connection will be removed when client makes next poll request
         await channel_manager.remove_connection(connection.connection_id)
         return {
             "messages": [msg.to_wire_format() for msg in collected_messages],
@@ -530,13 +505,6 @@ async def long_poll_stream(
 
     except Exception as e:
         logger.error(f"Long-poll error for channel {channel}: {e}")
-        # Cancel subscription on error
-        if subscription_task:
-            subscription_task.cancel()
-            try:
-                await subscription_task
-            except asyncio.CancelledError:
-                pass
         await channel_manager.remove_connection(connection.connection_id)
         raise HTTPException(status_code=500, detail="Internal server error")
 

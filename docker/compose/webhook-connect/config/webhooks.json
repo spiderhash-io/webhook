@@ -1,0 +1,9 @@
+{
+    "test_connect": {
+        "data_type": "json",
+        "module": "rabbitmq",
+        "authorization": "Bearer test_token_123",
+        "queue_name": "webhook_connect_test",
+        "connection": "rabbitmq_local"
+    }
+}

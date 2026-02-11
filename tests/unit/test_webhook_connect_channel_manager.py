@@ -32,8 +32,8 @@ class MockBuffer:
     async def close(self):
         self.connected = False
 
-    async def ensure_channel(self, channel: str, ttl_seconds: int = 86400):
-        self.channels[channel] = {"ttl": ttl_seconds, "messages": []}
+    async def ensure_channel(self, channel: str, ttl_seconds: int = 86400, webhook_id: str = None):
+        self.channels.setdefault(channel, {"ttl": ttl_seconds, "messages": []})
 
     async def push(self, channel: str, message: WebhookMessage) -> bool:
         if channel not in self.channels:
@@ -41,16 +41,26 @@ class MockBuffer:
         self.channels[channel]["messages"].append(message)
         return True
 
-    async def get_queue_depth(self, channel: str) -> int:
+    async def get_queue_depth(self, channel: str, webhook_id: str = None) -> int:
         if channel not in self.channels:
             return 0
         return len(self.channels[channel]["messages"])
 
-    async def delete_channel(self, channel: str) -> bool:
+    async def get_webhook_queue_depths(self, channel, webhook_ids):
+        return {}
+
+    async def delete_channel(self, channel: str, webhook_ids=None) -> bool:
         if channel in self.channels:
             del self.channels[channel]
             return True
         return False
+
+    async def subscribe(self, channel, callback, prefetch=10):
+        await asyncio.sleep(0.1)
+        return f"mock-tag-{channel}"
+
+    async def unsubscribe(self, consumer_tag):
+        pass
 
     async def ack(self, channel: str, message_id: str) -> bool:
         return True

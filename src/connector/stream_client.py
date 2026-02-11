@@ -243,6 +243,15 @@ class WebSocketClient(StreamClient):
         elif msg_type == "heartbeat":
             self.last_heartbeat = datetime.now(timezone.utc)
             logger.debug("Received heartbeat")
+            # Echo heartbeat back so server knows we're alive
+            if self._ws and not self._ws.closed:
+                try:
+                    await self._ws.send_json({
+                        "type": "heartbeat",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                except Exception:
+                    pass
 
         elif msg_type == "webhook":
             # Forward to message handler

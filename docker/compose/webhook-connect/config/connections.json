@@ -1,0 +1,9 @@
+{
+    "rabbitmq_local": {
+        "type": "rabbitmq",
+        "host": "rabbitmq",
+        "port": 5672,
+        "user": "guest",
+        "pass": "guest"
+    }
+}

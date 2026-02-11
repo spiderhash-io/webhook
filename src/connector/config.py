@@ -271,10 +271,10 @@ class ConnectorConfig:
 
         if not self.channel:
             errors.append("channel is required")
-        elif not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', self.channel):
+        elif not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$', self.channel):
             errors.append(
                 "channel must contain only alphanumeric characters, "
-                "hyphens, and underscores"
+                "dots, hyphens, and underscores"
             )
 
         if not self.token:

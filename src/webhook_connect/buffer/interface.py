@@ -11,7 +11,7 @@ the Cloud Receiver and Local Connectors. It supports:
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, AsyncIterator, Callable, Awaitable
+from typing import Dict, List, Optional, AsyncIterator, Callable, Awaitable
 from contextlib import asynccontextmanager
 
 from src.webhook_connect.models import WebhookMessage, ChannelStats
@@ -58,19 +58,65 @@ class MessageBufferInterface(ABC):
         channel: str,
         callback: Callable[[WebhookMessage], Awaitable[None]],
         prefetch: int = 10,
-    ) -> None:
+        webhook_ids: List[str] = None,
+    ) -> Optional[str]:
         """
         Subscribe to channel and receive messages via callback.
 
-        This is a blocking call that runs until cancelled.
+        Returns a consumer tag (or equivalent identifier) that can be
+        passed to ``unsubscribe()`` to cancel the consumer.
+
+        Failure contract:
+            When the callback raises an exception (e.g. dead WebSocket),
+            the message is requeued for redelivery rather than immediately
+            sent to the dead letter queue. After ``max_redelivery_attempts``
+            consecutive failures for the same message, the message is moved
+            to the DLQ. A small delay (``requeue_delay_seconds``) is inserted
+            between requeue attempts to prevent tight retry loops.
 
         Args:
             channel: Channel name
             callback: Async function to call with each message
             prefetch: Number of messages to prefetch
+            webhook_ids: List of webhook IDs whose queues to consume from.
+                         If None, backend discovers queues automatically.
+
+        Returns:
+            Consumer tag for cancellation, or None on failure
 
         Raises:
             ConnectionError: If not connected to backend
+        """
+        pass
+
+    async def subscribe_webhook(
+        self,
+        channel: str,
+        webhook_id: str,
+        callback: Callable[[WebhookMessage], Awaitable[None]] = None,
+    ) -> Optional[str]:
+        """
+        Add a consumer for a single webhook queue on an already-subscribed channel.
+
+        Used when a new webhook registers while a connector is already connected.
+
+        Args:
+            channel: Channel name
+            webhook_id: Webhook ID to start consuming
+            callback: Async callback (uses stored callback if None)
+
+        Returns:
+            Consumer tag, or None on failure
+        """
+        return None  # Default no-op; RabbitMQ buffer overrides
+
+    @abstractmethod
+    async def unsubscribe(self, consumer_tag: str) -> None:
+        """
+        Cancel a consumer by tag. Messages stop being delivered.
+
+        Args:
+            consumer_tag: Tag returned by ``subscribe()``
         """
         pass
 
@@ -104,17 +150,36 @@ class MessageBufferInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_queue_depth(self, channel: str) -> int:
+    async def get_queue_depth(self, channel: str, webhook_id: str = None) -> int:
         """
         Get number of pending messages in channel.
 
         Args:
             channel: Channel name
+            webhook_id: If provided, returns count for a specific webhook queue
 
         Returns:
             Number of messages waiting to be delivered
         """
         pass
+
+    async def get_webhook_queue_depths(
+        self, channel: str, webhook_ids: List[str]
+    ) -> Dict[str, int]:
+        """
+        Get pending message counts for each webhook in a channel.
+
+        Args:
+            channel: Channel name
+            webhook_ids: List of webhook IDs to query
+
+        Returns:
+            Dict mapping webhook_id to pending message count
+        """
+        depths: Dict[str, int] = {}
+        for webhook_id in webhook_ids:
+            depths[webhook_id] = await self.get_queue_depth(channel, webhook_id)
+        return depths
 
     @abstractmethod
     async def get_in_flight_count(self, channel: str) -> int:
@@ -156,25 +221,33 @@ class MessageBufferInterface(ABC):
         pass
 
     @abstractmethod
-    async def ensure_channel(self, channel: str, ttl_seconds: int = 86400) -> None:
+    async def ensure_channel(
+        self, channel: str, ttl_seconds: int = 86400, webhook_id: str = None
+    ) -> None:
         """
         Ensure channel exists with proper configuration.
 
-        Creates queue/stream if it doesn't exist.
+        If ``webhook_id`` is provided, creates a per-webhook queue
+        bound to the channel exchange. Otherwise, creates a channel-level
+        queue (legacy behavior).
 
         Args:
             channel: Channel name
             ttl_seconds: Message TTL in seconds
+            webhook_id: Optional webhook ID for per-webhook queue creation
         """
         pass
 
     @abstractmethod
-    async def delete_channel(self, channel: str) -> bool:
+    async def delete_channel(
+        self, channel: str, webhook_ids: List[str] = None
+    ) -> bool:
         """
         Delete a channel and all its messages.
 
         Args:
             channel: Channel name
+            webhook_ids: If provided, deletes per-webhook queues for these IDs
 
         Returns:
             True if deleted, False if not found

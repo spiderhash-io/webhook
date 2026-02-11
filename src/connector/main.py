@@ -394,12 +394,12 @@ def main() -> int:
         "\n" + "=" * 60 + "\n"
         "\n"
         "    Webhook Connect - Local Connector\n"
-        "=" * 60 + "\n"
-        f"  Channel:   {config.channel}\n"
-        f"  Protocol:  {config.protocol}\n"
-        f"  Cloud URL: {config.cloud_url}\n"
-        f"  Mode:      {config.delivery_mode}\n"
-        "=" * 60 + "\n"
+        + "=" * 60 + "\n"
+        + f"  Channel:   {config.channel}\n"
+        + f"  Protocol:  {config.protocol}\n"
+        + f"  Cloud URL: {config.cloud_url}\n"
+        + f"  Mode:      {config.delivery_mode}\n"
+        + "=" * 60 + "\n"
     )
     logger.info(banner)
 

@@ -72,6 +72,10 @@ class MockChannelManager:
             connected_clients=len(self.channel_connections.get(channel, [])),
         )
 
+    async def get_webhook_queue_depths(self, channel: str):
+        """Return mock per-webhook queue depths."""
+        return {}
+
     async def health_check(self):
         return {
             "buffer": True,
