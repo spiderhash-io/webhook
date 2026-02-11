@@ -95,7 +95,7 @@ class MockBuffer:
     async def health_check(self) -> bool:
         return self.connected
 
-    async def subscribe(self, channel: str, callback, prefetch=10):
+    async def subscribe(self, channel: str, callback, prefetch=10, webhook_ids=None):
         await asyncio.sleep(0.1)
         return f"mock-tag-{channel}"
 
@@ -813,7 +813,7 @@ def _make_streaming_mock_manager():
     """Build a mock channel manager for streaming API tests."""
 
     class _MockBuffer:
-        async def subscribe(self, channel, callback, prefetch=10):
+        async def subscribe(self, channel, callback, prefetch=10, webhook_ids=None):
             await asyncio.sleep(0.1)
             return f"mock-tag-{channel}"
 

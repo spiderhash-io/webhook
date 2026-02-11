@@ -69,6 +69,9 @@ class RedisBuffer(MessageBufferInterface):
         # Consumer tasks for unsubscribe: consumer_tag -> asyncio.Task
         self._consumer_tasks: Dict[str, asyncio.Task] = {}
 
+        # Background retry tasks (non-blocking delivery retries)
+        self._retry_tasks: set = set()
+
         # Stats tracking
         self._stats: Dict[str, Dict[str, int]] = {}
 
@@ -134,6 +137,15 @@ class RedisBuffer(MessageBufferInterface):
             except asyncio.CancelledError:
                 pass
         self._consumer_tasks.clear()
+
+        # Cancel pending retry tasks
+        for task in list(self._retry_tasks):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self._retry_tasks.clear()
 
         if self.redis:
             await self.redis.aclose()
@@ -250,7 +262,7 @@ class RedisBuffer(MessageBufferInterface):
             """Background loop that reads from all per-webhook streams."""
             logger.info(f"Starting consumer {consumer_name} for channel {channel}")
             known_streams: List[str] = []
-            last_discovery = 0.0
+            last_discovery = -STREAM_DISCOVERY_INTERVAL  # trigger immediately
 
             while True:
                 try:
@@ -312,18 +324,18 @@ class RedisBuffer(MessageBufferInterface):
     ) -> None:
         """Process a single stream entry from XREADGROUP."""
         message = None
+        msg_id = "unknown"
+        stream_key_str = stream.decode() if isinstance(stream, bytes) else stream
+        if isinstance(stream_id, bytes):
+            stream_id = stream_id.decode()
+
         try:
-            if isinstance(stream_id, bytes):
-                stream_id = stream_id.decode()
-
-            stream_key_str = stream.decode() if isinstance(stream, bytes) else stream
-
             # Parse message data
             raw_id = data.get(b"message_id", data.get("message_id", b""))
             if isinstance(raw_id, bytes):
-                message_id = raw_id.decode()
+                msg_id = raw_id.decode()
             else:
-                message_id = str(raw_id)
+                msg_id = str(raw_id)
 
             msg_data = data.get(b"data", data.get("data", b"{}"))
             if isinstance(msg_data, bytes):
@@ -343,7 +355,7 @@ class RedisBuffer(MessageBufferInterface):
                 logger.debug(f"Skipped expired message {message.message_id}")
                 return
 
-            # Track in-flight
+            # Track in-flight for ACK/NACK endpoints
             async with self._in_flight_lock:
                 self._in_flight[message.message_id] = {
                     "stream_id": stream_id,
@@ -351,29 +363,51 @@ class RedisBuffer(MessageBufferInterface):
                     "stream_key": stream_key_str,
                 }
 
-            # Call user callback
-            await callback(message)
+            try:
+                await callback(message)
+                return
+            except Exception as e:
+                logger.error(f"Error processing message from {channel}: {e}")
+
+                async with self._in_flight_lock:
+                    self._in_flight.pop(message.message_id, None)
+
+                attempt = self._requeue_counts.get(message.message_id, 0) + 1
+                self._requeue_counts[message.message_id] = attempt
+
+                if attempt >= self.max_redelivery_attempts:
+                    self._requeue_counts.pop(message.message_id, None)
+                    logger.warning(
+                        f"Message from {channel} exceeded max redelivery "
+                        f"attempts ({self.max_redelivery_attempts}), sending to DLQ"
+                    )
+                    await self._move_to_dlq(
+                        channel, stream_id, data, str(e),
+                        stream_key=stream_key_str,
+                    )
+                    return
+
+                # Spawn non-blocking retry task so the consumer loop
+                # continues processing other messages immediately.
+                task = asyncio.create_task(
+                    self._retry_delivery(
+                        message, channel, stream_id, data,
+                        stream_key_str, callback, attempt,
+                    )
+                )
+                self._retry_tasks.add(task)
+                task.add_done_callback(self._retry_tasks.discard)
 
         except Exception as e:
             logger.error(f"Error processing message from {channel}: {e}")
 
             # Clean up in-flight entry if it was added
-            if message is not None and hasattr(message, 'message_id'):
+            if message is not None and hasattr(message, "message_id"):
                 async with self._in_flight_lock:
                     self._in_flight.pop(message.message_id, None)
+                msg_id = message.message_id
 
-            msg_id = (
-                message.message_id
-                if message is not None and hasattr(message, 'message_id')
-                else "unknown"
-            )
-            self._requeue_counts[msg_id] = (
-                self._requeue_counts.get(msg_id, 0) + 1
-            )
-
-            stream_key_str = (
-                stream.decode() if isinstance(stream, bytes) else stream
-            )
+            self._requeue_counts[msg_id] = self._requeue_counts.get(msg_id, 0) + 1
 
             if self._requeue_counts.get(msg_id, 0) >= self.max_redelivery_attempts:
                 self._requeue_counts.pop(msg_id, None)
@@ -386,13 +420,82 @@ class RedisBuffer(MessageBufferInterface):
                     stream_key=stream_key_str,
                 )
             else:
-                # Leave message unacked in consumer group PEL --
-                # will be redelivered on next XREADGROUP with "0" or via XCLAIM
                 await asyncio.sleep(self.requeue_delay_seconds)
                 logger.debug(
-                    f"Left message from {channel} pending for "
-                    f"redelivery (attempt {self._requeue_counts.get(msg_id, 0)})"
+                    f"Transient parse/processing failure for message {msg_id} from "
+                    f"{channel} (attempt {self._requeue_counts.get(msg_id, 0)})"
                 )
+
+    async def _retry_delivery(
+        self,
+        message: WebhookMessage,
+        channel: str,
+        stream_id: str,
+        data: dict,
+        stream_key_str: str,
+        callback: Callable[[WebhookMessage], Awaitable[None]],
+        attempt: int,
+    ) -> None:
+        """
+        Retry message delivery in the background.
+
+        Runs as an independent task so the consumer loop is not blocked
+        while waiting between retry attempts.
+
+        Args:
+            message: The webhook message to deliver
+            channel: Channel name
+            stream_id: Redis stream entry ID
+            data: Raw stream entry data (for DLQ)
+            stream_key_str: Redis stream key
+            callback: Delivery callback to retry
+            attempt: Current attempt count (already incremented once)
+        """
+        last_error = "unknown"
+        try:
+            while attempt < self.max_redelivery_attempts:
+                await asyncio.sleep(self.requeue_delay_seconds)
+                logger.debug(
+                    f"Retrying message {message.message_id} from {channel} "
+                    f"(attempt {attempt + 1}/{self.max_redelivery_attempts})"
+                )
+
+                async with self._in_flight_lock:
+                    self._in_flight[message.message_id] = {
+                        "stream_id": stream_id,
+                        "channel": channel,
+                        "stream_key": stream_key_str,
+                    }
+
+                try:
+                    await callback(message)
+                    self._requeue_counts.pop(message.message_id, None)
+                    return
+                except Exception as e:
+                    last_error = str(e)
+                    logger.error(f"Retry failed for message from {channel}: {e}")
+
+                    async with self._in_flight_lock:
+                        self._in_flight.pop(message.message_id, None)
+
+                    attempt += 1
+                    self._requeue_counts[message.message_id] = attempt
+
+            # Exhausted retries — send to DLQ
+            self._requeue_counts.pop(message.message_id, None)
+            logger.warning(
+                f"Message from {channel} exceeded max redelivery "
+                f"attempts ({self.max_redelivery_attempts}), sending to DLQ"
+            )
+            await self._move_to_dlq(
+                channel, stream_id, data, last_error,
+                stream_key=stream_key_str,
+            )
+        except asyncio.CancelledError:
+            logger.debug(f"Retry task cancelled for message {message.message_id}")
+            async with self._in_flight_lock:
+                self._in_flight.pop(message.message_id, None)
+            self._requeue_counts.pop(message.message_id, None)
 
     async def unsubscribe(self, consumer_tag: str) -> None:
         """Cancel a consumer by tag. Messages stop being delivered."""

@@ -113,7 +113,7 @@ class MockBuffer:
     def __init__(self):
         self.messages = {}
 
-    async def subscribe(self, channel: str, callback, prefetch=10):
+    async def subscribe(self, channel: str, callback, prefetch=10, webhook_ids=None):
         # Simulate subscription - just wait
         await asyncio.sleep(0.1)
         return f"mock-tag-{channel}"

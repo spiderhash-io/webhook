@@ -68,6 +68,7 @@ class ChannelManager:
         # Locks for thread safety
         self._channels_lock = asyncio.Lock()
         self._connections_lock = asyncio.Lock()
+        self._consumer_lock = asyncio.Lock()
 
         # Sequence counter per channel
         self._sequence_counters: Dict[str, int] = {}
@@ -289,10 +290,16 @@ class ChannelManager:
             logger.warning(f"Attempted to publish to unknown channel: {channel}")
             return False
 
-        # Check queue size limit
-        depth = await self.buffer.get_queue_depth(channel)
+        # Check queue size limit on the target webhook queue
+        target_webhook_id = message.webhook_id or config.webhook_id
+        depth = await self.buffer.get_queue_depth(
+            channel, webhook_id=target_webhook_id
+        )
         if depth >= config.max_queue_size:
-            logger.warning(f"Channel {channel} queue is full ({depth} messages)")
+            logger.warning(
+                f"Channel {channel} queue is full for webhook {target_webhook_id} "
+                f"({depth} messages)"
+            )
             return False
 
         # Check message size
@@ -355,19 +362,21 @@ class ChannelManager:
             self.channel_connections[channel].add(connection.connection_id)
             connection.state = ConnectionState.CONNECTED
 
-        # Start buffer consumer if this is the first client for this channel
-        if channel not in self._consumer_tags:
-            callback = self._make_delivery_callback(channel)
-            webhook_ids = list(self._channel_webhook_ids.get(channel, set()))
-            consumer_tag = await self.buffer.subscribe(
-                channel, callback, webhook_ids=webhook_ids
-            )
-            if consumer_tag:
-                self._consumer_tags[channel] = consumer_tag
-                logger.info(
-                    f"Started buffer consumer for {channel} (first client connected, "
-                    f"{len(webhook_ids)} webhook queue(s))"
+        # Start buffer consumer if this is the first client for this channel.
+        # Guard with a dedicated lock so concurrent connects cannot double-subscribe.
+        async with self._consumer_lock:
+            if channel not in self._consumer_tags:
+                callback = self._make_delivery_callback(channel)
+                webhook_ids = list(self._channel_webhook_ids.get(channel, set()))
+                consumer_tag = await self.buffer.subscribe(
+                    channel, callback, webhook_ids=webhook_ids
                 )
+                if consumer_tag:
+                    self._consumer_tags[channel] = consumer_tag
+                    logger.info(
+                        f"Started buffer consumer for {channel} (first client connected, "
+                        f"{len(webhook_ids)} webhook queue(s))"
+                    )
 
         logger.info(f"Added connection {connection.connection_id} to channel {channel}")
         return True
@@ -561,6 +570,10 @@ class ChannelManager:
             send_fn: Async function that sends a message to this connection
         """
         self._connection_send_fns[connection_id] = send_fn
+
+    def unregister_send_fn(self, connection_id: str) -> None:
+        """Remove a per-connection send function if it exists."""
+        self._connection_send_fns.pop(connection_id, None)
 
     async def get_webhook_queue_depths(self, channel: str) -> Dict[str, int]:
         """

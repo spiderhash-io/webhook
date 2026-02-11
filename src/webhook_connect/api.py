@@ -147,6 +147,8 @@ async def websocket_stream(
 
     # Register connection (starts buffer consumer on first client)
     if not await channel_manager.add_connection(connection):
+        # Connection was rejected; remove pre-registered callback to avoid leaks.
+        channel_manager.unregister_send_fn(connection.connection_id)
         await websocket.close(code=4003, reason="Max connections reached")
         logger.warning(
             f"WebSocket connection rejected: max connections for channel {channel}"

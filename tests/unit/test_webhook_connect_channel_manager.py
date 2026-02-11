@@ -55,7 +55,7 @@ class MockBuffer:
             return True
         return False
 
-    async def subscribe(self, channel, callback, prefetch=10):
+    async def subscribe(self, channel, callback, prefetch=10, webhook_ids=None):
         await asyncio.sleep(0.1)
         return f"mock-tag-{channel}"
 
