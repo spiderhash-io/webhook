@@ -1,4 +1,4 @@
-Release v1.1.0 brings distributed configuration via etcd, HashiCorp Vault secret management, a refactored connector with three delivery modes, Kubernetes support (Helm chart), and significant security hardening.
+Release v0.2.0 brings distributed configuration via etcd, HashiCorp Vault secret management, a refactored connector with three delivery modes, Kubernetes support (Helm chart), and significant security hardening.
 
 ## Highlights
 
@@ -13,11 +13,11 @@ Release v1.1.0 brings distributed configuration via etcd, HashiCorp Vault secret
 
 ### Docker (Recommended)
 ```bash
-docker pull spiderhash/webhook:1.1.0
+docker pull spiderhash/webhook:0.2.0
 docker run -p 8000:8000 \
   -v $(pwd)/webhooks.json:/app/webhooks.json:ro \
   -v $(pwd)/connections.json:/app/connections.json:ro \
-  spiderhash/webhook:1.1.0
+  spiderhash/webhook:0.2.0
 ```
 
 ### Authentication (12 methods)
@@ -40,4 +40,4 @@ Log | Save to Disk | RabbitMQ | Redis RQ | Redis Pub/Sub | HTTP | Kafka | MQTT |
 
 ---
 
-**Full Changelog**: https://github.com/spiderhash-io/webhook/compare/v0.1.0...v1.1.0
+**Full Changelog**: https://github.com/spiderhash-io/webhook/compare/v0.1.0...v0.2.0

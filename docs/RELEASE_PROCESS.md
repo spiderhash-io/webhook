@@ -90,7 +90,7 @@ Update these files:
 
 #### Release Notes Template
 
-Copy `.github/RELEASE_NOTES_v1.1.0.md` and update:
+Copy `.github/RELEASE_NOTES_v0.2.0.md` and update:
 - Title and description
 - Highlights (3-6 bullet points)
 - New features with details
@@ -275,5 +275,5 @@ docker buildx inspect --bootstrap
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| v1.1.0 | 2026-02-13 | Vault, etcd, connector fixes, security hardening, K8s |
+| v0.2.0 | 2026-02-13 | Vault, etcd, connector fixes, security hardening, K8s |
 | v0.1.0 | 2025-01-20 | Initial public release |

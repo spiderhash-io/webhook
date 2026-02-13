@@ -11,7 +11,7 @@ The self-hosted webhook gateway with 12 auth methods, 18 destinations, and zero 
 [![Security Scan](https://github.com/spiderhash-io/webhook/actions/workflows/security-scan.yml/badge.svg)](https://github.com/spiderhash-io/webhook/actions/workflows/security-scan.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](https://github.com/spiderhash-io/webhook/releases)
+[![Version](https://img.shields.io/badge/version-0.2.0-green.svg)](https://github.com/spiderhash-io/webhook/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/spiderhash/webhook)](https://hub.docker.com/r/spiderhash/webhook)
 [![Tests](https://img.shields.io/badge/tests-3%2C300%2B%20passing-brightgreen)](https://github.com/spiderhash-io/webhook)
 
@@ -62,7 +62,7 @@ Save this as `webhooks.json`.
 docker run -p 8000:8000 \
   -v $(pwd)/webhooks.json:/app/webhooks.json \
   -e WEBHOOKS_CONFIG_FILE=/app/webhooks.json \
-  spiderhash/webhook:1.1.0
+  spiderhash/webhook:0.2.0
 ```
 
 ### 3. Send a webhook
@@ -83,7 +83,7 @@ That's it. Your webhook is validated and routed. Open `http://localhost:8000/doc
 ```yaml
 services:
   webhook:
-    image: spiderhash/webhook:1.1.0
+    image: spiderhash/webhook:0.2.0
     ports:
       - "8000:8000"
     volumes:

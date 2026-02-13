@@ -1,4 +1,4 @@
-# Release v1.1.0 - Vault, etcd, Connector & Security Hardening
+# Release v0.2.0 - Vault, etcd, Connector & Security Hardening
 
 This release brings distributed configuration via etcd, HashiCorp Vault secret management, a completely refactored connector, Kubernetes support, and significant security hardening across the board.
 
@@ -71,18 +71,18 @@ This release brings distributed configuration via etcd, HashiCorp Vault secret m
 
 ### Docker (Recommended)
 ```bash
-docker pull spiderhash/webhook:1.1.0
+docker pull spiderhash/webhook:0.2.0
 docker run -p 8000:8000 \
   -v $(pwd)/webhooks.json:/app/webhooks.json:ro \
   -v $(pwd)/connections.json:/app/connections.json:ro \
-  spiderhash/webhook:1.1.0
+  spiderhash/webhook:0.2.0
 ```
 
 ### From Source
 ```bash
 git clone https://github.com/spiderhash-io/webhook.git
 cd webhook
-git checkout v1.1.0
+git checkout v0.2.0
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -115,4 +115,4 @@ make test-cov    # With coverage
 
 ---
 
-**Full Changelog**: https://github.com/spiderhash-io/webhook/compare/v0.1.0...v1.1.0
+**Full Changelog**: https://github.com/spiderhash-io/webhook/compare/v0.1.0...v0.2.0

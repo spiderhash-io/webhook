@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cloudflare Turnstile validation
 - Circuit breakers for failing modules
 
-## [1.1.0] - 2026-02-13
+## [0.2.0] - 2026-02-13
 
 ### Added
 
