@@ -248,6 +248,7 @@ See `docs/DISTRIBUTED_CONFIG_ETCD.md` for full etcd documentation.
 ## Key Documentation
 
 - **`docs/DEVELOPMENT_STANDARDS.md`** - **Complete development guide, standards, checklists** (START HERE)
+- **`docs/RELEASE_PROCESS.md`** - **Full release process: version bump, changelog, tag, GitHub release, Docker Hub**
 - `docs/ARCHITECTURE.md` - Module system, adding new modules
 - `docs/DEVELOPMENT.md` - Local development workflow
 - `docs/DISTRIBUTED_CONFIG_ETCD.md` - etcd backend, namespaces, watch behavior, migration
