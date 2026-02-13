@@ -14,6 +14,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cloudflare Turnstile validation
 - Circuit breakers for failing modules
 
+## [1.1.0] - 2026-02-13
+
+### Added
+
+#### Distributed Configuration (etcd Backend)
+- etcd-based configuration backend with namespace-scoped webhooks and connections
+- Live watch for real-time config updates without restart
+- Automatic reconnection with exponential backoff and jitter
+- Namespace isolation (`/cwm/{namespace}/webhooks/{webhook_id}`)
+- `ConfigProvider` ABC with `FileConfigProvider` and `EtcdConfigProvider` implementations
+- New routes: `POST /webhook/{namespace}/{webhook_id}` for namespaced webhooks
+
+#### Vault Secret Management
+- HashiCorp Vault integration for secure credential storage
+- Environment variable substitution from Vault secrets
+- Vault-etcd combined deployment scenario (`06_vault_etcd_secrets`)
+- Vault test documentation and Docker Compose scenario
+
+#### Connector Improvements
+- Refactored connector architecture with three delivery modes (HTTP, Module, etcd)
+- etcd mode for connector: loads webhook/connection config from etcd namespace
+- Advanced connector scenario (`04_connector_advanced`)
+- Connector code review fixes from roast report 006
+
+#### Kubernetes Support
+- Helm chart for Kubernetes deployment
+- Kubernetes YAML manifest scenario (`03_kubernetes`)
+- Test scenarios for K8s deployments
+
+#### CI/CD Pipeline
+- GitHub Container Registry (GHCR) image publishing
+- Docusaurus documentation Docker build and GHCR deployment
+- Webhook Connect cloud-to-local relay documentation (4 Docusaurus pages)
+
+#### Docker Scenarios
+- `05_etcd_namespaces` - etcd distributed config demo
+- `06_vault_etcd_secrets` - Vault + etcd combined deployment
+- `docker/compose/etcd/` - standalone etcd compose
+- `docker/compose/vault/` - standalone Vault compose
+
+### Changed
+
+#### Breaking Changes
+- **Admin endpoints now require authentication** — `CONFIG_RELOAD_ADMIN_TOKEN` must be set; returns 403 when unconfigured (was open by default in v0.1.0)
+- **Sensitive data redaction enabled by default** — `redact_sensitive` default changed to `True`
+
+#### Security Hardening
+- Trusted proxy handling for `get_client_ip()` function
+- SSE error handling no longer exposes internal information (CodeQL fix)
+- Validator refactoring for improved security
+- Comprehensive security scan confirmed no hardcoded secrets
+- Lazy lock initialization in rate limiter (prevents race conditions)
+- Replaced all `print()` calls with proper `logger` usage
+
+### Fixed
+- Queue limit now checks per-webhook depth in `channel_manager.py`
+- Concurrent `add_connection` no longer double-subscribes in `channel_manager.py`
+- WebSocket rejection now properly cleans leaked send callbacks in `api.py`
+- Redis failed delivery now retries and sends to DLQ after limit in `redis_buffer.py`
+- Fixed connector stability issues
+- Fixed Vault integration edge cases
+- Fixed relative redirects in docs nginx to preserve `/docs/` prefix
+- Various test fixes and improvements
+
+### Documentation
+- Distributed configuration with etcd guide (`docs/DISTRIBUTED_CONFIG_ETCD.md`)
+- Vault secret management documentation
+- Webhook Connect documentation (4 Docusaurus pages)
+- Updated README with Docker-first quick start
+- Release process documentation (`docs/RELEASE_PROCESS.md`)
+
+### Testing
+- 3,216+ passing unit tests (up from 2,493 in v0.1.0)
+- 100% CI success rate
+- New security audit tests for connector, etcd, and vault components
+
 ## [0.1.0] - 2025-01-20
 
 ### Added - Initial Release

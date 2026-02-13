@@ -133,6 +133,7 @@ git push github :refs/tags/v0.2.0
 
 ## Version History
 
+- **1.1.0** - 2026-02-13 - Vault, etcd, connector fixes, security hardening, K8s support
 - **0.1.0** - 2025-01-20 - Initial public release
 
 ---
