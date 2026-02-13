@@ -24,20 +24,18 @@ The self-hosted webhook gateway with 12 auth methods, 18 destinations, and zero 
 Core Webhook Module is a FastAPI-powered webhook gateway that receives incoming HTTP webhooks, validates them against 12 authentication methods, and routes payloads to 18 output destinations. Define everything in a simple JSON config, deploy with Docker, and start receiving webhooks in minutes.
 
 ```
-  Webhook Sources              Core Webhook Module                      Destinations
- ───────────────          ───────────────────────────          ──────────────────────────
+  Webhook Sources        Core Webhook Module              Destinations
 
-                          ┌───────────────────────┐
-   GitHub          ──→    │                       │    ──→     Kafka
-   Stripe          ──→    │   Authenticate        │    ──→     PostgreSQL · MySQL
-   Shopify         ──→    │   JWT · HMAC · OAuth   │    ──→     Redis · RabbitMQ
-   Twilio          ──→    │   Bearer · Basic · IP  │    ──→     S3 · ClickHouse
-   Any HTTP POST   ──→    │                       │    ──→     MQTT · WebSocket
-                          │   Validate & Route     │    ──→     AWS SQS · GCP Pub/Sub
-                          │   Chain to multiple    │    ──→     ActiveMQ · ZeroMQ
-                          │   destinations         │    ──→     HTTP · Disk · Log
-                          │                       │
-                          └───────────────────────┘
+                    +------------------------------+
+  GitHub     --->   |                              |  --->  Kafka
+  Stripe     --->   |  Authenticate                |  --->  PostgreSQL, MySQL
+  Shopify    --->   |  JWT / HMAC / OAuth          |  --->  Redis, RabbitMQ
+  Twilio     --->   |  Bearer / Basic / IP         |  --->  S3, ClickHouse
+  Any HTTP   --->   |                              |  --->  MQTT, WebSocket
+                    |  Validate & Route            |  --->  AWS SQS, GCP Pub/Sub
+                    |  Chain to multiple           |  --->  ActiveMQ, ZeroMQ
+                    |  destinations                |  --->  HTTP, Disk, Log
+                    +------------------------------+
 ```
 
 ---
@@ -176,14 +174,15 @@ Sequential or parallel execution, per-module retry, timeout protection, and auto
 Receive webhooks at a public cloud endpoint and stream them to services behind firewalls or NAT. Like ngrok, but for webhooks — with message queuing, ACK/NACK, retries, and dead-letter handling.
 
 ```
-  Cloud (public IP)                           Your Network (behind firewall)
- ┌──────────────────────┐     WebSocket      ┌──────────────────────────┐
- │                      │                    │                          │
- │  Webhook Receiver    │ ─────────────── →  │  Local Connector         │
- │  validates, queues,  │                    │  forwards to your        │
- │  retries, DLQ        │ ← ── ACK/NACK ──  │  local services          │
- │                      │                    │                          │
- └──────────────────────┘                    └──────────────────────────┘
+  Cloud (public IP)                       Your Network (behind firewall)
+
+  +------------------------+              +------------------------------+
+  |                        |  WebSocket   |                              |
+  |  Webhook Receiver      | ---------->  |  Local Connector             |
+  |  validates, queues,    |              |  forwards to your            |
+  |  retries, DLQ          | <-- ACK ---  |  local services              |
+  |                        |              |                              |
+  +------------------------+              +------------------------------+
 ```
 
 **Cloud side** — use the `webhook_connect` module:
