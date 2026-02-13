@@ -27,9 +27,8 @@ class TestRedisEndpointStatsKeyInjection:
         mock_redis = MagicMock()
         mock_redis.ping = AsyncMock()
         mock_redis.aclose = AsyncMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
-        mock_redis.pipeline.return_value.__aexit__.return_value = None
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
 
         malicious_endpoints = [
             "endpoint'; FLUSHALL; --",
@@ -54,13 +53,12 @@ class TestRedisEndpointStatsKeyInjection:
                     with pytest.raises(ValueError, match=r"cannot contain"):
                         await stats.increment(malicious_endpoint)
                 else:
-                    # Other malicious patterns may pass validation but are used safely in Redis keys
+                    # Other malicious patterns may pass validation but are used safely
+                    # via Lua script (parameterized, no injection possible)
                     await stats.increment(malicious_endpoint)
-                    # Verify that endpoint_name is used as-is in keys (Redis handles it safely)
-                    calls = mock_pipeline.sadd.call_args_list
-                    assert len(calls) > 0
+                    assert mock_script.called
                     # Reset for next iteration
-                    mock_pipeline.reset_mock()
+                    mock_script.reset_mock()
 
     @pytest.mark.asyncio
     async def test_endpoint_name_redis_command_injection(self):
@@ -68,11 +66,10 @@ class TestRedisEndpointStatsKeyInjection:
         mock_redis = MagicMock()
         mock_redis.ping = AsyncMock()
         mock_redis.aclose = AsyncMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
 
-        # Redis pipeline uses parameterized commands, so injection shouldn't work
-        # But test that endpoint_name is used safely
+        # Lua script uses parameterized ARGV, so injection shouldn't work
         injection_attempts = [
             "endpoint; FLUSHALL",
             "endpoint | CONFIG GET *",
@@ -86,10 +83,10 @@ class TestRedisEndpointStatsKeyInjection:
             for injection_attempt in injection_attempts:
                 await stats.increment(injection_attempt)
 
-                # Verify pipeline was called (Redis handles strings safely)
-                assert mock_pipeline.sadd.called
+                # Verify Lua script was called (Redis handles strings safely via ARGV)
+                assert mock_script.called
                 # Reset for next iteration
-                mock_pipeline.reset_mock()
+                mock_script.reset_mock()
 
     @pytest.mark.asyncio
     async def test_endpoint_name_key_manipulation(self):
@@ -97,8 +94,8 @@ class TestRedisEndpointStatsKeyInjection:
         mock_redis = MagicMock()
         mock_redis.ping = AsyncMock()
         mock_redis.aclose = AsyncMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
 
         manipulation_attempts = [
             "endpoint:../other_key",
@@ -112,10 +109,9 @@ class TestRedisEndpointStatsKeyInjection:
             for manipulation_attempt in manipulation_attempts:
                 await stats.increment(manipulation_attempt)
 
-                # Keys should be constructed with f-strings, so manipulation is possible
-                # But Redis will treat the entire string as the key name
-                # This is actually a vulnerability - we should validate endpoint names
-                assert mock_pipeline.sadd.called
+                # Lua script uses ARGV for endpoint name — Redis treats the
+                # entire string as a value, so key manipulation is not possible
+                assert mock_script.called
 
 
 # ============================================================================
@@ -176,6 +172,7 @@ class TestRedisEndpointStatsDoS:
         # Create many endpoints
         many_endpoints = {f"endpoint_{i}" for i in range(1000)}
         mock_redis.smembers = AsyncMock(return_value=many_endpoints)
+        mock_redis.hget = AsyncMock(return_value="100")
         mock_redis.get = AsyncMock(return_value="100")
         mock_redis.mget = AsyncMock(return_value=["1"] * 200)
 
@@ -258,8 +255,8 @@ class TestRedisEndpointStatsRaceConditions:
         mock_redis = MagicMock()
         mock_redis.ping = AsyncMock()
         mock_redis.aclose = AsyncMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
 
         with patch("redis.asyncio.from_url", return_value=mock_redis):
             stats = RedisEndpointStats()
@@ -269,8 +266,8 @@ class TestRedisEndpointStatsRaceConditions:
             await asyncio.gather(*tasks)
 
             # All should complete successfully
-            # Redis pipeline with transaction=True provides atomicity
-            assert mock_pipeline.execute.call_count == 100
+            # Lua script provides atomicity (scripts are atomic in Redis)
+            assert mock_script.call_count == 100
 
     @pytest.mark.asyncio
     async def test_concurrent_get_stats_race_condition(self):
@@ -279,6 +276,7 @@ class TestRedisEndpointStatsRaceConditions:
         mock_redis.ping = AsyncMock()
         mock_redis.aclose = AsyncMock()
         mock_redis.smembers = AsyncMock(return_value={"endpoint1", "endpoint2"})
+        mock_redis.hget = AsyncMock(return_value="100")
         mock_redis.get = AsyncMock(return_value="100")
         mock_redis.mget = AsyncMock(return_value=["1"] * 200)
 
@@ -326,8 +324,8 @@ class TestRedisEndpointStatsConnectionSecurity:
         mock_redis = MagicMock()
         mock_redis.ping = AsyncMock()
         mock_redis.aclose = AsyncMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
 
         with patch("redis.asyncio.from_url", return_value=mock_redis):
             stats = RedisEndpointStats()
@@ -336,9 +334,10 @@ class TestRedisEndpointStatsConnectionSecurity:
             await stats.increment("endpoint1")
             await stats.increment("endpoint2")
 
-            # from_url should only be called once (connection reuse)
-            # Actually, it's called on first access via property
-            assert mock_redis.pipeline.called
+            # register_script should only be called once (script cached)
+            assert mock_redis.register_script.call_count == 1
+            # But the script itself should be called twice
+            assert mock_script.call_count == 2
 
     @pytest.mark.asyncio
     async def test_redis_connection_reconnect(self):
@@ -478,8 +477,8 @@ class TestRedisEndpointStatsKeyConstruction:
         mock_redis = MagicMock()
         mock_redis.ping = AsyncMock()
         mock_redis.aclose = AsyncMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
 
         # Very long endpoint name (but within limit)
         long_endpoint = "a" * 256  # At the limit
@@ -489,8 +488,8 @@ class TestRedisEndpointStatsKeyConstruction:
 
             await stats.increment(long_endpoint)
 
-            # Keys should be constructed (Redis has key length limits but handles them)
-            assert mock_pipeline.incr.called
+            # Lua script should be called with the endpoint name
+            assert mock_script.called
 
             # Test over limit
             too_long_endpoint = "a" * 257
@@ -510,8 +509,10 @@ class TestRedisEndpointStatsBucketTimestamp:
     async def test_bucket_timestamp_manipulation(self):
         """Test that bucket timestamps can't be manipulated."""
         mock_redis = MagicMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+        mock_redis.ping = AsyncMock()
+        mock_redis.aclose = AsyncMock()
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
 
         with patch("redis.asyncio.from_url", return_value=mock_redis):
             stats = RedisEndpointStats()
@@ -520,18 +521,14 @@ class TestRedisEndpointStatsBucketTimestamp:
             # So manipulation shouldn't be possible
             await stats.increment("test_endpoint")
 
-            # Verify bucket key is constructed with timestamp
-            incr_calls = [call[0][0] for call in mock_pipeline.incr.call_args_list]
-            bucket_keys = [key for key in incr_calls if "bucket:" in key]
-
-            assert len(bucket_keys) > 0
-            # Bucket key should contain timestamp
-            for key in bucket_keys:
-                assert "bucket:" in key
-                # Timestamp should be numeric
-                parts = key.split(":")
-                timestamp_part = parts[-1]
-                assert timestamp_part.isdigit()
+            # Verify Lua script was called with endpoint name and numeric timestamp
+            assert mock_script.called
+            call_args = mock_script.call_args
+            script_args = call_args[1]["args"] if "args" in call_args[1] else call_args[0][0] if call_args[0] else call_args[1].get("args", [])
+            assert len(script_args) == 2
+            assert script_args[0] == "test_endpoint"
+            # Timestamp should be a numeric value (int)
+            assert isinstance(script_args[1], int)
 
 
 # ============================================================================
@@ -544,18 +541,21 @@ class TestRedisEndpointStatsPipelineSecurity:
 
     @pytest.mark.asyncio
     async def test_pipeline_atomicity(self):
-        """Test that pipeline operations are atomic."""
+        """Test that increment operations are atomic via Lua script."""
         mock_redis = MagicMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+        mock_redis.ping = AsyncMock()
+        mock_redis.aclose = AsyncMock()
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
 
         with patch("redis.asyncio.from_url", return_value=mock_redis):
             stats = RedisEndpointStats()
 
             await stats.increment("test_endpoint")
 
-            # Pipeline should use transaction=True for atomicity
-            mock_redis.pipeline.assert_called_with(transaction=True)
+            # Lua scripts are atomic in Redis — verify script was registered and called
+            mock_redis.register_script.assert_called_once()
+            mock_script.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_pipeline_error_handling(self):
@@ -599,6 +599,7 @@ class TestRedisEndpointStatsGetStatsSecurity:
         }
 
         mock_redis.smembers = AsyncMock(return_value=malicious_endpoints)
+        mock_redis.hget = AsyncMock(return_value="100")
         mock_redis.get = AsyncMock(return_value="100")
         mock_redis.mget = AsyncMock(return_value=["1"] * 200)
 
@@ -622,6 +623,7 @@ class TestRedisEndpointStatsGetStatsSecurity:
         # Many endpoints
         many_endpoints = {f"endpoint_{i}" for i in range(10000)}
         mock_redis.smembers = AsyncMock(return_value=many_endpoints)
+        mock_redis.hget = AsyncMock(return_value="100")
         mock_redis.get = AsyncMock(return_value="100")
         mock_redis.mget = AsyncMock(return_value=["1"] * 200)
 
@@ -651,28 +653,25 @@ class TestRedisEndpointStatsExpirationSecurity:
 
     @pytest.mark.asyncio
     async def test_bucket_expiration_setting(self):
-        """Test that bucket expiration is set correctly."""
+        """Test that bucket expiration is set correctly via Lua script."""
         mock_redis = MagicMock()
         mock_redis.ping = AsyncMock()
         mock_redis.aclose = AsyncMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
 
         with patch("redis.asyncio.from_url", return_value=mock_redis):
             stats = RedisEndpointStats()
 
             await stats.increment("test_endpoint")
 
-            # Verify expiration is set
-            expire_calls = mock_pipeline.expire.call_args_list
-            assert len(expire_calls) > 0
-
-            # Expiration should be set (multi-resolution uses different TTLs)
-            # Check that expiration is called with reasonable values
-            for call in expire_calls:
-                expiration = call[0][1]
-                # Should be one of: 7200 (2 hours), 172800 (2 days), or 3000000 (~35 days)
-                assert expiration in [7200, 172800, 3000000]
+            # Expiration is now set inside the Lua script (atomic operation).
+            # Verify the Lua source contains EXPIRE calls with correct TTLs.
+            lua_source = mock_redis.register_script.call_args[0][0]
+            assert "EXPIRE" in lua_source
+            assert "7200" in lua_source    # 2 hours for minute buckets
+            assert "172800" in lua_source  # 2 days for hour buckets
+            assert "3000000" in lua_source  # ~35 days for day buckets
 
 
 # ============================================================================
@@ -689,9 +688,10 @@ class TestRedisEndpointStatsConcurrentAccess:
         mock_redis = MagicMock()
         mock_redis.ping = AsyncMock()
         mock_redis.aclose = AsyncMock()
-        mock_pipeline = AsyncMock()
-        mock_redis.pipeline.return_value.__aenter__.return_value = mock_pipeline
+        mock_script = AsyncMock()
+        mock_redis.register_script = MagicMock(return_value=mock_script)
         mock_redis.smembers = AsyncMock(return_value={"endpoint1"})
+        mock_redis.hget = AsyncMock(return_value="100")
         mock_redis.get = AsyncMock(return_value="100")
         mock_redis.mget = AsyncMock(return_value=["1"] * 200)
 
