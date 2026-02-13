@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Core Webhook Module is a FastAPI-based webhook receiver/processor that validates incoming webhooks using 11 authentication methods and routes payloads to 17+ output destinations. Key features include webhook chaining (sequential/parallel execution), live configuration reload, distributed analytics via ClickHouse, and optional etcd-based distributed configuration with namespace support.
+Core Webhook Module is a FastAPI-based webhook receiver/processor that validates incoming webhooks using 12 authentication methods and routes payloads to 18 output destinations. Key features include webhook chaining (sequential/parallel execution), live configuration reload, distributed analytics via ClickHouse, and optional etcd-based distributed configuration with namespace support.
 
 ## Python Environment
 
@@ -99,7 +99,7 @@ HTTP Request → FastAPI (main.py) → WebhookHandler (webhook.py)
 | config_provider.py | src/ | ConfigProvider ABC (read-only interface for config backends) |
 | file_config_provider.py | src/ | File-based config provider (wraps JSON file loading) |
 | etcd_config_provider.py | src/ | etcd config provider (in-memory cache + watch + reconnect) |
-| validators.py | src/ | 11 auth validators (JWT, HMAC, OAuth, etc.) |
+| validators.py | src/ | 12 auth validators (JWT, HMAC, OAuth, etc.) |
 | chain_processor.py | src/ | Multi-module sequential/parallel execution |
 | connection_pool_registry.py | src/ | Connection lifecycle, versioned pools |
 | modules/base.py | src/ | Abstract base class for output modules |
@@ -236,7 +236,7 @@ See `docs/DISTRIBUTED_CONFIG_ETCD.md` for full etcd documentation.
 
 ## Security
 
-- 11 auth methods: Bearer, Basic, JWT, HMAC, IP whitelist, reCAPTCHA, rate limiting, query param, header, OAuth2, Digest
+- 12 auth methods: Bearer, Basic, JWT, HMAC, IP whitelist, reCAPTCHA, query param, header, OAuth1, OAuth2, Digest, JSON Schema
 - Type validation on all config values
 - Input sanitization with size/depth limits
 - Credential redaction in logs

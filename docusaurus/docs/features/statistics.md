@@ -6,8 +6,14 @@ Internal metrics for monitoring webhook processing performance.
 
 The webhook module tracks internal execution metrics for chain processing and task management. These metrics are used for monitoring and debugging purposes.
 
-:::info Planned Feature
-A dedicated `/stats` endpoint for per-webhook request statistics is planned for a future release. Currently, statistics are available through:
+:::tip Available Feature
+A dedicated `/stats` endpoint provides per-webhook request statistics. Access it via:
+
+```bash
+curl http://localhost:8000/stats
+```
+
+Additional statistics are also available through:
 - ClickHouse Analytics (if enabled) - see [ClickHouse Analytics](clickhouse-analytics)
 - Application logs
 - Internal metrics

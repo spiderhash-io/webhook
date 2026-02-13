@@ -10,7 +10,7 @@
 
 A webhook receiver and processor built with FastAPI. Receives HTTP webhook requests, validates them using authentication and validation rules, and forwards payloads to destinations including RabbitMQ, Redis, MQTT, databases, object storage, message queues, and local filesystem.
 
-**Status**: 3,100+ passing tests. Supports 11 authentication methods, 17 output modules, cloud-to-local webhook relay, distributed etcd configuration, and Vault secret management.
+**Status**: 3,300+ passing tests. Supports 12 authentication methods, 17 output modules, cloud-to-local webhook relay, distributed etcd configuration, and Vault secret management.
 
 ## Recent Updates (2025-01)
 
@@ -1578,10 +1578,10 @@ See `docs/WEBHOOK_CHAINING_FEATURE.md` for detailed documentation.
 
 ## Test Status
 
-**Current Test Coverage: 2,493 tests passing** ✅ (109 longrunning tests deselected by default)
+**Current Test Coverage: 3,300+ tests passing** ✅ (152 longrunning tests deselected by default)
 
 Test suites include:
-- Authentication tests (all 11 methods)
+- Authentication tests (all 12 methods)
 - Validation tests (HMAC, IP Whitelist, reCAPTCHA, JSON Schema)
 - Security audit tests (SQL injection, SSRF, XSS, injection attacks)
 - Module tests (all 17 output modules)

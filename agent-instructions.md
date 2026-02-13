@@ -1445,7 +1445,7 @@ curl http://localhost:8000/admin/config-status \
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DISABLE_OPENAPI_DOCS` | `false` | Disable Swagger/ReDoc |
-| `WEBHOOK_CONNECT_ENABLED` | `true` | Enable Webhook Connect feature |
+| `WEBHOOK_CONNECT_ENABLED` | `false` | Enable Webhook Connect feature |
 
 ---
 
