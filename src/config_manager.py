@@ -611,8 +611,8 @@ class ConfigManager:
         with open(self.webhook_config_file, "r") as f:
             config = json.load(f)
 
-        # Apply environment variable substitution
-        config = load_env_vars(config)
+        # Apply env/vault substitution off the event loop (can do blocking I/O).
+        config = await asyncio.to_thread(load_env_vars, config)
 
         return config
 
@@ -624,8 +624,8 @@ class ConfigManager:
         with open(self.connection_config_file, "r") as f:
             config = json.load(f)
 
-        # Apply environment variable substitution
-        config = load_env_vars(config)
+        # Apply env/vault substitution off the event loop (can do blocking I/O).
+        config = await asyncio.to_thread(load_env_vars, config)
 
         return config
 

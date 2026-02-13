@@ -227,6 +227,9 @@ class VaultSecretResolver:
                     return {}
                 return data
             except Exception as exc:
+                # Do not retry permanent errors (e.g., invalid path/policy).
+                if not self._is_retryable_error(exc):
+                    raise
                 last_error = exc
                 self._invalidate_client()
 
@@ -234,6 +237,39 @@ class VaultSecretResolver:
             raise last_error
 
         return {}
+
+    @staticmethod
+    def _is_retryable_error(exc: Exception) -> bool:
+        """Return True when an error is likely transient/recoverable by re-auth/retry."""
+        name = exc.__class__.__name__
+
+        non_retryable_names = {
+            "InvalidPath",
+            "InvalidRequest",
+            "Forbidden",
+            "ForbiddenError",
+            "ParamValidationError",
+        }
+        if name in non_retryable_names:
+            return False
+
+        if isinstance(exc, (TimeoutError, ConnectionError)):
+            return True
+
+        retryable_names = {
+            "ReadTimeout",
+            "ConnectTimeout",
+            "ConnectionError",
+            "SSLError",
+            "ProxyError",
+            "VaultDown",
+            "InternalServerError",
+            "BadGateway",
+            "ServiceUnavailable",
+            "Unauthorized",
+            "UnexpectedError",
+        }
+        return name in retryable_names
 
     def _get_client(self):
         """Create or return authenticated Vault client."""
@@ -292,10 +328,11 @@ class VaultSecretResolver:
         secret_id = os.getenv("VAULT_SECRET_ID", "").strip()
         if role_id and secret_id:
             auth_response = client.auth.approle.login(role_id=role_id, secret_id=secret_id)
-            auth = auth_response.get("auth", {})
-            client_token = auth.get("client_token")
-            if client_token:
-                client.token = client_token
+            auth = auth_response.get("auth", {}) if isinstance(auth_response, dict) else {}
+            client_token = auth.get("client_token") if isinstance(auth, dict) else None
+            if not client_token:
+                raise ValueError("AppRole authentication failed: missing client token")
+            client.token = client_token
             return client
 
         raise ValueError(

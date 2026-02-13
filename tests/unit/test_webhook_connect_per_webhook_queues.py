@@ -67,10 +67,9 @@ class TestRabbitMQPerWebhookNaming:
 
     @pytest.mark.asyncio
     async def test_collector_name(self):
-        """Collector queue name follows convention."""
+        """RabbitMQ buffer no longer uses collector queues."""
         buffer = RabbitMQBuffer(exchange_name="webhook_connect")
-        name = buffer._collector_name("relay.user-123")
-        assert name == "webhook_connect.relay.user-123.collector"
+        assert not hasattr(buffer, "_collector_name")
 
     @pytest.mark.asyncio
     async def test_routing_key_with_webhook_id(self):
@@ -177,53 +176,34 @@ class TestRabbitMQPushRouting:
 
 
 class TestRabbitMQSubscribeCollector:
-    """Tests for subscribe() with collector queue pattern."""
+    """Tests for direct per-webhook subscribe() behavior."""
 
     @pytest.mark.asyncio
     async def test_subscribe_creates_collector_queue(self):
-        """subscribe() creates auto-delete collector queue."""
+        """subscribe() returns composite tag and does not create collector queues."""
         buffer = RabbitMQBuffer(exchange_name="webhook_connect")
         mock_channel = AsyncMock()
         mock_exchange = AsyncMock()
         buffer.channel = mock_channel
         buffer.exchange = mock_exchange
 
-        mock_queue = AsyncMock()
-        mock_queue.consume = AsyncMock(return_value="ctag-1")
-        mock_channel.declare_queue = AsyncMock(return_value=mock_queue)
-
         callback = AsyncMock()
         tag = await buffer.subscribe("relay.user-123", callback)
 
-        assert tag == "ctag-1"
-
-        # Verify collector queue declaration
-        mock_channel.declare_queue.assert_called_once()
-        call_args = mock_channel.declare_queue.call_args
-        assert call_args[0][0] == "webhook_connect.relay.user-123.collector"
-        assert call_args[1]["durable"] is False
-        assert call_args[1]["auto_delete"] is True
-
-        # Verify wildcard binding
-        mock_queue.bind.assert_called_once_with(
-            mock_exchange, routing_key="relay.user-123.*"
-        )
+        assert tag == "channel_sub:relay.user-123"
+        mock_channel.declare_queue.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_subscribe_returns_consumer_tag(self):
-        """subscribe() returns the consumer tag for cancellation."""
+        """subscribe() returns a composite consumer tag for channel-level unsubscribe."""
         buffer = RabbitMQBuffer()
         mock_channel = AsyncMock()
         mock_exchange = AsyncMock()
         buffer.channel = mock_channel
         buffer.exchange = mock_exchange
 
-        mock_queue = AsyncMock()
-        mock_queue.consume = AsyncMock(return_value="my-tag-123")
-        mock_channel.declare_queue = AsyncMock(return_value=mock_queue)
-
         tag = await buffer.subscribe("ch", AsyncMock())
-        assert tag == "my-tag-123"
+        assert tag == "channel_sub:ch"
 
 
 class TestRabbitMQUnsubscribe:
@@ -231,13 +211,15 @@ class TestRabbitMQUnsubscribe:
 
     @pytest.mark.asyncio
     async def test_unsubscribe_cancels_consumer(self):
-        """unsubscribe() calls basic_cancel on the channel."""
+        """unsubscribe() cancels tracked consumer via queue reference."""
         buffer = RabbitMQBuffer()
         buffer.channel = AsyncMock()
+        mock_queue = AsyncMock()
+        buffer._consumer_queues["ctag-1"] = mock_queue
 
         await buffer.unsubscribe("ctag-1")
 
-        buffer.channel.basic_cancel.assert_called_once_with("ctag-1")
+        mock_queue.cancel.assert_called_once_with("ctag-1")
 
     @pytest.mark.asyncio
     async def test_unsubscribe_no_channel_is_noop(self):
@@ -255,21 +237,22 @@ class TestRabbitMQGetQueueDepth:
     async def test_get_queue_depth_with_webhook_id(self):
         """get_queue_depth queries specific per-webhook queue."""
         buffer = RabbitMQBuffer(exchange_name="webhook_connect")
-        mock_channel = AsyncMock()
-        buffer.channel = mock_channel
+        mock_connection = AsyncMock()
+        buffer.connection = mock_connection
 
-        mock_queue = AsyncMock()
-        mock_declaration = MagicMock()
-        mock_declaration.message_count = 42
-        mock_queue.declare = AsyncMock(return_value=mock_declaration)
-        mock_channel.get_queue = AsyncMock(return_value=mock_queue)
+        mock_temp_channel = AsyncMock()
+        mock_connection.channel = AsyncMock(return_value=mock_temp_channel)
+        mock_queue = MagicMock()
+        mock_queue.declaration_result = MagicMock(message_count=42)
+        mock_temp_channel.declare_queue = AsyncMock(return_value=mock_queue)
 
         count = await buffer.get_queue_depth("relay.user-123", webhook_id="wh-abc")
 
         assert count == 42
-        mock_channel.get_queue.assert_called_with(
-            "webhook_connect.relay.user-123.wh-abc", ensure=False
+        mock_temp_channel.declare_queue.assert_called_once_with(
+            "webhook_connect.relay.user-123.wh-abc", passive=True
         )
+        mock_temp_channel.close.assert_called_once()
 
 
 class TestRabbitMQDeleteChannel:
@@ -287,7 +270,7 @@ class TestRabbitMQDeleteChannel:
             webhook_ids=["wh-1", "wh-2"],
         )
 
-        # Should delete 2 main queues + 2 DLQs + 1 collector = 5 queue_delete calls
+        # Should delete 2 main queues + 2 DLQs (no collector queue in direct mode)
         queue_delete_calls = mock_channel.queue_delete.call_args_list
         deleted_names = [c[0][0] for c in queue_delete_calls]
 
@@ -295,7 +278,7 @@ class TestRabbitMQDeleteChannel:
         assert "webhook_connect.relay.user-123.wh-1.dlq" in deleted_names
         assert "webhook_connect.relay.user-123.wh-2" in deleted_names
         assert "webhook_connect.relay.user-123.wh-2.dlq" in deleted_names
-        assert "webhook_connect.relay.user-123.collector" in deleted_names
+        assert len(deleted_names) == 4
 
 
 # ─── Redis Per-Webhook Stream Tests ──────────────────────────────────────────

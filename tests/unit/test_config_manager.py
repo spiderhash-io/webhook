@@ -5,6 +5,7 @@ import json
 import tempfile
 import os
 import asyncio
+import time
 from unittest.mock import patch, AsyncMock
 from src.config_manager import ConfigManager, ReloadResult
 
@@ -244,3 +245,85 @@ class TestConfigManager:
         # Either one succeeds and one is queued, or both succeed (race condition)
         assert success_count >= 1, "At least one reload should succeed"
         assert success_count + queued_count == 2, "Both reloads should complete"
+
+    @pytest.mark.asyncio
+    async def test_load_webhook_config_does_not_block_event_loop(self, tmp_path, monkeypatch):
+        """Slow env/vault resolution should be offloaded from the event loop."""
+        webhook_path = tmp_path / "webhooks.json"
+        webhook_path.write_text(
+            json.dumps({"test_webhook": {"data_type": "json", "module": "log"}})
+        )
+        conn_path = tmp_path / "connections.json"
+        conn_path.write_text(json.dumps({}))
+
+        manager = ConfigManager(
+            webhook_config_file=str(webhook_path),
+            connection_config_file=str(conn_path),
+        )
+
+        def slow_load_env_vars(data, visited=None, depth=0, vault_resolver=None):
+            time.sleep(0.25)
+            return data
+
+        monkeypatch.setattr("src.config_manager.load_env_vars", slow_load_env_vars)
+
+        async def marker():
+            await asyncio.sleep(0.05)
+
+        load_task = asyncio.create_task(manager._load_webhook_config())
+        marker_task = asyncio.create_task(marker())
+
+        start = time.monotonic()
+        await marker_task
+        elapsed = time.monotonic() - start
+
+        # If _load_webhook_config blocks the loop, marker would be delayed by ~0.25s.
+        assert elapsed < 0.18
+        await load_task
+
+    @pytest.mark.asyncio
+    async def test_load_connection_config_does_not_block_event_loop(
+        self, tmp_path, monkeypatch
+    ):
+        """Slow env/vault resolution should be offloaded from the event loop."""
+        webhook_path = tmp_path / "webhooks.json"
+        webhook_path.write_text(
+            json.dumps({"test_webhook": {"data_type": "json", "module": "log"}})
+        )
+        conn_path = tmp_path / "connections.json"
+        conn_path.write_text(
+            json.dumps(
+                {
+                    "test_connection": {
+                        "type": "rabbitmq",
+                        "host": "rabbitmq.example.com",
+                        "port": 5672,
+                    }
+                }
+            )
+        )
+
+        manager = ConfigManager(
+            webhook_config_file=str(webhook_path),
+            connection_config_file=str(conn_path),
+        )
+
+        def slow_load_env_vars(data, visited=None, depth=0, vault_resolver=None):
+            time.sleep(0.25)
+            return data
+
+        monkeypatch.setattr("src.config_manager.load_env_vars", slow_load_env_vars)
+
+        async def marker():
+            await asyncio.sleep(0.05)
+
+        load_task = asyncio.create_task(manager._load_connection_config())
+        marker_task = asyncio.create_task(marker())
+
+        start = time.monotonic()
+        await marker_task
+        elapsed = time.monotonic() - start
+
+        # If _load_connection_config blocks the loop, marker would be delayed by ~0.25s.
+        assert elapsed < 0.18
+        await load_task

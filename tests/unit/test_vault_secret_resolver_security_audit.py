@@ -695,6 +695,68 @@ class TestVaultAuthBypass:
             resolver._create_authenticated_client()
         assert mock_hvac.Client.call_args[1]["timeout"] == 300
 
+    def test_approle_without_client_token_raises_error(self, monkeypatch):
+        """AppRole login must provide auth.client_token or fail closed."""
+        resolver = VaultSecretResolver()
+        monkeypatch.setenv("VAULT_ADDR", "https://vault:8200")
+        monkeypatch.delenv("VAULT_TOKEN", raising=False)
+        monkeypatch.setenv("VAULT_ROLE_ID", "my-role")
+        monkeypatch.setenv("VAULT_SECRET_ID", "my-secret")
+
+        mock_hvac = MagicMock()
+        mock_client = MagicMock()
+        mock_client.auth.approle.login.return_value = {"auth": {}}
+        mock_hvac.Client.return_value = mock_client
+
+        with patch.dict("sys.modules", {"hvac": mock_hvac}):
+            with pytest.raises(ValueError, match="client token"):
+                resolver._create_authenticated_client()
+
+
+class TestVaultRetryPolicy:
+    """Test retry policy behavior for retryable vs non-retryable errors."""
+
+    def test_non_retryable_error_is_not_retried(self, monkeypatch):
+        """Permanent errors (e.g., invalid path) should not trigger retry churn."""
+
+        class InvalidPath(Exception):
+            pass
+
+        resolver = VaultSecretResolver()
+        mock_client = MagicMock()
+        mock_client.secrets.kv.v2.read_secret_version.side_effect = InvalidPath("bad path")
+
+        monkeypatch.setenv("VAULT_KV_VERSION", "2")
+        monkeypatch.setenv("VAULT_MOUNT_POINT", "secret")
+
+        with patch.object(resolver, "_get_client", return_value=mock_client):
+            with patch.object(resolver, "_invalidate_client") as mock_invalidate:
+                with pytest.raises(InvalidPath):
+                    resolver._read_secret_data("webhooks/missing")
+
+        assert mock_client.secrets.kv.v2.read_secret_version.call_count == 1
+        assert mock_invalidate.call_count == 0
+
+    def test_retryable_error_retries_once(self, monkeypatch):
+        """Transient connection errors should be retried once."""
+        resolver = VaultSecretResolver()
+        mock_client = MagicMock()
+        mock_client.secrets.kv.v2.read_secret_version.side_effect = [
+            ConnectionError("temporary network failure"),
+            {"data": {"data": {"token": "value"}}},
+        ]
+
+        monkeypatch.setenv("VAULT_KV_VERSION", "2")
+        monkeypatch.setenv("VAULT_MOUNT_POINT", "secret")
+
+        with patch.object(resolver, "_get_client", return_value=mock_client):
+            with patch.object(resolver, "_invalidate_client") as mock_invalidate:
+                data = resolver._read_secret_data("webhooks/app")
+
+        assert data == {"token": "value"}
+        assert mock_client.secrets.kv.v2.read_secret_version.call_count == 2
+        assert mock_invalidate.call_count == 1
+
 
 # ============================================================================
 # 9. TIME-BASED CACHE BEHAVIOR

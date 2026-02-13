@@ -548,6 +548,35 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
     return value
 
 
+def _normalize_vault_secret_value(value: Any, context_key: str = None) -> str:
+    """
+    Normalize Vault-resolved secret values without mutating secret content.
+
+    Unlike environment-variable sanitization, this intentionally avoids stripping
+    substrings/characters (e.g. `id`, `pwd`) because that can corrupt valid secrets.
+    """
+    secret = str(value)
+
+    if "\x00" in secret:
+        logger.warning(
+            "Vault secret contains null byte (context: %s), removing",
+            context_key,
+        )
+        secret = secret.replace("\x00", "")
+
+    # Keep the same upper bound used for env values to avoid unbounded growth.
+    MAX_SECRET_VALUE_LENGTH = 4096
+    if len(secret) > MAX_SECRET_VALUE_LENGTH:
+        logger.warning(
+            "Vault secret value too long (context: %s): %d characters, truncating",
+            context_key,
+            len(secret),
+        )
+        secret = secret[:MAX_SECRET_VALUE_LENGTH]
+
+    return secret
+
+
 def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
     """
     Load environment variables and Vault secrets from configuration data.
@@ -621,9 +650,11 @@ def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
                     "Vault secret reference '%s' could not be resolved for key '%s'",
                     reference, context_key,
                 )
-                return f"Undefined vault secret {reference}"
+                raise ValueError(
+                    f"Vault secret reference '{reference}' could not be resolved"
+                )
 
-            return _sanitize_env_value(str(resolved), context_key)
+            return _normalize_vault_secret_value(resolved, context_key)
 
         # Try exact env match next (entire string is an env variable)
         exact_env_match = _EXACT_ENV_PATTERN.match(value)
@@ -659,9 +690,11 @@ def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
                         "Vault secret reference '%s' not resolved in embedded string for key '%s'",
                         reference, context_key,
                     )
-                    return match.group(0)  # Keep original placeholder
+                    raise ValueError(
+                        f"Vault secret reference '{reference}' could not be resolved"
+                    )
 
-                return _sanitize_env_value(str(resolved), context_key)
+                return _normalize_vault_secret_value(resolved, context_key)
 
             new_value = _EMBEDDED_VAULT_PATTERN.sub(replace_embedded_vault, value)
 

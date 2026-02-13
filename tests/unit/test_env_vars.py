@@ -250,3 +250,54 @@ def test_load_env_vars_vault_default_fallback():
         result = load_env_vars(config)
 
     assert result["token"] == "default_token"
+
+
+def test_load_env_vars_vault_unresolved_exact_raises():
+    """Unresolved exact Vault placeholders should fail closed."""
+
+    class DummyResolver:
+        def resolve_reference(self, reference, default=None, context_key=None):
+            return None
+
+    with patch(
+        "src.vault_secret_resolver.get_vault_secret_resolver",
+        return_value=DummyResolver(),
+    ):
+        with pytest.raises(ValueError, match="could not be resolved"):
+            load_env_vars({"authorization": "{$vault:webhooks/missing#token}"})
+
+
+def test_load_env_vars_vault_unresolved_embedded_raises():
+    """Unresolved embedded Vault placeholders should fail closed."""
+
+    class DummyResolver:
+        def resolve_reference(self, reference, default=None, context_key=None):
+            return None
+
+    with patch(
+        "src.vault_secret_resolver.get_vault_secret_resolver",
+        return_value=DummyResolver(),
+    ):
+        with pytest.raises(ValueError, match="could not be resolved"):
+            load_env_vars(
+                {"authorization": "Bearer {$vault:webhooks/missing#token}"}
+            )
+
+
+def test_load_env_vars_vault_secret_value_not_mutated():
+    """Vault secret values should not be transformed by generic env sanitization."""
+
+    secret_value = "apiidpwdwhoami-secret"
+
+    class DummyResolver:
+        def resolve_reference(self, reference, default=None, context_key=None):
+            return secret_value
+
+    with patch(
+        "src.vault_secret_resolver.get_vault_secret_resolver",
+        return_value=DummyResolver(),
+    ):
+        config = {"authorization": "{$vault:webhooks/dev#token}"}
+        result = load_env_vars(config)
+
+    assert result["authorization"] == secret_value
