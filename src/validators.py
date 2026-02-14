@@ -1203,7 +1203,7 @@ class OAuth2Validator(BaseValidator):
 
                 async with httpx.AsyncClient() as client:
                     response = await client.post(
-                        introspection_endpoint, data=data, auth=auth, timeout=10.0
+                        introspection_endpoint, data=data, auth=auth, timeout=5.0
                     )
                     response.raise_for_status()
                     introspection_result = response.json()
@@ -1517,6 +1517,9 @@ class DigestAuthValidator(BaseValidator):
 class OAuth1NonceTracker:
     """Tracks OAuth 1.0 nonces to prevent replay attacks."""
 
+    # Maximum number of nonces to store to prevent unbounded memory growth
+    MAX_NONCES = 100_000
+
     def __init__(self, max_age_seconds: int = 600):
         """
         Initialize nonce tracker.
@@ -1575,6 +1578,17 @@ class OAuth1NonceTracker:
                 else:
                     # Expired nonce, remove it
                     del self.nonces[nonce]
+
+            # SECURITY: Enforce maximum nonce storage to prevent memory exhaustion
+            if len(self.nonces) >= self.MAX_NONCES:
+                # Force cleanup before rejecting
+                self._cleanup_expired_nonces(current_time)
+                if len(self.nonces) >= self.MAX_NONCES:
+                    logger.warning(
+                        "OAuth1 nonce tracker full (%d nonces), rejecting request",
+                        len(self.nonces),
+                    )
+                    return False, "Server nonce storage full, please retry later"
 
             # Calculate expiration time: timestamp + window + buffer
             # Use timestamp from request, not current time, to prevent clock skew issues
@@ -2000,7 +2014,7 @@ class RecaptchaValidator(BaseValidator):
                 data["remoteip"] = client_ip
 
             # Make async request to Google
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.post(self.verify_url, data=data)
                 response.raise_for_status()
                 result = response.json()

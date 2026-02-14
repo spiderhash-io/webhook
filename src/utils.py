@@ -22,6 +22,19 @@ _EMBEDDED_VAULT_PATTERN = re.compile(r"\{\$vault:([^}]+)\}")
 logger = logging.getLogger(__name__)
 
 
+_CONN_STRING_CRED_RE = re.compile(r"(://[^:]+:)[^@]+(@)")
+_KEY_VALUE_CRED_RE = re.compile(
+    r"(?i)('?(?:password|secret|token|api_key|apikey|credential)'?\s*[:=]\s*)\S+",
+)
+
+
+def _redact_credentials(text: str) -> str:
+    """Redact passwords and secrets from a text string before logging."""
+    text = _CONN_STRING_CRED_RE.sub(r"\1[REDACTED]\2", text)
+    text = _KEY_VALUE_CRED_RE.sub(r"\1[REDACTED]", text)
+    return text
+
+
 def sanitize_error_message(error: Any, context: str = None) -> str:
     """
     Sanitize error messages to prevent information disclosure.
@@ -40,10 +53,12 @@ def sanitize_error_message(error: Any, context: str = None) -> str:
     error_str = str(error)
 
     # Log detailed error server-side (for debugging)
+    # SECURITY: Redact potential credentials before logging
+    redacted_str = _redact_credentials(error_str)
     if context:
-        logger.error("Error [%s]: %s", context, error_str)
+        logger.error("Error [%s]: %s", context, redacted_str)
     else:
-        logger.error("Error: %s", error_str)
+        logger.error("Error: %s", redacted_str)
 
     # Return generic message for client
     # Don't expose:
@@ -451,7 +466,7 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
             if value.lower().startswith(scheme):
                 logger.warning(
                     "Environment variable value contains dangerous URL scheme (context: %s): %s",
-                    context_key, scheme,
+                    context_key or "unknown", scheme,
                 )
                 # Remove the dangerous scheme
                 value = value[len(scheme) :].lstrip()
@@ -462,8 +477,8 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
     for char in dangerous_chars:
         if char in value:
             logger.warning(
-                "Environment variable value contains dangerous character '%s' (context: %s): %s",
-                char, context_key, value[:50],
+                "Environment variable value contains dangerous character '%s' (context: %s)",
+                char, context_key or "unknown",
             )
             value = value.replace(char, "")
 
@@ -488,8 +503,8 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
         for pattern in sql_injection_patterns:
             if re.search(pattern, value, re.IGNORECASE):
                 logger.warning(
-                    "Environment variable value contains potential SQL injection pattern (context: %s): %s",
-                    context_key, value[:50],
+                    "Environment variable value contains potential SQL injection pattern (context: %s)",
+                    context_key or "unknown",
                 )
                 # Remove SQL injection patterns
                 value = re.sub(pattern, "", value, flags=re.IGNORECASE)
@@ -497,8 +512,8 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
     # Check for path traversal patterns
     if ".." in value:
         logger.warning(
-            "Environment variable value contains path traversal pattern (context: %s): %s",
-            context_key, value[:50],
+            "Environment variable value contains path traversal pattern (context: %s)",
+            context_key or "unknown",
         )
         # Remove path traversal
         value = value.replace("..", "")
@@ -511,8 +526,8 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
         and "url" not in context_key.lower()
     ):
         logger.warning(
-            "Environment variable value contains absolute path (context: %s): %s",
-            context_key, value[:50],
+            "Environment variable value contains absolute path in non-path context (context: %s)",
+            context_key or "unknown",
         )
         # Remove leading slash
         value = value.lstrip("/")
@@ -522,8 +537,8 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
     for keyword in command_keywords:
         if keyword.lower() in value.lower():
             logger.warning(
-                "Environment variable value contains command keyword '%s' (context: %s): %s",
-                keyword, context_key, value[:50],
+                "Environment variable value contains command keyword '%s' (context: %s)",
+                keyword, context_key or "unknown",
             )
             # Remove the keyword and surrounding context
             value = re.sub(re.escape(keyword), "", value, flags=re.IGNORECASE)
@@ -533,7 +548,7 @@ def _sanitize_env_value(value: str, context_key: str = None) -> str:
     if len(value) > MAX_ENV_VALUE_LENGTH:
         logger.warning(
             "Environment variable value too long (context: %s): %d characters, truncating",
-            context_key, len(value),
+            context_key or "unknown", len(value),
         )
         value = value[:MAX_ENV_VALUE_LENGTH]
 
@@ -555,26 +570,27 @@ def _normalize_vault_secret_value(value: Any, context_key: str = None) -> str:
     Unlike environment-variable sanitization, this intentionally avoids stripping
     substrings/characters (e.g. `id`, `pwd`) because that can corrupt valid secrets.
     """
-    secret = str(value)
+    normalized = str(value)
+    key_label = context_key or "unknown"
 
-    if "\x00" in secret:
+    if "\x00" in normalized:
         logger.warning(
-            "Vault secret contains null byte (context: %s), removing",
-            context_key,
+            "Vault value contains null byte (context: %s), removing",
+            key_label,
         )
-        secret = secret.replace("\x00", "")
+        normalized = normalized.replace("\x00", "")
 
     # Keep the same upper bound used for env values to avoid unbounded growth.
     MAX_SECRET_VALUE_LENGTH = 4096
-    if len(secret) > MAX_SECRET_VALUE_LENGTH:
+    if len(normalized) > MAX_SECRET_VALUE_LENGTH:
         logger.warning(
-            "Vault secret value too long (context: %s): %d characters, truncating",
-            context_key,
-            len(secret),
+            "Vault value too long (context: %s): %d characters, truncating",
+            key_label,
+            len(normalized),
         )
-        secret = secret[:MAX_SECRET_VALUE_LENGTH]
+        normalized = normalized[:MAX_SECRET_VALUE_LENGTH]
 
-    return secret
+    return normalized
 
 
 def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
@@ -647,11 +663,11 @@ def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
 
             if resolved is None:
                 logger.warning(
-                    "Vault secret reference '%s' could not be resolved for key '%s'",
-                    reference, context_key,
+                    "Vault reference could not be resolved for key '%s'",
+                    context_key or "unknown",
                 )
                 raise ValueError(
-                    f"Vault secret reference '{reference}' could not be resolved"
+                    f"Vault secret reference could not be resolved for key '{context_key or 'unknown'}'"
                 )
 
             return _normalize_vault_secret_value(resolved, context_key)
@@ -659,9 +675,9 @@ def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
         # Try exact env match next (entire string is an env variable)
         exact_env_match = _EXACT_ENV_PATTERN.match(value)
         if exact_env_match:
-            env_var = exact_env_match.group(1)
+            env_var_name = exact_env_match.group(1)
             default = exact_env_match.group(2)  # Can be None or empty string
-            env_value = os.getenv(env_var)
+            env_value = os.getenv(env_var_name)
 
             if env_value is not None:
                 # Sanitize environment variable value
@@ -675,23 +691,23 @@ def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
                 # No default provided and env var not set
                 logger.warning(
                     "Environment variable '%s' not set and no default provided for key '%s'",
-                    env_var, context_key,
+                    env_var_name, context_key or "unknown",
                 )
-                return f"Undefined variable {env_var}"
+                return f"Undefined variable {env_var_name}"
         else:
             # First resolve embedded Vault references (if any)
             def replace_embedded_vault(match):
-                reference = match.group(1)
+                vault_ref = match.group(1)
                 resolved = vault_resolver.resolve_reference(
-                    reference, context_key=context_key
+                    vault_ref, context_key=context_key
                 )
                 if resolved is None:
                     logger.warning(
-                        "Vault secret reference '%s' not resolved in embedded string for key '%s'",
-                        reference, context_key,
+                        "Embedded Vault reference not resolved for key '%s'",
+                        context_key or "unknown",
                     )
                     raise ValueError(
-                        f"Vault secret reference '{reference}' could not be resolved"
+                        f"Vault secret reference could not be resolved for key '{context_key or 'unknown'}'"
                     )
 
                 return _normalize_vault_secret_value(resolved, context_key)
@@ -700,9 +716,9 @@ def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
 
             # Then resolve embedded env variables (variables within strings)
             def replace_embedded_env(match):
-                env_var = match.group(1)
+                env_var_name = match.group(1)
                 default = match.group(2)  # Can be None or empty string
-                env_value = os.getenv(env_var)
+                env_value = os.getenv(env_var_name)
 
                 if env_value is not None:
                     # Sanitize environment variable value
@@ -716,7 +732,7 @@ def load_env_vars(data, visited=None, depth=0, vault_resolver=None):
                     # Keep original if not found and no default
                     logger.warning(
                         "Environment variable '%s' not set in embedded string for key '%s'",
-                        env_var, context_key,
+                        env_var_name, context_key or "unknown",
                     )
                     return match.group(0)  # Return original placeholder
 

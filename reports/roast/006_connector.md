@@ -26,13 +26,13 @@ Top-impact issues:
 | [x] | P0 | stream_client.py:359-360 | Correctness | SSE parser drops multi-line data fields, corrupting payloads |
 | [x] | P0 | processor.py:460-468 | Performance | BatchProcessor creates new session+processor per message |
 | [x] | P1 | config.py:237-241 | Correctness | Env override ignores env vars that match default, not file config |
-| [ ] | P1 | stream_client.py:292-398 | Reliability | SSE client has no heartbeat monitor (hangs forever on stalled server) |
+| [x] | P1 | stream_client.py:292-398 | Reliability | SSE client has no heartbeat monitor (hangs forever on stalled server) |
 | [x] | P1 | config.py:290-309 | Security | Channel name unsanitized in URL path -- path traversal possible |
-| [ ] | P1 | processor.py:297-304 | Security | Processor ignores ca_cert_path/client_cert_path, uses bare bool for SSL |
-| [ ] | P1 | main.py:209 | Security | `--token` CLI arg visible in process list (`ps aux`) |
+| [x] | P1 | processor.py:297-304 | Security | Processor ignores ca_cert_path/client_cert_path, uses bare bool for SSL |
+| [x] | P1 | main.py:209 | Security | `--token` CLI arg visible in process list (`ps aux`) |
 | [x] | P2 | stream_client.py:123-126 | Maintainability | `_create_ssl_context()` returns `False` (bool), violates type signature |
 | [x] | P2 | stream_client.py:104-111 | Reliability | Reconnect backoff has no jitter -- thundering herd after outage |
-| [ ] | P2 | config.py:140-142 | Correctness | `from_dict` uses raw `setattr` with no type validation |
+| [x] | P2 | config.py:140-142 | Correctness | `from_dict` uses raw `setattr` with no type validation |
 | [x] | P2 | processor.py:363 | Reliability | BatchProcessor queue is unbounded -- OOM under backpressure |
 | [ ] | P2 | stream_client.py:399-456,554-612 | Maintainability | ACK/NACK methods copy-pasted across 3 client classes |
 | [x] | P3 | main.py:319-335 | Observability | Startup banner uses `print()` not `logger.info()` |

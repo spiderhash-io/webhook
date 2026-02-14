@@ -24,7 +24,7 @@ Top-impact issues (max 5 bullets):
 | [x] | P2 | validators.py:509 | Security | HMAC signature comparison case sensitivity inconsistency |
 | [x] | P2 | validators.py:1776 | Security | OAuth1 signature comparison may not be constant-time for different-length strings |
 | [ ] | P2 | validators.py:1450-1475 | Security | MD5 usage in Digest Auth (documented but inherently weak) |
-| [ ] | P3 | validators.py:1616 | Reliability | Global OAuth1 nonce tracker unbounded memory |
+| [x] | P3 | validators.py:1616 | Reliability | Global OAuth1 nonce tracker unbounded memory |
 | [x] | P3 | validators.py:453-454 | Security | JWT error messages may leak information about token structure |
 | [x] | P3 | validators.py:1230-1231 | Security | OAuth2 scope error message lists all missing scopes |
 | [x] | P3 | validators.py:839 | Correctness | Query param sanitization removes legitimate unicode characters |

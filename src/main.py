@@ -10,6 +10,10 @@ import os
 import time
 from typing import Optional
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from src.webhook import WebhookHandler
 from src.config import inject_connection_details, webhook_config_data, connection_config
 from src.utils import RedisEndpointStats, sanitize_error_message, get_client_ip
@@ -681,367 +685,223 @@ async def cleanup_task():
 # Removed analytics_task - statistics aggregation is now handled by separate analytics service
 
 
+async def _test_single_connection(conn_type: str, conn_details: dict) -> str:
+    """
+    Test a single connection and return a safe status message.
+
+    Credentials are isolated in this helper so they never flow to callers.
+    Returns a description string that is safe to log (no credentials).
+
+    Raises:
+        ValueError: If host/port validation fails.
+        asyncio.TimeoutError: If connection times out.
+        Exception: If connection attempt fails (message is sanitized by caller).
+    """
+    from src.config import _validate_connection_host, _validate_connection_port
+
+    if conn_type == "postgresql":
+        host = conn_details.get("host", "localhost")
+        port = conn_details.get("port", 5432)
+        _validate_connection_host(host, conn_type)
+        _validate_connection_port(port, conn_type)
+
+        import asyncpg
+
+        database = conn_details.get("database", "postgres")
+        conn = await asyncio.wait_for(
+            asyncpg.connect(
+                host=host,
+                port=port,
+                user=conn_details.get("user", "postgres"),
+                password=conn_details.get("password", ""),
+                database=database,
+            ),
+            timeout=5.0,
+        )
+        await conn.fetchval("SELECT 1")
+        await conn.close()
+        return f"Connected to {host}:{port}/{database}"
+
+    elif conn_type == "mysql":
+        host = conn_details.get("host", "localhost")
+        port = conn_details.get("port", 3306)
+        _validate_connection_host(host, conn_type)
+        _validate_connection_port(port, conn_type)
+
+        import aiomysql
+
+        database = conn_details.get("database", "mysql")
+        pool = await asyncio.wait_for(
+            aiomysql.create_pool(
+                host=host,
+                port=port,
+                user=conn_details.get("user", "root"),
+                password=conn_details.get("password", ""),
+                db=database,
+                minsize=1,
+                maxsize=1,
+            ),
+            timeout=5.0,
+        )
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SELECT 1")
+                await cur.fetchone()
+        pool.close()
+        await pool.wait_closed()
+        return f"Connected to {host}:{port}/{database}"
+
+    elif conn_type == "kafka":
+        bootstrap_servers = conn_details.get("bootstrap_servers", "localhost:9092")
+
+        servers = bootstrap_servers.split(",")
+        for server in servers:
+            server = server.strip()
+            if ":" in server:
+                host = server.split(":")[0].strip()
+                port_str = server.split(":")[1].strip()
+                port = int(port_str)
+                _validate_connection_port(port, conn_type)
+            else:
+                host = server
+            _validate_connection_host(host, conn_type)
+
+        from aiokafka import AIOKafkaProducer
+
+        producer = AIOKafkaProducer(
+            bootstrap_servers=bootstrap_servers,
+            value_serializer=lambda v: v,
+        )
+        await asyncio.wait_for(producer.start(), timeout=5.0)
+        await producer.stop()
+        return f"Connected to {bootstrap_servers}"
+
+    elif conn_type == "redis-rq":
+        host = conn_details.get("host", "localhost")
+        port = conn_details.get("port", 6379)
+        _validate_connection_host(host, conn_type)
+        _validate_connection_port(port, conn_type)
+
+        from redis import Redis
+
+        db = conn_details.get("db", 0)
+        client = Redis(host=host, port=port, db=db, socket_connect_timeout=5)
+        client.ping()
+        return f"Connected to {host}:{port}/{db}"
+
+    elif conn_type == "rabbitmq":
+        host = conn_details.get("host", "localhost")
+        port = conn_details.get("port", 5672)
+        _validate_connection_host(host, conn_type)
+        _validate_connection_port(port, conn_type)
+
+        import aio_pika
+
+        connection = await asyncio.wait_for(
+            aio_pika.connect_robust(
+                host=host,
+                port=port,
+                login=conn_details.get("user", "guest"),
+                password=conn_details.get("pass", "guest"),
+            ),
+            timeout=5.0,
+        )
+        await connection.close()
+        return f"Connected to {host}:{port}"
+
+    elif conn_type == "clickhouse":
+        host = conn_details.get("host", "localhost")
+        port = conn_details.get("port", 9000)
+        _validate_connection_host(host, conn_type)
+        _validate_connection_port(port, conn_type)
+
+        from clickhouse_driver import Client
+
+        database = conn_details.get("database", "default")
+        ch_kwargs = {
+            "host": host,
+            "port": port,
+            "database": database,
+            "user": conn_details.get("user", "default"),
+            "secure": False,
+        }
+        ch_password = conn_details.get("password", "")
+        if ch_password:
+            ch_kwargs["password"] = ch_password
+
+        def test_connection():
+            client = Client(**ch_kwargs)
+            client.execute("SELECT 1")
+            return True
+
+        loop = asyncio.get_event_loop()
+        await asyncio.wait_for(
+            loop.run_in_executor(None, test_connection), timeout=5.0
+        )
+        return f"Connected to {host}:{port}/{database}"
+
+    else:
+        return None
+
+
 async def validate_connections(connection_config: dict):
     """
     Validate all connections at startup and log results.
 
     SECURITY: Validates host addresses to prevent SSRF attacks before attempting connections.
+    Credential handling is isolated in _test_single_connection() to prevent leakage.
 
     Args:
         connection_config: Dictionary of connection configurations
     """
     if not connection_config:
-        print("ℹ️  No connections configured")
+        logger.info("No connections configured")
         return
 
-    print("\n🔌 Validating connections...")
-    print("-" * 60)
+    logger.info("Validating connections...")
 
     success_count = 0
     failure_count = 0
-
-    # SECURITY: Import host validation function and ipaddress for private IP detection
-    from src.config import _validate_connection_host, _validate_connection_port
-    import ipaddress
 
     for conn_name, conn_details in connection_config.items():
         if not conn_details or not isinstance(conn_details, dict):
             continue
 
         conn_type = conn_details.get("type", "unknown")
-        status_icon = "⏳"
-        status_msg = ""
 
         try:
-            if conn_type == "postgresql":
-                # SECURITY: Validate host and port before attempting connection
-                host = conn_details.get("host", "localhost")
-                port = conn_details.get("port", 5432)
-
-                # Validate host to prevent SSRF (allows private IPs for internal networks)
-                try:
-                    _validate_connection_host(host, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Host validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Validate port
-                try:
-                    _validate_connection_port(port, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Port validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Test PostgreSQL connection
-                import asyncpg
-
-                database = conn_details.get("database", "postgres")
-                user = conn_details.get("user", "postgres")
-                password = conn_details.get("password", "")
-
-                connection_string = (
-                    f"postgresql://{user}:{password}@{host}:{port}/{database}"
+            result_msg = await _test_single_connection(conn_type, conn_details)
+            if result_msg is None:
+                logger.warning(
+                    "%s (%s): Connection type validation not implemented",
+                    conn_name, conn_type,
                 )
-                conn = await asyncio.wait_for(
-                    asyncpg.connect(connection_string), timeout=5.0
-                )
-                await conn.fetchval("SELECT 1")
-                await conn.close()
-                status_icon = "✅"
-                status_msg = f"Connected to {host}:{port}/{database}"
-
-            elif conn_type == "mysql":
-                # SECURITY: Validate host and port before attempting connection
-                host = conn_details.get("host", "localhost")
-                port = conn_details.get("port", 3306)
-
-                # Validate host to prevent SSRF (allows private IPs for internal networks)
-                try:
-                    _validate_connection_host(host, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Host validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Validate port
-                try:
-                    _validate_connection_port(port, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Port validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Test MySQL connection
-                import aiomysql
-
-                database = conn_details.get("database", "mysql")
-                user = conn_details.get("user", "root")
-                password = conn_details.get("password", "")
-
-                pool = await asyncio.wait_for(
-                    aiomysql.create_pool(
-                        host=host,
-                        port=port,
-                        user=user,
-                        password=password,
-                        db=database,
-                        minsize=1,
-                        maxsize=1,
-                    ),
-                    timeout=5.0,
-                )
-                async with pool.acquire() as conn:
-                    async with conn.cursor() as cur:
-                        await cur.execute("SELECT 1")
-                        await cur.fetchone()
-                pool.close()
-                await pool.wait_closed()
-                status_icon = "✅"
-                status_msg = f"Connected to {host}:{port}/{database}"
-
-            elif conn_type == "kafka":
-                # SECURITY: Validate bootstrap_servers before attempting connection
-                bootstrap_servers = conn_details.get(
-                    "bootstrap_servers", "localhost:9092"
-                )
-
-                # Parse bootstrap_servers (format: "host:port" or "host1:port1,host2:port2")
-                # SECURITY: Validate each host in bootstrap_servers
-                servers = bootstrap_servers.split(",")
-                for server in servers:
-                    server = server.strip()
-                    if ":" in server:
-                        host = server.split(":")[0].strip()
-                        try:
-                            port_str = server.split(":")[1].strip()
-                            port = int(port_str)
-                            _validate_connection_port(port, conn_type)
-                        except (ValueError, IndexError):
-                            status_icon = "❌"
-                            status_msg = f"Invalid port in bootstrap_servers: {server}"
-                            failure_count += 1
-                            print(
-                                f"{status_icon} {conn_name} ({conn_type}): {status_msg}"
-                            )
-                            break
-                    else:
-                        host = server
-
-                    # Validate host to prevent SSRF (allows private IPs for internal networks)
-                    try:
-                        _validate_connection_host(host, conn_type)
-                    except ValueError as e:
-                        status_icon = "❌"
-                        status_msg = (
-                            f"Host validation failed in bootstrap_servers: {str(e)}"
-                        )
-                        failure_count += 1
-                        print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                        break
-                else:
-                    # All hosts validated, proceed with connection
-                    # Test Kafka connection
-                    from aiokafka import AIOKafkaProducer
-
-                    producer = AIOKafkaProducer(
-                        bootstrap_servers=bootstrap_servers,
-                        value_serializer=lambda v: v,
-                    )
-                    await asyncio.wait_for(producer.start(), timeout=5.0)
-                    await producer.stop()
-                    status_icon = "✅"
-                    status_msg = f"Connected to {bootstrap_servers}"
-                    continue
-
-                # If we hit a validation error, skip connection attempt
-                continue
-
-            elif conn_type == "redis-rq":
-                # SECURITY: Validate host and port before attempting connection
-                host = conn_details.get("host", "localhost")
-                port = conn_details.get("port", 6379)
-
-                # Validate host to prevent SSRF (allows private IPs for internal networks)
-                try:
-                    _validate_connection_host(host, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Host validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Validate port
-                try:
-                    _validate_connection_port(port, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Port validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Test Redis connection
-                from redis import Redis
-
-                db = conn_details.get("db", 0)
-
-                client = Redis(host=host, port=port, db=db, socket_connect_timeout=5)
-                client.ping()
-                status_icon = "✅"
-                status_msg = f"Connected to {host}:{port}/{db}"
-
-            elif conn_type == "rabbitmq":
-                # SECURITY: Validate host and port before attempting connection
-                host = conn_details.get("host", "localhost")
-                port = conn_details.get("port", 5672)
-
-                # Validate host to prevent SSRF (allows private IPs for internal networks)
-                try:
-                    _validate_connection_host(host, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Host validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Validate port
-                try:
-                    _validate_connection_port(port, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Port validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Test RabbitMQ connection
-                import aio_pika
-
-                user = conn_details.get("user", "guest")
-                password = conn_details.get("pass", "guest")
-
-                connection = await asyncio.wait_for(
-                    aio_pika.connect_robust(f"amqp://{user}:{password}@{host}:{port}/"),
-                    timeout=5.0,
-                )
-                await connection.close()
-                status_icon = "✅"
-                status_msg = f"Connected to {host}:{port}"
-
-            elif conn_type == "clickhouse":
-                # SECURITY: Validate host and port before attempting connection
-                host = conn_details.get("host", "localhost")
-                port = conn_details.get("port", 9000)
-
-                # Validate host to prevent SSRF (allows private IPs for internal networks)
-                try:
-                    _validate_connection_host(host, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Host validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Validate port
-                try:
-                    _validate_connection_port(port, conn_type)
-                except ValueError as e:
-                    status_icon = "❌"
-                    status_msg = f"Port validation failed: {str(e)}"
-                    failure_count += 1
-                    print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-                    continue
-
-                # Test ClickHouse connection
-                from clickhouse_driver import Client
-
-                database = conn_details.get("database", "default")
-                user = conn_details.get("user", "default")
-                password = conn_details.get("password", "") or None
-
-                def test_connection():
-                    kwargs = {
-                        "host": host,
-                        "port": port,
-                        "database": database,
-                        "user": user,
-                        "secure": False,
-                    }
-                    if password:
-                        kwargs["password"] = password
-                    client = Client(**kwargs)
-                    client.execute("SELECT 1")
-                    return True
-
-                loop = asyncio.get_event_loop()
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, test_connection), timeout=5.0
-                )
-                status_icon = "✅"
-                status_msg = f"Connected to {host}:{port}/{database}"
-
-            else:
-                # Unknown connection type - skip validation but log
-                status_icon = "⚠️ "
-                status_msg = f"Connection type '{conn_type}' validation not implemented"
-
-            if status_icon == "✅":
-                success_count += 1
-            else:
                 failure_count += 1
-
-        except asyncio.TimeoutError:
-            status_icon = "❌"
-            status_msg = "Connection timeout"
-            failure_count += 1
-        except Exception as e:
-            status_icon = "❌"
-            # SECURITY: Sanitize error message to prevent information disclosure
-            # The error might contain connection strings, passwords, or other sensitive info
-            # Check if error contains sensitive patterns before sanitizing
-            error_str = str(e)
-            # Check for connection string patterns in error message
-            if any(
-                pattern in error_str.lower()
-                for pattern in [
-                    "postgresql://",
-                    "mysql://",
-                    "redis://",
-                    "amqp://",
-                    "password",
-                    "secret",
-                ]
-            ):
-                # Error contains sensitive information - use generic message
-                status_msg = f"Failed: Connection validation error"
             else:
-                # Error doesn't contain obvious sensitive info, but still sanitize
-                error_msg = sanitize_error_message(e, f"{conn_type} connection")
-                status_msg = f"Failed: {error_msg}"
+                logger.info("%s (%s): %s", conn_name, conn_type, result_msg)
+                success_count += 1
+
+        except ValueError as ve:
+            # Host/port validation failures — safe to log the validation message
+            logger.warning(
+                "%s (%s): Validation failed: %s", conn_name, conn_type,
+                sanitize_error_message(ve, f"{conn_type} validation"),
+            )
+            failure_count += 1
+        except asyncio.TimeoutError:
+            logger.warning("%s (%s): Connection timeout", conn_name, conn_type)
+            failure_count += 1
+        except Exception:
+            # SECURITY: Never log exception details — may contain credentials
+            logger.warning(
+                "%s (%s): Connection failed", conn_name, conn_type,
+            )
             failure_count += 1
 
-        # SECURITY: Only print status if we haven't already printed it (for validation errors)
-        if status_icon != "⏳":
-            print(f"{status_icon} {conn_name} ({conn_type}): {status_msg}")
-
-    print("-" * 60)
-    print(f"✅ {success_count} connection(s) successful")
-    if failure_count > 0:
-        print(f"❌ {failure_count} connection(s) failed")
-    print()
+    logger.info(
+        "Connection validation complete: %d succeeded, %d failed",
+        success_count, failure_count,
+    )
 
 
 @app.post("/webhook/{webhook_id}", tags=["Webhooks"])

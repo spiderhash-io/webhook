@@ -263,7 +263,11 @@ Examples:
 
     parser.add_argument("--channel", help="Channel name to subscribe to")
 
-    parser.add_argument("--token", help="Channel authentication token")
+    parser.add_argument(
+        "--token",
+        help="Channel authentication token (SECURITY WARNING: visible in process list. "
+        "Prefer CONNECTOR_TOKEN env var instead)",
+    )
 
     parser.add_argument("--target-url", help="Default target URL for webhooks")
 
@@ -317,6 +321,10 @@ def build_config(args: argparse.Namespace) -> ConnectorConfig:
     if args.channel:
         config.channel = args.channel
     if args.token:
+        logger.warning(
+            "SECURITY: --token passed via CLI is visible in process list (ps aux). "
+            "Use CONNECTOR_TOKEN environment variable instead."
+        )
         config.token = args.token
     if args.protocol:
         config.protocol = args.protocol

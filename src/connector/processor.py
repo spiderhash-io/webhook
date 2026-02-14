@@ -80,8 +80,38 @@ class MessageProcessor:
         self._in_flight: Dict[str, InFlightMessage] = {}
         self._semaphore = asyncio.Semaphore(config.max_concurrent_requests)
         self._session: Optional[aiohttp.ClientSession] = None
+        self._ssl_context = self._create_ssl_context()
         self._stats = ProcessingStats()
         self._running = False
+
+    def _create_ssl_context(self):
+        """Create SSL context from configuration.
+
+        Returns:
+            ssl.SSLContext for custom certs, False to disable verification,
+            or None to use system defaults.
+        """
+        if not self.config.verify_ssl:
+            return False
+
+        ca_path = getattr(self.config, "ca_cert_path", None)
+        client_path = getattr(self.config, "client_cert_path", None)
+        key_path = getattr(self.config, "client_key_path", None)
+
+        if ca_path or client_path:
+            import ssl
+
+            ctx = ssl.create_default_context()
+
+            if ca_path and isinstance(ca_path, str):
+                ctx.load_verify_locations(ca_path)
+
+            if client_path and isinstance(client_path, str):
+                ctx.load_cert_chain(client_path, key_path)
+
+            return ctx
+
+        return None  # Use default SSL context
 
     async def start(self) -> None:
         """Start the processor."""
@@ -303,7 +333,7 @@ class MessageProcessor:
             headers=headers,
             data=body,
             timeout=timeout,
-            ssl=self.config.verify_ssl,
+            ssl=self._ssl_context,
         ) as response:
             return response.status
 

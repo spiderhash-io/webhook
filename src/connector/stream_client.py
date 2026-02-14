@@ -312,6 +312,7 @@ class SSEClient(StreamClient):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._response: Optional[aiohttp.ClientResponse] = None
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
     async def connect(self) -> None:
         """Establish SSE connection."""
@@ -345,8 +346,21 @@ class SSEClient(StreamClient):
                 if self.on_connect:
                     await self.on_connect()
 
+                # Start heartbeat monitor to detect stalled connections
+                self._heartbeat_task = asyncio.create_task(
+                    self._monitor_heartbeat()
+                )
+
                 # SSE event loop
-                await self._sse_loop(response)
+                try:
+                    await self._sse_loop(response)
+                finally:
+                    if self._heartbeat_task:
+                        self._heartbeat_task.cancel()
+                        try:
+                            await self._heartbeat_task
+                        except asyncio.CancelledError:
+                            pass
 
         finally:
             await session.close()
@@ -415,6 +429,30 @@ class SSEClient(StreamClient):
                 await self.on_message(parsed)
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse webhook data: {e}")
+
+    async def _monitor_heartbeat(self) -> None:
+        """Monitor heartbeat and close connection if stale.
+
+        Without this, a stalled server that stops sending events would cause
+        the SSE client to hang indefinitely on iter_any().
+        """
+        while not self._stop_event.is_set():
+            await asyncio.sleep(self.config.heartbeat_timeout / 2)
+
+            if self.last_heartbeat:
+                elapsed = (
+                    datetime.now(timezone.utc) - self.last_heartbeat
+                ).total_seconds()
+                if elapsed > self.config.heartbeat_timeout:
+                    logger.warning(
+                        "SSE heartbeat timeout (%.1fs > %.1fs), closing connection",
+                        elapsed,
+                        self.config.heartbeat_timeout,
+                    )
+                    # Close the response to unblock iter_any()
+                    if self._response:
+                        self._response.close()
+                    break
 
     async def send_ack(self, message_id: str) -> bool:
         """Send acknowledgment via HTTP POST."""

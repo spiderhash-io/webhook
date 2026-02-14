@@ -126,39 +126,48 @@ class ConnectorConfig:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ConnectorConfig":
         """Create configuration from a dictionary."""
+        if not isinstance(data, dict):
+            raise TypeError(f"Expected dict, got {type(data).__name__}")
+
         config = cls()
 
-        # Simple fields
-        simple_fields = [
-            "cloud_url",
-            "channel",
-            "token",
-            "protocol",
-            "reconnect_delay",
-            "max_reconnect_delay",
-            "reconnect_backoff_multiplier",
-            "heartbeat_timeout",
-            "connection_timeout",
-            "max_concurrent_requests",
-            "ack_timeout",
-            "log_level",
-            "log_format",
-            "verify_ssl",
-            "ca_cert_path",
-            "client_cert_path",
-            "client_key_path",
-            "connector_id",
-            "webhooks_config",
-            "connections_config",
-            "etcd_host",
-            "etcd_port",
-            "etcd_prefix",
-            "namespace",
-        ]
+        # Field name -> expected type(s) for validation
+        _FIELD_TYPES: Dict[str, type] = {
+            "cloud_url": str,
+            "channel": str,
+            "token": str,
+            "protocol": str,
+            "reconnect_delay": (int, float),
+            "max_reconnect_delay": (int, float),
+            "reconnect_backoff_multiplier": (int, float),
+            "heartbeat_timeout": (int, float),
+            "connection_timeout": (int, float),
+            "max_concurrent_requests": int,
+            "ack_timeout": (int, float),
+            "log_level": str,
+            "log_format": str,
+            "verify_ssl": bool,
+            "ca_cert_path": str,
+            "client_cert_path": str,
+            "client_key_path": str,
+            "connector_id": str,
+            "webhooks_config": str,
+            "connections_config": str,
+            "etcd_host": str,
+            "etcd_port": int,
+            "etcd_prefix": str,
+            "namespace": str,
+        }
 
-        for field_name in simple_fields:
+        for field_name, expected_type in _FIELD_TYPES.items():
             if field_name in data:
-                setattr(config, field_name, data[field_name])
+                value = data[field_name]
+                if value is not None and not isinstance(value, expected_type):
+                    raise TypeError(
+                        f"Config field '{field_name}' expected {expected_type}, "
+                        f"got {type(value).__name__}"
+                    )
+                setattr(config, field_name, value)
 
         # Default target
         if "default_target" in data:
@@ -324,6 +333,16 @@ class ConnectorConfig:
 
     def get_stream_url(self) -> str:
         """Get the full streaming URL for the configured channel."""
+        # SECURITY: Validate channel name to prevent path traversal attacks.
+        # Defence-in-depth — validate() also checks this, but get_stream_url()
+        # must be safe even if called independently.
+        if not self.channel or not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$', self.channel):
+            raise ValueError(
+                f"Invalid channel name: must be alphanumeric with dots, hyphens, underscores"
+            )
+        if ".." in self.channel:
+            raise ValueError("Channel name must not contain path traversal sequences")
+
         base_url = self.cloud_url.rstrip("/")
         safe_channel = quote(self.channel, safe="")
 

@@ -68,7 +68,10 @@ class VaultSecretResolver:
         """
         parsed = self.parse_reference(reference)
         if parsed is None:
-            logger.warning("Invalid Vault reference format: %s", reference)
+            logger.warning(
+                "Invalid Vault reference format for key '%s'",
+                context_key or "unknown",
+            )
             return default
 
         path, field, inline_default = parsed
@@ -86,9 +89,8 @@ class VaultSecretResolver:
             data = self._read_secret_data(path)
         except Exception as exc:
             logger.warning(
-                "Vault resolution failed for key '%s' (%s): %s",
+                "Vault resolution failed for key '%s': %s",
                 context_key or "unknown",
-                cache_key,
                 exc.__class__.__name__,
             )
             return effective_default
