@@ -23,6 +23,8 @@ The self-hosted webhook gateway with 12 auth methods, 18 destinations, and zero 
 
 Core Webhook Module is a FastAPI-powered webhook gateway that receives incoming HTTP webhooks, validates them against 12 authentication methods, and routes payloads to 18 output destinations. Define everything in a simple JSON config, deploy with Docker, and start receiving webhooks in minutes.
 
+![Code Architecture](docs/images/code-architecture.png)
+
 ```
   Webhook Sources        Core Webhook Module              Destinations
 
