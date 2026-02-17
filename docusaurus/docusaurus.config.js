@@ -20,15 +20,14 @@ const config = {
   },
 
   // Set the production url of your site here
-  url: 'https://your-docusaurus-site.example.com',
+  url: 'https://spiderhash.io',
   // Set the /<baseUrl>/ pathname under which your site is served
   // This site will live under /docs/
   baseUrl: '/docs/',
 
   // GitHub pages deployment config.
-  // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'spiderhash', // Usually your GitHub org/user name.
-  projectName: 'webhool', // Usually your repo name.
+  organizationName: 'spiderhash-io',
+  projectName: 'core-webhook-module',
 
   onBrokenLinks: 'warn', // Changed to warn to allow build with redirects
 
@@ -48,10 +47,8 @@ const config = {
         docs: {
           sidebarPath: './sidebars.js',
           routeBasePath: '/', // Serve docs at the root of /docs/
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
+            'https://github.com/spiderhash-io/core-webhook-module/tree/main/docusaurus/',
         },
         blog: false, // Disable blog - only documentation
         theme: {
@@ -64,8 +61,7 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
-      // Replace with your project's social card
-      image: 'img/docusaurus-social-card.jpg',
+      image: 'img/social-card.jpg',
       colorMode: {
         respectPrefersColorScheme: true,
       },
@@ -85,8 +81,13 @@ const config = {
           },
           {
             href: 'https://spiderhash.io',
-            label: 'Spiderhash.io Homepage',
+            label: 'Spiderhash.io',
             position: 'left',
+          },
+          {
+            href: 'https://github.com/spiderhash-io',
+            label: 'GitHub',
+            position: 'right',
           }
         ],
       },
@@ -100,36 +101,35 @@ const config = {
                 label: 'Introduction',
                 to: '/',
               },
-            ],
-          },
-          {
-            title: 'Community',
-            items: [
               {
-                label: 'Stack Overflow',
-                href: 'https://stackoverflow.com/questions/tagged/docusaurus',
+                label: 'Getting Started',
+                to: '/getting-started/installation',
               },
               {
-                label: 'Discord',
-                href: 'https://discordapp.com/invite/docusaurus',
+                label: 'Modules',
+                to: '/modules/intro',
               },
               {
-                label: 'X',
-                href: 'https://x.com/docusaurus',
+                label: 'Authentication',
+                to: '/authentication/intro',
               },
             ],
           },
           {
-            title: 'More',
+            title: 'Links',
             items: [
+              {
+                label: 'Spiderhash.io',
+                href: 'https://spiderhash.io',
+              },
               {
                 label: 'GitHub',
-                href: 'https://github.com/facebook/docusaurus',
+                href: 'https://github.com/spiderhash-io',
               },
             ],
           },
         ],
-        copyright: `Copyright © ${new Date().getFullYear()} Core Webhook Module. Built with Docusaurus.`,
+        copyright: `Copyright © ${new Date().getFullYear()} Core Webhook Module.`,
       },
       prism: {
         theme: prismThemes.github,
