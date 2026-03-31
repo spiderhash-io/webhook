@@ -1,3 +1,7 @@
+---
+description: "Automatic retry mechanism with exponential backoff for failed webhook module executions to ensure reliable delivery."
+---
+
 # Retry Handling
 
 Automatic retry mechanism for failed module executions with exponential backoff. This feature ensures webhook processing reliability by automatically retrying failed operations with configurable delays and attempt limits.

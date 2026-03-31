@@ -1,3 +1,7 @@
+---
+description: "Configure HTTP Digest Authentication (RFC 7616) for webhooks with challenge-response validation that avoids plain-text passwords."
+---
+
 # HTTP Digest Authentication
 
 Authenticate webhooks using HTTP Digest Authentication (RFC 7616), a challenge-response authentication method that doesn't transmit passwords in plain text.

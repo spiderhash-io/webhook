@@ -1,3 +1,7 @@
+---
+description: "Step-by-step guide to setting up Webhook Connect for cloud-to-local webhook relay with Redis or RabbitMQ message buffering."
+---
+
 # Getting Started with Webhook Connect
 
 This guide walks you through setting up Webhook Connect step by step, from the simplest local development setup to a basic production configuration.

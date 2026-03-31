@@ -1,3 +1,7 @@
+---
+description: "Queue webhook payloads as async jobs in Redis Queue (RQ) for background processing by worker processes."
+---
+
 # Redis RQ Module
 
 The Redis RQ Module queues webhook payloads as jobs in Redis Queue (RQ) for asynchronous processing by worker processes.

@@ -1,3 +1,7 @@
+---
+description: "Advanced Webhook Connect configuration including multi-channel setups, module mode, production deployment, and security hardening."
+---
+
 # Advanced Webhook Connect
 
 This guide covers advanced configurations for Webhook Connect, including multi-channel setups, module mode, production deployment, security hardening, and performance tuning.

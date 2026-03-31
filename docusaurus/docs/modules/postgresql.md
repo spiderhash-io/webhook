@@ -1,3 +1,7 @@
+---
+description: "Store webhook payloads in PostgreSQL with JSONB, relational, or hybrid storage modes and upsert support."
+---
+
 # PostgreSQL Module
 
 The PostgreSQL Module stores webhook payloads in PostgreSQL databases with support for JSONB, relational, or hybrid storage modes.

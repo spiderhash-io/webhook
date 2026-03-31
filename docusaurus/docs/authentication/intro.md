@@ -1,3 +1,7 @@
+---
+description: "Overview of 11 supported webhook authentication methods including Bearer, JWT, HMAC, OAuth, IP whitelisting, and more."
+---
+
 # Authentication Methods
 
 The Core Webhook Module supports 11 different authentication methods to secure your webhook endpoints. You can combine multiple authentication methods for enhanced security.

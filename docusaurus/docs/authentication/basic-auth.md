@@ -1,3 +1,7 @@
+---
+description: "Configure HTTP Basic Authentication for webhook endpoints with secure username and password credential validation."
+---
+
 # Basic Authentication
 
 HTTP Basic Authentication support with secure credential validation.

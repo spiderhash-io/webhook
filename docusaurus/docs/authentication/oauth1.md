@@ -1,3 +1,7 @@
+---
+description: "Set up OAuth 1.0 signature validation (RFC 5849) for webhooks with consumer keys, HMAC-SHA1, and timestamp verification."
+---
+
 # OAuth 1.0 Authentication
 
 Authenticate webhooks using OAuth 1.0 signatures (RFC 5849), commonly used by legacy APIs like Twitter.

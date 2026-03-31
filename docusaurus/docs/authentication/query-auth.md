@@ -1,3 +1,7 @@
+---
+description: "Authenticate webhooks using API keys passed as URL query parameters with configurable parameter names and validation."
+---
+
 # Query Parameter Authentication
 
 Authenticate webhooks using API keys passed as query parameters (e.g., `?api_key=xxx`).

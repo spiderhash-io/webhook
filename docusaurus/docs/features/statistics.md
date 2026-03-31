@@ -1,3 +1,7 @@
+---
+description: "Monitor webhook processing performance with internal metrics, the /stats endpoint, and optional ClickHouse analytics integration."
+---
+
 # Statistics
 
 Internal metrics for monitoring webhook processing performance.

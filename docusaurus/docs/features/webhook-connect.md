@@ -1,3 +1,7 @@
+---
+description: "Relay webhooks from cloud endpoints to local networks behind firewalls with message buffering, authentication, and reliable delivery."
+---
+
 # Webhook Connect (Cloud-to-Local Relay)
 
 Receive webhooks at a cloud endpoint and relay them to local networks behind firewalls or NAT. Similar to ngrok, but purpose-built for production webhook routing with message buffering, authentication, and reliable delivery.

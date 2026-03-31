@@ -1,3 +1,7 @@
+---
+description: "Send webhook payloads to multiple destinations in sequence or parallel to build complex multi-step processing workflows."
+---
+
 # Webhook Chaining
 
 Send webhook payloads to multiple destinations in sequence or parallel. This feature allows you to create complex workflows where a single webhook triggers multiple actions.

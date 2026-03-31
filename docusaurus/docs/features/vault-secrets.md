@@ -1,3 +1,7 @@
+---
+description: "Resolve secrets from HashiCorp Vault in webhook and connection configs using the {$vault:...} syntax with runtime caching."
+---
+
 # Vault Secret Management
 
 Resolve secrets from HashiCorp Vault directly in webhook and connection configurations using the `{$vault:...}` syntax.

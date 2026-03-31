@@ -1,3 +1,7 @@
+---
+description: "Route webhook payloads to Apache Kafka topics with configurable partitioning and key-based routing in Core Webhook Module."
+---
+
 # Kafka Module
 
 The Kafka Module publishes webhook payloads to Apache Kafka topics.

@@ -1,3 +1,7 @@
+---
+description: "Forward webhook payloads to external HTTP endpoints with custom headers, methods, and timeout settings in Core Webhook Module."
+---
+
 # HTTP Webhook Module
 
 The HTTP Webhook Module forwards webhook payloads to external HTTP endpoints.

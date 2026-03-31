@@ -1,3 +1,7 @@
+---
+description: "Validate incoming webhook payloads against JSON Schema to enforce data structure compliance and reject malformed requests."
+---
+
 # JSON Schema Validation
 
 Validate incoming webhook payloads against a JSON schema to ensure data structure compliance.

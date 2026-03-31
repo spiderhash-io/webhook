@@ -1,3 +1,7 @@
+---
+description: "Install Core Webhook Module locally with venv or deploy with Docker - step-by-step setup guide for development and production."
+---
+
 # Installation
 
 ## Local Development (venv)

@@ -1,3 +1,7 @@
+---
+description: "Save webhook payloads to the local filesystem with configurable paths and filename patterns in Core Webhook Module."
+---
+
 # Save to Disk Module
 
 The Save to Disk Module saves webhook payloads to the local filesystem.

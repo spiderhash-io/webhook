@@ -1,3 +1,7 @@
+---
+description: "Use etcd as a distributed configuration backend for real-time, namespace-scoped webhook management across multiple instances."
+---
+
 # Distributed Configuration with etcd
 
 Use etcd as a distributed configuration backend for real-time, namespace-scoped webhook management across multiple instances.

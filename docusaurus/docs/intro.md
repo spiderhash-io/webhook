@@ -1,6 +1,7 @@
 ---
 slug: /
 id: intro
+description: "Core Webhook Module documentation - a flexible webhook receiver and processor with 12 auth methods and 17 output modules."
 ---
 
 # Introduction

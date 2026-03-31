@@ -1,3 +1,7 @@
+---
+description: "Store webhook payloads in ClickHouse for real-time analytics and monitoring with configurable table mapping in Core Webhook Module."
+---
+
 # ClickHouse Module
 
 The ClickHouse Module stores webhook payloads in ClickHouse database for analytics and monitoring.

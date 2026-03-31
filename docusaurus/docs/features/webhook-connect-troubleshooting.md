@@ -1,3 +1,7 @@
+---
+description: "Troubleshoot common Webhook Connect issues including connection failures, message delivery problems, and configuration errors."
+---
+
 # Webhook Connect Troubleshooting
 
 This guide covers common issues and solutions when working with Webhook Connect.

@@ -1,3 +1,7 @@
+---
+description: "Validate webhook signatures using HMAC-SHA256, SHA1, or SHA512. Works with GitHub, Stripe, Shopify, and other services."
+---
+
 # HMAC Signature Validation
 
 Validates webhook signatures using HMAC-SHA256, SHA1, or SHA512. Commonly used by services like GitHub, Stripe, and Shopify.

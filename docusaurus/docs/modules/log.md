@@ -1,3 +1,7 @@
+---
+description: "Output webhook payloads to stdout for debugging and development with pretty printing and redaction in Core Webhook Module."
+---
+
 # Log Module
 
 The Log Module outputs webhook payloads to stdout. This is useful for debugging and development.

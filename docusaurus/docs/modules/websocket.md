@@ -1,3 +1,7 @@
+---
+description: "Forward webhook payloads to WebSocket connections in real-time with retry logic and timeout configuration."
+---
+
 # WebSocket Module
 
 The WebSocket Module forwards webhook payloads to WebSocket connections in real-time.

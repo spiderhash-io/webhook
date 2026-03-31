@@ -1,3 +1,7 @@
+---
+description: "Publish webhook payloads to Google Cloud Pub/Sub topics with project and topic configuration in Core Webhook Module."
+---
+
 # GCP Pub/Sub Module
 
 The GCP Pub/Sub Module publishes webhook payloads to Google Cloud Pub/Sub topics.

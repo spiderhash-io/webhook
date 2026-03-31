@@ -1,3 +1,7 @@
+---
+description: "Configure JWT authentication for webhooks with token validation, issuer and audience checks, and expiration verification."
+---
+
 # JWT Authentication
 
 Full JWT token validation with issuer, audience, and expiration checks.

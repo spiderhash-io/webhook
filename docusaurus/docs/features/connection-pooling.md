@@ -1,3 +1,7 @@
+---
+description: "Manage database and message queue connections with versioned pooling, graceful migration, and automatic cleanup in Core Webhook Module."
+---
+
 # Connection Pooling
 
 Efficient connection management with automatic pool lifecycle, versioning, and graceful migration.

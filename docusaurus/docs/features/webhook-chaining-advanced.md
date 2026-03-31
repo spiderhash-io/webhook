@@ -1,3 +1,7 @@
+---
+description: "Advanced webhook chaining features including per-module configuration, custom connections, retry settings, and best practices."
+---
+
 # Advanced Webhook Chaining
 
 This guide covers advanced features and best practices for webhook chaining.

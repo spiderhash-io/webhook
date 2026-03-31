@@ -1,3 +1,7 @@
+---
+description: "Send webhook payloads to Amazon SQS queues with support for FIFO deduplication and message grouping in Core Webhook Module."
+---
+
 # AWS SQS Module
 
 The AWS SQS Module sends webhook payloads to Amazon Simple Queue Service queues.

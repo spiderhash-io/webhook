@@ -1,3 +1,7 @@
+---
+description: "Publish webhook payloads to RabbitMQ message queues with configurable queue names and connection pooling."
+---
+
 # RabbitMQ Module
 
 The RabbitMQ Module publishes webhook payloads to RabbitMQ message queues.

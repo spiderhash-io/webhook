@@ -1,3 +1,7 @@
+---
+description: "Set up Bearer token authentication for webhooks using the Authorization header with simple token-based validation."
+---
+
 # Bearer Token Authentication
 
 Simple token-based authentication using the Authorization header with Bearer tokens.

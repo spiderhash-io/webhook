@@ -1,3 +1,7 @@
+---
+description: "Step-by-step guide to creating your first webhook chain with sequential and parallel execution in Core Webhook Module."
+---
+
 # Getting Started with Webhook Chaining
 
 This guide will walk you through creating your first webhook chain step by step.

@@ -1,3 +1,7 @@
+---
+description: "Configure Core Webhook Module with webhooks.json and connections.json - environment variables, hot reload, and config examples."
+---
+
 # Configuration
 
 ## Configuration Files

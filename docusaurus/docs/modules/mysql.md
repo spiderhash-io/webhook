@@ -1,3 +1,7 @@
+---
+description: "Store webhook payloads in MySQL or MariaDB with JSON, relational, or hybrid storage modes and upsert support."
+---
+
 # MySQL/MariaDB Module
 
 The MySQL Module stores webhook payloads in MySQL or MariaDB databases with support for JSON, relational, or hybrid storage modes.

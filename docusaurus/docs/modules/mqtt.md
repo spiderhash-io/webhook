@@ -1,3 +1,7 @@
+---
+description: "Publish webhook payloads to MQTT brokers with QoS levels, TLS support, and topic prefixes in Core Webhook Module."
+---
+
 # MQTT Module
 
 The MQTT Module publishes webhook payloads to MQTT brokers. Supports MQTT 3.1.1 and 5.0 protocols with TLS/SSL encryption.

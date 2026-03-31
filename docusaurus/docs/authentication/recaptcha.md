@@ -1,3 +1,7 @@
+---
+description: "Protect webhook endpoints from bots using Google reCAPTCHA v2 or v3 validation with configurable score thresholds."
+---
+
 # Google reCAPTCHA Validation
 
 Validate webhook requests using Google reCAPTCHA v2 or v3 to prevent bot submissions.

@@ -1,3 +1,7 @@
+---
+description: "Configure OAuth 2.0 webhook authentication with token introspection, JWT validation, and scope-based access control."
+---
+
 # OAuth 2.0 Authentication
 
 Authenticate webhooks using OAuth 2.0 access tokens with token introspection or JWT validation.

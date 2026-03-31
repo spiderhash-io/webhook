@@ -1,3 +1,7 @@
+---
+description: "Restrict webhook access to specific IP addresses or CIDR ranges with configurable whitelist rules and subnet support."
+---
+
 # IP Whitelisting
 
 Restrict webhooks to specific IP addresses or IP ranges.

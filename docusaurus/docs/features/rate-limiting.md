@@ -1,3 +1,7 @@
+---
+description: "Configure per-webhook rate limiting with customizable request windows to prevent abuse and ensure fair usage."
+---
+
 # Rate Limiting
 
 Per-webhook rate limiting with configurable windows to prevent abuse and ensure fair usage.

@@ -1,3 +1,7 @@
+---
+description: "Automatically mask or remove sensitive credentials from webhook payloads and headers before logging or storage to prevent data exposure."
+---
+
 # Credential Cleanup
 
 Automatically clean credentials from webhook payloads and headers before logging or storing to prevent credential exposure.

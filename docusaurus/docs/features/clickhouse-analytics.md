@@ -1,3 +1,7 @@
+---
+description: "Log all webhook events to ClickHouse for long-term analytics, performance monitoring, and error tracking in Core Webhook Module."
+---
+
 # ClickHouse Analytics
 
 Automatic logging of all webhook events to ClickHouse for analytics and monitoring.

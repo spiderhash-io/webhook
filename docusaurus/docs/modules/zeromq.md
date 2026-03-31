@@ -1,3 +1,7 @@
+---
+description: "Publish webhook payloads to ZeroMQ sockets with configurable socket types and endpoints in Core Webhook Module."
+---
+
 # ZeroMQ Module
 
 The ZeroMQ Module publishes webhook payloads to ZeroMQ sockets.

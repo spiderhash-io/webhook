@@ -1,3 +1,7 @@
+---
+description: "Forward webhook payloads to Apache ActiveMQ queues and topics with configurable destinations in Core Webhook Module."
+---
+
 # ActiveMQ Module
 
 The ActiveMQ Module publishes webhook payloads to Apache ActiveMQ message brokers.

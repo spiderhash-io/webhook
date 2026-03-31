@@ -1,3 +1,7 @@
+---
+description: "Publish webhook payloads to Redis pub/sub channels for real-time event distribution in Core Webhook Module."
+---
+
 # Redis Publish Module
 
 The Redis Publish Module publishes webhook payloads to Redis pub/sub channels.

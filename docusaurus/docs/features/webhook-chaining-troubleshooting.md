@@ -1,3 +1,7 @@
+---
+description: "Troubleshoot common webhook chaining issues including configuration errors, chain execution failures, and timeout problems."
+---
+
 # Webhook Chaining Troubleshooting
 
 Common issues and solutions when working with webhook chains.

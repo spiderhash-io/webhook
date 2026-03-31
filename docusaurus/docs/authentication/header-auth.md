@@ -1,3 +1,7 @@
+---
+description: "Authenticate webhooks using API keys in custom HTTP headers like X-API-Key or X-Auth-Token with flexible configuration."
+---
+
 # Header-based Authentication
 
 Authenticate webhooks using API keys passed in custom headers (e.g., `X-API-Key`, `X-Auth-Token`).

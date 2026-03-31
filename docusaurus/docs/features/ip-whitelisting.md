@@ -1,3 +1,7 @@
+---
+description: "Restrict webhook access to specific IP addresses or CIDR ranges for network-level access control in Core Webhook Module."
+---
+
 # IP Whitelisting
 
 Restrict webhook access to specific IP addresses or IP ranges for enhanced security. This feature provides network-level access control by validating the client's IP address against a configured whitelist.

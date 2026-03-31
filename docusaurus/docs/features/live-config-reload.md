@@ -1,3 +1,7 @@
+---
+description: "Hot-reload webhook and connection configurations without restarting the application using the admin API endpoint."
+---
+
 # Live Config Reload
 
 Hot-reload webhook and connection configurations without restarting the application.

@@ -1,3 +1,7 @@
+---
+description: "Overview of all 17 output modules available in Core Webhook Module for routing payloads to queues, databases, and APIs."
+---
+
 # Output Modules
 
 The Core Webhook Module supports 17 different output modules for processing and forwarding webhook payloads. Each module can be configured independently and supports various connection types.

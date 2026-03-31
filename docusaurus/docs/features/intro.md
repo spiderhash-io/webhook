@@ -1,3 +1,7 @@
+---
+description: "Overview of Core Webhook Module features including chaining, rate limiting, schema validation, credential cleanup, and live config reload."
+---
+
 # Core Features
 
 The Core Webhook Module includes several powerful features for processing and managing webhooks.
