@@ -345,6 +345,6 @@ Messages that fail permanently go to a dead letter queue for manual inspection.
 
 ## Related Documentation
 
-- [Getting Started with Webhook Connect](webhook-connect-getting-started) - Step-by-step setup guide
-- [Advanced Webhook Connect](webhook-connect-advanced) - Multi-channel, chaining, production deployment
-- [Webhook Connect Troubleshooting](webhook-connect-troubleshooting) - Common issues and solutions
+- [Getting Started with Webhook Connect](./webhook-connect-getting-started.md) - Step-by-step setup guide
+- [Advanced Webhook Connect](./webhook-connect-advanced.md) - Multi-channel, chaining, production deployment
+- [Webhook Connect Troubleshooting](./webhook-connect-troubleshooting.md) - Common issues and solutions

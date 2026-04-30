@@ -392,7 +392,7 @@ The `module` field still works for single destinations. If both `module` and `ch
 
 ## Related Documentation
 
-- [Getting Started with Chaining](webhook-chaining-getting-started) - Step-by-step guide
-- [Advanced Chaining](webhook-chaining-advanced) - Per-module configs, retries, and best practices
-- [Chaining Troubleshooting](webhook-chaining-troubleshooting) - Common issues and solutions
+- [Getting Started with Chaining](./webhook-chaining-getting-started.md) - Step-by-step guide
+- [Advanced Chaining](./webhook-chaining-advanced.md) - Per-module configs, retries, and best practices
+- [Chaining Troubleshooting](./webhook-chaining-troubleshooting.md) - Common issues and solutions
 

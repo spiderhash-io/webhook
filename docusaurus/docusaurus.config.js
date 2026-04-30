@@ -25,6 +25,12 @@ const config = {
   // This site will live under /docs/
   baseUrl: '/docs/',
 
+  // nginx serves directory pages only at the slash form (/docs/foo/), redirecting
+  // /docs/foo -> /docs/foo/ with 301. Without this flag, Docusaurus emits sitemap
+  // and canonical URLs without the trailing slash, which then 301 to the served
+  // version — Google logs both URLs and splits impressions in GSC.
+  trailingSlash: true,
+
   // GitHub pages deployment config.
   organizationName: 'spiderhash-io',
   projectName: 'core-webhook-module',

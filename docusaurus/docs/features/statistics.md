@@ -18,7 +18,7 @@ curl http://localhost:8000/stats
 ```
 
 Additional statistics are also available through:
-- ClickHouse Analytics (if enabled) - see [ClickHouse Analytics](clickhouse-analytics)
+- ClickHouse Analytics (if enabled) - see [ClickHouse Analytics](./clickhouse-analytics.md)
 - Application logs
 - Internal metrics
 :::
@@ -76,5 +76,5 @@ Response:
 
 ## Related Documentation
 
-- [ClickHouse Analytics](clickhouse-analytics) - Detailed webhook analytics and statistics
-- [Live Config Reload](live-config-reload) - Configuration management and status
+- [ClickHouse Analytics](./clickhouse-analytics.md) - Detailed webhook analytics and statistics
+- [Live Config Reload](./live-config-reload.md) - Configuration management and status

@@ -438,10 +438,10 @@ If you're still experiencing issues:
 1. **Check logs**: Review application logs for detailed error messages
 2. **Validate configuration**: Ensure JSON is valid and structure is correct
 3. **Test modules individually**: Verify each module works standalone
-4. **Review documentation**: Check [main chaining guide](webhook-chaining) and [advanced guide](webhook-chaining-advanced)
+4. **Review documentation**: Check [main chaining guide](./webhook-chaining.md) and [advanced guide](./webhook-chaining-advanced.md)
 
 ## Related Documentation
 
-- [Webhook Chaining Overview](webhook-chaining)
-- [Getting Started Guide](webhook-chaining-getting-started)
-- [Advanced Usage](webhook-chaining-advanced)
+- [Webhook Chaining Overview](./webhook-chaining.md)
+- [Getting Started Guide](./webhook-chaining-getting-started.md)
+- [Advanced Usage](./webhook-chaining-advanced.md)

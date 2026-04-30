@@ -417,6 +417,6 @@ After setup, verify everything works:
 
 ## Next Steps
 
-- Learn about [advanced configurations](webhook-connect-advanced) including production deployment, token rotation, and performance tuning
-- Review [troubleshooting guide](webhook-connect-troubleshooting) for common issues
-- Read the [full Webhook Connect reference](webhook-connect) for all configuration options
+- Learn about [advanced configurations](./webhook-connect-advanced.md) including production deployment, token rotation, and performance tuning
+- Review [troubleshooting guide](./webhook-connect-troubleshooting.md) for common issues
+- Read the [full Webhook Connect reference](./webhook-connect.md) for all configuration options

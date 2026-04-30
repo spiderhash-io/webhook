@@ -608,7 +608,7 @@ curl http://cloud.example.com/admin/webhook-connect/health
 
 ## Related Documentation
 
-- [Webhook Connect Overview](webhook-connect) - Architecture and concepts
-- [Getting Started](webhook-connect-getting-started) - Basic setup guide
-- [Troubleshooting](webhook-connect-troubleshooting) - Common issues and solutions
-- [Webhook Chaining](webhook-chaining) - Multi-destination routing
+- [Webhook Connect Overview](./webhook-connect.md) - Architecture and concepts
+- [Getting Started](./webhook-connect-getting-started.md) - Basic setup guide
+- [Troubleshooting](./webhook-connect-troubleshooting.md) - Common issues and solutions
+- [Webhook Chaining](./webhook-chaining.md) - Multi-destination routing

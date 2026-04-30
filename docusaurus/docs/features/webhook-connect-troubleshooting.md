@@ -514,6 +514,6 @@ If you're still stuck:
 
 ## Related Documentation
 
-- [Webhook Connect Overview](webhook-connect) - Architecture and concepts
-- [Getting Started](webhook-connect-getting-started) - Basic setup guide
-- [Advanced Configuration](webhook-connect-advanced) - Production deployment
+- [Webhook Connect Overview](./webhook-connect.md) - Architecture and concepts
+- [Getting Started](./webhook-connect-getting-started.md) - Basic setup guide
+- [Advanced Configuration](./webhook-connect-advanced.md) - Production deployment

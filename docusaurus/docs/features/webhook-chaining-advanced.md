@@ -478,6 +478,6 @@ Chain execution for webhook 'my_chain': 2/3 modules succeeded, 1 failed
 
 ## Related Documentation
 
-- [Getting Started Guide](webhook-chaining-getting-started)
-- [Troubleshooting](webhook-chaining-troubleshooting)
-- [Full Reference](webhook-chaining)
+- [Getting Started Guide](./webhook-chaining-getting-started.md)
+- [Troubleshooting](./webhook-chaining-troubleshooting.md)
+- [Full Reference](./webhook-chaining.md)

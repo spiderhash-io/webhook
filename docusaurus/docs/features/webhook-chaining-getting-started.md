@@ -261,6 +261,6 @@ Always log webhooks while processing:
 
 ## Next Steps
 
-- Learn about [advanced chaining features](webhook-chaining-advanced)
-- Understand [error handling and troubleshooting](webhook-chaining-troubleshooting)
-- Review the [full chaining reference](webhook-chaining)
+- Learn about [advanced chaining features](./webhook-chaining-advanced.md)
+- Understand [error handling and troubleshooting](./webhook-chaining-troubleshooting.md)
+- Review the [full chaining reference](./webhook-chaining.md)
