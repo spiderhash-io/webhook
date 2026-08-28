@@ -568,10 +568,10 @@ class PostgreSQLModule(BaseModule):
                     # For now, always insert to ensure duplicate webhooks create new records.
                     # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                     # Values use parameterized queries, preventing SQL injection
-                    query = f"""  # nosec B608
+                    query = f"""
                     INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
                     VALUES ($1, $2, $3::jsonb, $4::jsonb)
-                    """
+                    """  # nosec B608
                     async with self.pool.acquire() as conn:
                         await conn.execute(
                             query, webhook_id, timestamp, payload_json, headers_json
@@ -580,10 +580,10 @@ class PostgreSQLModule(BaseModule):
                     # Regular insert
                     # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                     # Values use parameterized queries, preventing SQL injection
-                    query = f"""  # nosec B608
+                    query = f"""
                     INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
                     VALUES ($1, $2, $3::jsonb, $4::jsonb)
-                    """
+                    """  # nosec B608
                     async with self.pool.acquire() as conn:
                         await conn.execute(
                             query, webhook_id, timestamp, payload_json, headers_json
@@ -642,26 +642,26 @@ class PostgreSQLModule(BaseModule):
 
                         # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                         # Values use parameterized queries, preventing SQL injection
-                        query = f"""  # nosec B608
+                        query = f"""
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
                         ON CONFLICT ({upsert_col})
                         DO UPDATE SET {', '.join(update_clauses)}
-                        """
+                        """  # nosec B608
                     else:
                         # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                         # Values use parameterized queries, preventing SQL injection
-                        query = f"""  # nosec B608
+                        query = f"""
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
-                        """
+                        """  # nosec B608
                 else:
                     # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                     # Values use parameterized queries, preventing SQL injection
-                    query = f"""  # nosec B608
+                    query = f"""
                     INSERT INTO {quoted_table_name} ({columns_str})
                     VALUES ({placeholders_str})
-                    """
+                    """  # nosec B608
 
                 async with self.pool.acquire() as conn:
                     await conn.execute(query, *values)
@@ -726,26 +726,26 @@ class PostgreSQLModule(BaseModule):
 
                         # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                         # Values use parameterized queries, preventing SQL injection
-                        query = f"""  # nosec B608
+                        query = f"""
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
                         ON CONFLICT ({upsert_col})
                         DO UPDATE SET {', '.join(update_clauses)}
-                        """
+                        """  # nosec B608
                     else:
                         # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                         # Values use parameterized queries, preventing SQL injection
-                        query = f"""  # nosec B608
+                        query = f"""
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
-                        """
+                        """  # nosec B608
                 else:
                     # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                     # Values use parameterized queries, preventing SQL injection
-                    query = f"""  # nosec B608
+                    query = f"""
                     INSERT INTO {quoted_table_name} ({columns_str})
                     VALUES ({placeholders_str})
-                    """
+                    """  # nosec B608
 
                 async with self.pool.acquire() as conn:
                     await conn.execute(query, *values)

@@ -677,10 +677,10 @@ class MySQLModule(BaseModule):
                     # webhooks create new records.
                     # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                     # Values use parameterized queries (%s), preventing SQL injection
-                    query = f"""  # nosec B608
+                    query = f"""
                     INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
                     VALUES (%s, %s, %s, %s)
-                    """  # nosec B608
+                    """  # nosec B608  # nosec B608
                     async with self.pool.acquire() as conn:
                         async with conn.cursor() as cur:
                             await cur.execute(
@@ -692,10 +692,10 @@ class MySQLModule(BaseModule):
                     # Regular insert
                     # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                     # Values use parameterized queries (%s), preventing SQL injection
-                    query = f"""  # nosec B608
+                    query = f"""
                     INSERT INTO {quoted_table_name} (webhook_id, timestamp, payload, headers)
                     VALUES (%s, %s, %s, %s)
-                    """  # nosec B608
+                    """  # nosec B608  # nosec B608
                     async with self.pool.acquire() as conn:
                         async with conn.cursor() as cur:
                             await cur.execute(
@@ -760,25 +760,25 @@ class MySQLModule(BaseModule):
 
                         # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                         # Values use parameterized queries, preventing SQL injection
-                        query = f"""  # nosec B608
+                        query = f"""
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
                         ON DUPLICATE KEY UPDATE {', '.join(update_clauses)}
-                        """
+                        """  # nosec B608
                     else:
                         # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                         # Values use parameterized queries, preventing SQL injection
-                        query = f"""  # nosec B608
+                        query = f"""
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
-                        """
+                        """  # nosec B608
                 else:
                     # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                     # Values use parameterized queries, preventing SQL injection
-                    query = f"""  # nosec B608
+                    query = f"""
                     INSERT INTO {quoted_table_name} ({columns_str})
                     VALUES ({placeholders_str})
-                    """
+                    """  # nosec B608
 
                 async with self.pool.acquire() as conn:
                     async with conn.cursor() as cur:
@@ -849,25 +849,25 @@ class MySQLModule(BaseModule):
 
                         # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                         # Values use parameterized queries, preventing SQL injection
-                        query = f"""  # nosec B608
+                        query = f"""
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
                         ON DUPLICATE KEY UPDATE {', '.join(update_clauses)}
-                        """
+                        """  # nosec B608
                     else:
                         # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                         # Values use parameterized queries, preventing SQL injection
-                        query = f"""  # nosec B608
+                        query = f"""
                         INSERT INTO {quoted_table_name} ({columns_str})
                         VALUES ({placeholders_str})
-                        """
+                        """  # nosec B608
                 else:
                     # SECURITY: quoted_table_name is properly escaped via _quote_identifier()
                     # Values use parameterized queries, preventing SQL injection
-                    query = f"""  # nosec B608
+                    query = f"""
                     INSERT INTO {quoted_table_name} ({columns_str})
                     VALUES ({placeholders_str})
-                    """
+                    """  # nosec B608
 
                 async with self.pool.acquire() as conn:
                     async with conn.cursor() as cur:
