@@ -175,7 +175,28 @@ export VAULT_ROLE_ID=<role-id>
 export VAULT_SECRET_ID=<secret-id>
 ```
 
-AppRole is recommended for production. See the [full Vault guide](../../docs/VAULT_INTEGRATION_GUIDE.md) for AppRole setup instructions.
+AppRole is recommended for production. Minimal setup on the Vault side:
+
+```bash
+# Enable AppRole auth and create a read-only policy for webhook secrets
+vault auth enable approle
+
+vault policy write cwm-webhooks-read - <<'EOF'
+path "secret/data/webhooks/*" {
+  capabilities = ["read"]
+}
+EOF
+
+vault write auth/approle/role/cwm \
+  token_policies="cwm-webhooks-read" \
+  token_ttl=1h token_max_ttl=4h
+
+# Fetch the credentials to export as VAULT_ROLE_ID / VAULT_SECRET_ID
+vault read auth/approle/role/cwm/role-id
+vault write -f auth/approle/role/cwm/secret-id
+```
+
+The application logs in with the role ID and secret ID and automatically renews its token.
 
 ## Caching
 
@@ -218,7 +239,6 @@ This tests Vault-backed authorization, HMAC secrets, legacy env placeholder comp
 
 ## Further Reading
 
-- Full integration guide: `docs/VAULT_INTEGRATION_GUIDE.md`
 - Source: `src/vault_secret_resolver.py`
 - Variable substitution: `src/utils.py` (`load_env_vars`)
 - Tests: `tests/unit/test_vault_secret_resolver.py`
